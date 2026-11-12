@@ -1,0 +1,339 @@
+---
+title: 更新日志
+description: 版本发布历史和重要变更
+---
+
+所有重要变更记录在此，每个条目关联对应的 PR 或 Issue。
+
+## v1.5.7
+<sub>2026-04-27</sub>
+
+**修复：`cac env create --clone` 漏了 `agents/`**
+
+`~/.claude/agents/`（subagent 定义）不在克隆列表里，新建环境通过 `--clone` 时永远拿不到自定义 subagent —— 只有 `commands/hooks/skills/plugins/CLAUDE.md` 会被软链。
+
+- 在 `cac env create` 的 `clone_dirs` 里加上 `agents`。从 v1.5.7 起，`--clone host` 和 `--clone <env>` 都会和其它共享资源一起软链（或 `--no-link` 时复制）`~/.claude/agents/`。
+- 已有的环境不会自动补齐，需要手动重链：`ln -s ~/.claude/agents ~/.cac/envs/<name>/.claude/agents`。
+
+## v1.5.6
+<sub>2026-04-27</sub>
+
+**修复：SOCKS5 代理诊断错误使用本地 DNS**
+
+`cac env create` 的时区探测和 `cac env check` 的出口 IP 探测之前都直接调用 `curl --proxy socks5://...`。对 SOCKS5 来说，这会让 `curl` 默认在**本地**解析目标域名，而不是让远端代理解析。
+
+在存在本地 DNS 污染、分流 DNS、企业网劫持或实验网保留地址（如 `198.18.0.0/15`）的环境里，这会导致：
+
+- 代理本身可连、真实流量也可正常通过
+- 但诊断请求解析到错误地址，TLS 握手失败
+- 最终把健康代理误报成 `✗ exit IP unable to verify via proxy`
+- 新环境还可能因此写入错误的时区
+
+- 新增内部 helper，把所有基于 `curl` 的 SOCKS5 探测统一转换为 `socks5h://...`，强制使用远端 DNS。
+- 修复 `cac env create` 的地理时区探测，避免环境首次创建时落入错误时区。
+- 修复 `cac env check` 的出口 IP / 时区探测误报。
+- 新增 shell 回归测试，确保 `socks5://` 在探测路径里始终被转换成 `socks5h://`。
+
+## v1.5.5
+<sub>2026-04-22</sub>
+
+**修复：代理启动与诊断结果一致性**
+
+本次将 `1.5.5` beta 线提升为正式版，前提是已对新的代理链路行为做过完整验证。
+
+- 对历史保存的旧版 SOCKS5 URI `socks5://host:port:user:pass`，现在会在启动检查、relay 启动和环境诊断前统一规范化为标准格式 `socks5://user:pass@host:port`。
+- `cac env check` 不再把“已配置代理但所有出口 IP 探测都失败”的状态误判为健康，出口 IP 无法验证现在会作为真实问题上报。
+- 生成出来的 `claude` wrapper 现已内联代理规范化逻辑，不再依赖主 `cac` 脚本中的 helper，修复了 beta.1 的启动回归。
+- CI 现在会校验 `package.json`、`src/utils.sh` 和提交的 `cac` 三处版本元数据是否一致，不一致直接失败。
+
+## v1.5.5-beta.2
+<sub>2026-04-22</sub>
+
+**修复：beta.1 的 wrapper 启动回归**
+
+`v1.5.5-beta.1` 把旧版 SOCKS5 代理 URI 兼容逻辑放进了生成出来的 `claude` wrapper，但误调用了只存在于主 `cac` 脚本中的 helper 函数。结果是在启用代理的环境里，`claude` 启动时可能直接报 `_parse_proxy: command not found`。
+
+- 代理规范化逻辑改为在生成的 wrapper 内联实现，不再依赖主脚本 helper。
+- 保留 beta.1 对旧版 SOCKS5 写法的兼容，同时恢复 `claude` wrapper 的正常启动。
+
+## v1.5.5-beta.1
+<sub>2026-04-22</sub>
+
+**修复：兼容旧版 SOCKS5 代理 URI 写法**
+
+部分环境里已经保存了旧格式的 SOCKS5 代理：`socks5://host:port:user:pass`。启动前的 pre-flight 会把最后一段误当成 TCP 端口，导致明明可连的代理在 `cac <env>` 启动前就被误报为 `unreachable`。
+
+- 将带协议前缀的旧代理串自动规范化为标准格式 `socks5://user:pass@host:port`。
+- 启动 pre-flight、`cac env check`、relay 启动和环境列表统一复用同一套规范化逻辑，避免历史环境表现不一致。
+
+**修复：`cac env check` 在无法验证出口 IP 时误报成功**
+
+当环境配置了代理，但所有出口 IP 探测都失败时，`cac env check` 之前仍会显示绿色 `exit IP` 行，最终甚至可能给出 `all good`，把真实故障伪装成重试提示。
+
+- 当所有探测端点都失败时，出口 IP 现在显示为 `✗ exit IP unable to verify via proxy`。
+- 这类失败会写入问题汇总，因此“已配置代理但无法验证出口 IP”不再被判定为健康状态。
+
+**CI**
+
+- `build-check` 现在会校验 `package.json`、`src/utils.sh` 和提交的 `cac` 三处版本号是否一致，不一致直接失败。
+
+## v1.5.4
+<sub>2026-04-02</sub>
+
+**修复：Claude 自动更新器在会话中途绕过 cac wrapper** — [PR #62](https://github.com/nmhjklnm/cac/pull/62)
+
+Claude Code 的自动更新器会直接 re-exec 新版 binary，完全跳过 cac wrapper——当次会话的指纹伪装、dns-guard、时区设置全部失效。界面仍显示旧版本号，但 `/usage` 会暴露真实时区。
+
+根因：Claude Code 将"禁用自动更新"配置从 `.claude.json` 的 `autoUpdates: false` 迁移到 `settings.json` 的 `DISABLE_AUTOUPDATER=1`。cac 的 `settings.json` 模板未包含此字段，新建环境因此未受保护。
+
+- 新建环境的 `settings.json` 从创建起即包含 `DISABLE_AUTOUPDATER: "1"`。
+- 已有旧环境在下次运行任意 `cac` 命令时自动补齐（`_ensure_initialized`）。已补齐后通过 `grep` 短路，不再 fork python3。
+
+## v1.5.3
+<sub>2026-04-01</sub>
+
+**修复：`sudo cac` 导致 `~/.cac/` 文件所有权污染** — [PR #59](https://github.com/nmhjklnm/cac/pull/59)
+
+以 root 身份运行 `cac`（如 `sudo cac <env>`）会将 hook 文件（`fingerprint-hook.js`、`cac-dns-guard.js` 等）覆写为 root 所有的版本。后续普通用户运行时加载的是旧版 root 文件，导致 claude 启动时无任何报错地卡死。
+
+- **自愈写入**：写入 hook 文件前先 `rm -f`——用户拥有 `~/.cac/` 目录的写权限，可以删除其中的 root 所有文件。下次运行任意 `cac` 命令即自动替换为当前版本。
+- **可读性检查**：wrapper 改用 `[[ -r ... ]]` 替代 `[[ -f ... ]]` 检查 hook 文件——文件存在但不可读（mode 600）时优雅跳过，而非 silent crash。
+- **root 警告**：`_ensure_initialized` 以 root 身份运行时打印警告。
+
+**修复：`/login` 后 `user_id mismatch` 误报** — [PR #59](https://github.com/nmhjklnm/cac/pull/59)
+
+OAuth 登录后，Claude Code 将真实账号 `userID` 写入 `.claude.json`，`cac env check` 将其与环境存储的伪造 ID 对比报错——令用户困惑且无实际意义。
+
+- 移除 `env create` 时生成假 `userID` 的逻辑——假 ID 提供的保护极为有限（`account_uuid` 通过 OAuth token 传输，无法伪造）。
+- `cac env check` 现在在登录后自动从 `.claude.json` 同步 `env/user_id`，不再报错。
+
+## v1.5.1
+<sub>2026-03-31</sub>
+
+**修复：Relay 崩溃无法自动恢复（1.5.0 回归）** — [Issue #49](https://github.com/nmhjklnm/cac/issues/49)
+
+1.5.0 在修复多会话共享 relay 时，把 watchdog 和 EXIT trap 一并删掉了。Relay 进程崩溃后无人重启，session 内出现 **Connection Refused**，只能手动重开才能恢复。
+
+- **环境级 watchdog 单例**（`relay.watchdog.pid`）：跨所有 session 共享，relay 崩溃后 5 秒内自动重启。主动停止 relay 时 watchdog 自动退出，不留孤儿进程。
+- **连通性探测**：watchdog 除进程存活检测外，新增 TCP 端口探测。Relay 进程存活但端口无响应时，同样 kill 重启。
+
+**新增：`cac stop` / `cac env stop`**
+
+完全暂停 cac——claude 以原生模式运行，无代理注入、无指纹伪装、无 CLAUDE_CONFIG_DIR 覆盖。用 `cac <name>` 恢复。排查问题或临时绕过 cac 时使用。
+
+## v1.5.0
+<sub>2026-03-29</sub>
+
+**基于 v2.1.86 逆向分析的防封增强** — [Issue #47](https://github.com/nmhjklnm/cac/issues/47)
+
+基于 [@mo-xiaoxi](https://github.com/mo-xiaoxi) 对 Claude Code v2.1.86（679,353 行去混淆 JS）的完整静态分析：
+
+- **仓库指纹 (rh) 伪装** [P0]：Claude 计算 `rh = SHA256(git_remote_url).hex.slice(0,16)` 随每个事件发送——即使换账号换设备，同一仓库的操作仍可被关联。通过 `child_process.execSync/exec` 猴子补丁拦截，返回每环境唯一的伪造远程 URL。
+- **Git 邮箱伪装** [P1]：Claude 启动时执行 `git config --get user.email`，直接暴露真实开发者身份。Wrapper 现在设置 `GIT_AUTHOR_EMAIL` + `GIT_COMMITTER_EMAIL` + 进程级 `CAC_GIT_EMAIL` 拦截。
+- **遥测策略重设计** [P1]：零遥测本身是风控信号——"无 1p_event 但有 API 调用"强关联反检测工具用户。新三档模型：
+  - `stealth`（新默认）：仅设 `DISABLE_TELEMETRY=1`——屏蔽 1p_event 但 GrowthBook/Statsig/Feature flags 正常工作。行为与正常用户无异；所有上报的指纹都是假的。
+  - `paranoid`（原 `aggressive`）：12 层全量遥测封杀——最大隐私，但可能被检测。
+  - `transparent`（原 `off`）：不干预——指纹覆盖完善后使用。
+  - 向后兼容：旧名称自动映射。升级时自动迁移已有环境。
+- **环境人设预设** [P1]：Claude 分析终端环境（TERM_PROGRAM、CURSOR_TRACE_ID、__CFBundleIdentifier 等）和部署上下文（Docker、K8s、Codespaces）来识别开发者工作环境。`--persona macos-vscode|macos-cursor|macos-iterm|linux-desktop` 注入桌面终端环境变量并隐藏 Docker 信号（`/.dockerenv`、`/proc/1/cgroup`）— 在容器或服务器中运行时必需，避免被识别为非个人开发者环境。使用 `cac env create <name> --persona macos-vscode` 应用预设。
+- **Trusted Device Token 预防** [P1]：`tengu_sessions_elevated_auth_enforcement` gate 当前关闭但机制已完备（token 存 macOS Keychain）。每环境 `CLAUDE_TRUSTED_DEVICE_TOKEN` 预防性覆盖。`cac env check` 检测 Keychain 残留。
+- **Billing header 禁用** [P2]：`CLAUDE_CODE_ATTRIBUTION_HEADER=0` 抑制 `x-anthropic-billing-header`。
+- **Datadog 域名拦截** [P2]：`http-intake.logs.us5.datadoghq.com` 加入 DNS 拦截列表。
+- **metadata.user_id 追踪** [P2]：`cac env check` 按环境追踪已登录账号的 `userID`（v1.5.2 中行为已调整，见上）。
+
+**新命令**
+
+- `cac env create <name> --persona <preset>` — 带终端人设创建环境
+- `cac env set <name> telemetry <stealth|paranoid|transparent>` — 切换遥测模式
+- `cac env set <name> persona <preset|--remove>` — 设置或移除人设
+
+**迁移**
+
+- 已有环境在 `npm upgrade` 时自动迁移：生成新文件（`fake_git_remote`、`git_email`、`device_token`），更新遥测模式名称。
+
+## v1.4.4
+<sub>2026-03-29</sub>
+
+**关键修复：Relay 在 session 退出时被杀** — [PR #45](https://github.com/nmhjklnm/cac/pull/45)
+
+- 任何 `claude -p` 短命调用（如飞书/Slack 自动回复管道）都会通过 `_cleanup_all` 杀掉共享的 relay 进程，导致所有其他活跃 session **Connection Refused**。Relay 生命周期从 session 级改为环境级——跨 session 持久化，仅在 `cac env activate`（切换环境）或 `cac self delete` 时停止。
+- 新增 `relay.proxy` 文件检测代理不匹配——如果 relay 指向的代理与当前环境不同，自动重启。
+- `postinstall.js` 升级时自动移除旧 wrapper 中的 `trap _cleanup_all EXIT INT TERM`。
+
+**修复：`cac env check` 不完整** — [PR #45](https://github.com/nmhjklnm/cac/pull/45)
+
+- 与 wrapper 相同的 `pgrep` pipefail bug——`cac env check` 在并发 session 检查处崩溃，跳过了代理连通性、出口 IP 检测和 TUN 冲突检查。
+
+**修复：消除 10 处静默失败** — [PR #45](https://github.com/nmhjklnm/cac/pull/45)
+
+- 系统性审计所有 `set -euo pipefail` 下的静默失败：子 shell 中的 `grep`、`kill` 竞态条件、bash 3.2 空数组、缺少 `python3` 回退、断链接、无效网卡、`openssl` 管道。每处都加了显式错误处理。
+
+## v1.4.3
+<sub>2026-03-27</sub>
+
+**关键修复：Claude 静默无法启动** — [commit](https://github.com/nmhjklnm/cac/commit/3258ca9)
+
+- 在 `set -euo pipefail` 下，没有 `claude` 进程时 `pgrep` 返回 exit code 1。`pipefail` 使整条管道失败，`set -e` 在执行 `"$_real" "$@"` 之前退出 wrapper——Claude 没有任何输出，像点了没反应。
+- `postinstall.js` 现在在升级时直接 patch 已有的 `~/.cac/bin/claude`，无需用户手动运行任何 `cac` 命令即可立即生效。
+- `cac env ls` 现在会触发 `_ensure_initialized`，支持按版本号自动重新生成 wrapper。
+
+## v1.4.0
+<sub>2026-03-27</sub>
+
+**关键修复：`body.cancel is not a function`** — [PR #44](https://github.com/nmhjklnm/cac/pull/44)
+
+- dns-guard.js 将原生 `fetch` 替换为 `node-fetch`，后者的 `Response.body` 是 Node.js Readable stream，缺少 `ReadableStream.cancel()` 方法。Claude Code 运行在 Bun 上并使用原生 fetch——每次 streaming 响应都会报错。现改为 URL 检查拦截，不再替换 fetch 实现。
+
+**Relay 加固** — [PR #44](https://github.com/nmhjklnm/cac/pull/44)
+
+- **心跳检测**：每 30s 检查上游代理连通性，日志记录状态变化（不可达 → 恢复）
+- **崩溃恢复**：`uncaughtException`/`unhandledRejection` 处理器，单连接错误不会导致 relay 进程崩溃
+- **看门狗**：wrapper 每 10s 监控 relay 进程，崩溃自动重启——无需手动重启 session
+- **流式超时**：空闲超时 120s → 30 分钟，有数据活动时自动重置——长 streaming 响应不再被中断
+- **Fail-closed**：relay 挂了 → HTTPS_PROXY 指向死端口 → 连接拒绝（不泄露 IP）
+
+**清理** — [PR #44](https://github.com/nmhjklnm/cac/pull/44)
+
+- 移除废弃的 `cac setup` 命令（`_ensure_initialized` 自动初始化保留）
+- 更新引用 `cac setup` 的错误提示信息
+
+**安全加固** — [Issue #42](https://github.com/nmhjklnm/cac/issues/42)
+
+基于社区对 Claude Code 2.1.83 的逆向分析（[@mo-xiaoxi](https://github.com/mo-xiaoxi) 从 Bun 打包的 Mach-O 二进制中提取 11.3MB JS bundle）：
+
+- **遥测分级**：三种模式 — `off`（不干预，适合纯 API Key 用户）/ `conservative`（新默认，仅屏蔽非必要流量）/ `aggressive`（12 层全量封杀）
+- **屏蔽 `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`**：预防性阻止未来 feature flag 激活增强遥测
+- **持久化 `firstStartTime`**：每个环境维持一致的"设备年龄"，避免触发"永远的新设备"检测模式
+- **并发会话警告**：claude 进程数超过阈值（默认 10，可通过 `~/.cac/settings.json` 配置）时发出警告
+- **`LANG` 自动适配**：根据出口 IP 国家代码自动检测 locale（如 JP→`ja_JP.UTF-8`、SG→`en_SG.UTF-8`）
+- **`cac env check` 增强**：指纹 hook 运行时验证、IPv6 泄漏检测、TZ/IP 一致性检查、残留遥测文件检测
+
+**配置继承** — [Issue #43](https://github.com/nmhjklnm/cac/issues/43)
+
+- **`--clone` 参数**：`cac env create work --clone` 从 `~/.claude/` 继承配置（commands、hooks、skills、plugins 通过符号链接；CLAUDE.md 通过符号链接；settings.json 分层合并）
+- **`--clone <env>`**：从其他 cac 环境克隆而非宿主环境
+- **`--no-link`**：复制文件而非符号链接，用于独立定制
+- **CAC Meta Prompt**：`--clone` 符号链接模式跳过 CLAUDE.md 注入；`--clone --no-link` 复制模式自动追加 cac 指令
+- **`settings.override.json`**：环境特有设置叠加在共享基础配置之上，每次启动时自动合并
+- **`~/.cac/settings.json`**：新的 cac 级配置文件，存储全局偏好（max_sessions、telemetry_mode）
+
+**基础设施**
+
+- **Wrapper 自动升级**：`CAC_WRAPPER_VER` 版本戳检测不匹配 → 下次命令自动重新生成 wrapper
+- **Wrapper 优化**：settings 合并在输入文件未变化时跳过（mtime 检查）、会话计数改为读文件而非调用 python3
+- **macOS 修复**：`pgrep -cf` 在 macOS 不可用 → 改用 `pgrep -f | wc -l`；`pgrep -x` 精确匹配 claude 二进制（避免误匹配 MCP 子进程）
+- **`--clone` 参数解析修复**：`--no-link` 不再被 `--clone` 误当作克隆源名称
+
+## v1.3.3
+<sub>2026-03-27</sub>
+
+**关键修复：Bun 运行时支持** — [Issue #30](https://github.com/nmhjklnm/cac/issues/30)
+
+- Claude Code 独立二进制（通过 `curl` 或 `cac claude install` 安装的）使用 **Bun v1.3.11** 编译，而非 Node.js
+- `NODE_OPTIONS --require` 被 Bun 静默忽略 — `fingerprint-hook.js` 和 `cac-dns-guard.js` 在独立二进制下**从未注入**
+- Wrapper 现在同时设置 `NODE_OPTIONS`（Node.js）和 `BUN_OPTIONS --preload`（Bun），确保无论运行时如何都能注入 hook
+- 已验证：全部 7 项 monkey-patch 在 Bun 下正常工作（os.hostname、os.networkInterfaces、dns.lookup、child_process.execSync、fetch、https.request、net.connect）
+
+## v1.3.2
+<sub>2026-03-27</sub>
+
+**国际化**
+
+- 所有终端输出翻译为英文，面向国际用户 — 源码文件全英文，CLI 不再输出中文
+
+## v1.3.1
+<sub>2026-03-27</sub>
+
+**紧急修复**
+
+- 修复 shell function 硬编码 `$HOME/bin/cac` 的问题 — 改为动态 `command -v` 查找，兼容 npm/nvm 全局安装
+
+## v1.3.0
+<sub>2026-03-26</sub>
+
+**安全增强** — [PR #28](https://github.com/nmhjklnm/cac/pull/28) / [Issue #27](https://github.com/nmhjklnm/cac/issues/27)
+
+基于 Claude Code 2.1.83 逆向分析，修复多个指纹采集点：
+
+- **anonymousId**：`.claude.json` 中的第二持久标识符（格式：`claudecode.v1.<uuid>`）— 环境切换时自动重置
+- **statsig.stable_id**：修复无文件时的静默失败；自动创建 `statsig.stable_id.local` 兜底
+- **GrowthBook**：发现新增的 A/B 测试框架 — `cdn.growthbook.io` 加入 DNS 拦截
+- **接口级 MAC 伪装**：不同网络接口生成不同派生 MAC（XOR 接口索引），避免「所有接口 MAC 相同」的异常特征
+- **缓存字段清理**：环境切换时清除 `numStartups`、`firstStartTime`、`cachedGrowthBookFeatures`、`cachedStatsigGates`
+
+**`cac env check` 流式输出** — [PR #28](https://github.com/nmhjklnm/cac/pull/28)
+
+- 每项检测完成立即显示结果，不再等 20 秒全部跑完
+- IP 检测时动画圆点
+- 多源出口 IP 检测快速重试：api.ip.sb → ip.3322.net → ipify → ipinfo
+- TUN 冲突检测 + relay 绕过状态显示
+
+**CI/CD**
+
+- 预发布版本（如 `1.3.1-beta.1`）自动发布到 npm `beta` 标签
+
+## v1.2.0
+<sub>2026-03-25</sub>
+
+**环境管理大升级** — [PR #25](https://github.com/nmhjklnm/cac/pull/25)
+
+- **`cac env set`**：修改已有环境的代理、版本、时区、语言
+- **创建即激活**：`cac env create` 自动激活新环境，去掉了 `activate/deactivate` 概念
+- **表格化输出**：`cac env ls` 和 `cac claude ls` 使用对齐的表格展示
+- **Shell function wrapper**：解决与 nvm、pyenv 等版本管理器的 PATH 冲突
+- **自动解析最新版本**：`cac env create` 不指定 `-c` 时自动使用最新已安装版本
+
+**文档更新** — [PR #26](https://github.com/nmhjklnm/cac/pull/26)
+
+- README 重写，适配 v1.2+ 命令结构
+- Mintlify 文档站上线：[cac.nextmind.space/docs](https://cac.nextmind.space/docs)
+
+**Relay 稳定性** — [PR #14](https://github.com/nmhjklnm/cac/pull/14) / [PR #15](https://github.com/nmhjklnm/cac/pull/15) / [PR #16](https://github.com/nmhjklnm/cac/pull/16) / [PR #17](https://github.com/nmhjklnm/cac/pull/17) / [PR #18](https://github.com/nmhjklnm/cac/pull/18)
+
+- Buffer 累积防止二进制数据截断 — [Issue #9](https://github.com/nmhjklnm/cac/issues/9)
+- 认证代理 `Proxy-Authorization` 头支持 — [Issue #11](https://github.com/nmhjklnm/cac/issues/11)
+- 修复 `upstreamExtra` 转发方向错误 — [Issue #10](https://github.com/nmhjklnm/cac/issues/10)
+- 代理密码中的冒号支持 — [Issue #12](https://github.com/nmhjklnm/cac/issues/12)
+- 完善 `ChildProcess` mock（stdio、exitCode、signalCode）— [Issue #13](https://github.com/nmhjklnm/cac/issues/13)
+
+**其他** — [PR #22](https://github.com/nmhjklnm/cac/pull/22) / [PR #23](https://github.com/nmhjklnm/cac/pull/23)
+
+- 原生 Claude 设置不再泄露到 cac 环境
+- `cac delete` 时清理 relay 和端口转发进程 — [Issue #21](https://github.com/nmhjklnm/cac/issues/21)
+- CI：ShellCheck + 构建一致性检查
+
+## v1.1.x
+<sub>2026-03-24</sub>
+
+**npm 生态**
+
+- 发布到 npm：`npm install -g claude-cac`
+- nvm/npm 全局安装兼容：符号链接解析、`command -v` 查找
+- `CAC_VERSION` 与 `package.json` 在 CI 中自动同步
+
+**Check 输出重构**
+
+- 先结论后详情，`-d` 查看完整信息
+- 代理不通时跳过 TUN 冲突检查
+- relay 验证连通性后才报告 TUN 绕过成功
+
+**健壮性**
+
+- JS hook 每次命令执行时同步，而非仅首次初始化
+- relay 自动绕过替代令人紧张的 TUN 冲突警告
+
+## v1.0.0
+<sub>2026-03-23</sub>
+
+**初始架构** — [PR #20](https://github.com/nmhjklnm/cac/pull/20)
+
+从代理管理脚本重构为 uv 风格的 Claude Code 管理器：
+
+- **版本管理**：`cac claude install/ls/pin/uninstall`
+- **环境隔离**：`cac env create/ls/rm`，每环境独立 `CLAUDE_CONFIG_DIR`
+- **Node.js 指纹钩子**：运行时拦截 `os.hostname()`、`os.networkInterfaces()`、`child_process.execSync('wmic/ioreg')` — [PR #5](https://github.com/nmhjklnm/cac/pull/5)
+- **DNS guard**：通过 `dns.lookup` + `net.connect` + `fetch` monkey-patching 拦截遥测域名 — [PR #3](https://github.com/nmhjklnm/cac/pull/3)
+- **健康检查 bypass**：进程内 Node.js 拦截，无需 `/etc/hosts` 或 root 权限
+- **本地 relay**：通过 loopback 转发自动绕过 TUN 接口
+- **mTLS**：自签 CA + 每环境独立客户端证书
+- **Docker 模式**：sing-box TUN 网络隔离 + cac 身份伪装 — [PR #8](https://github.com/nmhjklnm/cac/pull/8)

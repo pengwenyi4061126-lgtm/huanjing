@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 32" fill="none">
+  <!-- Cute raincoat icon -->
+  <!-- Hood (rounded) -->
+  <path d="M12 12a4 4 0 0 1 8 0" fill="#FBBF24"/>
+  <!-- Body -->
+  <path d="M10 14h12v10c0 1-1 2-2 2H12c-1 0-2-1-2-2V14z" fill="#FBBF24" rx="1"/>
+  <!-- Sleeves -->
+  <path d="M10 15l-3 4a1.2 1.2 0 0 0 2 1l2-3" fill="#D97706"/>
+  <path d="M22 15l3 4a1.2 1.2 0 0 1-2 1l-2-3" fill="#D97706"/>
+  <!-- Buttons -->
+  <circle cx="16" cy="17.5" r="0.8" fill="#fff" opacity="0.7"/>
+  <circle cx="16" cy="21" r="0.8" fill="#fff" opacity="0.7"/>
+  <circle cx="16" cy="24.5" r="0.8" fill="#fff" opacity="0.7"/>
+  <!-- "cac" text -->
+  <text x="36" y="23" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, monospace" font-size="18" font-weight="700" fill="#f5f5f5">cac</text>
+</svg>

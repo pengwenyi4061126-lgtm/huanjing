@@ -1,0 +1,48 @@
+name: Publish to npm
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Set version from tag
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          CURRENT_VERSION=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')
+          if [[ "$CURRENT_VERSION" != "$VERSION" ]]; then
+            npm version "$VERSION" --no-git-tag-version
+          else
+            echo "package.json already at $VERSION"
+          fi
+          CURRENT_CAC_VERSION=$(grep -E '^CAC_VERSION=' src/utils.sh | cut -d'"' -f2)
+          if [[ "$CURRENT_CAC_VERSION" != "$VERSION" ]]; then
+            sed -i "s/^CAC_VERSION=.*/CAC_VERSION=\"$VERSION\"/" src/utils.sh
+          else
+            echo "src/utils.sh already at $VERSION"
+          fi
+
+      - name: Build
+        run: bash build.sh
+
+      - name: Publish
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          if [[ "$VERSION" == *-* ]]; then
+            npm publish --tag beta
+          else
+            npm publish
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

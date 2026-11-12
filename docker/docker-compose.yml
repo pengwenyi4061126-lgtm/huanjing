@@ -1,0 +1,30 @@
+# Base compose — use with docker-compose.macvlan.yml or docker-compose.local.yml
+services:
+  cac:
+    image: ghcr.io/nmhjklnm/cac-docker:latest
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      PROXY_URI: ${PROXY_URI:?Set PROXY_URI in .env}
+      SINGBOX_ENABLE: ${SINGBOX_ENABLE:-1}
+      DNS_SERVER: ${DNS_SERVER:-8.8.8.8}
+      TUN_ADDRESS: ${TUN_ADDRESS:-172.19.0.1/30}
+      TUN_MTU: ${TUN_MTU:-9000}
+      DISABLE_IPV6: ${DISABLE_IPV6:-1}
+      HEALTHCHECK: ${HEALTHCHECK:-1}
+    volumes:
+      - ${CAC_DATA:-./data}/root:/root
+      - ${CAC_DATA:-./data}/home:/home
+    working_dir: /home
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "timeout 5 bash -c 'echo >/dev/tcp/google.com/443' 2>/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

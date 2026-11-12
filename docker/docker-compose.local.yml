@@ -1,0 +1,4 @@
+# Local laptop: bridge network, container fully isolated.
+services:
+  cac:
+    network_mode: bridge

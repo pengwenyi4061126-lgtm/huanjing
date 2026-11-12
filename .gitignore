@@ -1,0 +1,19 @@
+.DS_Store
+.npmrc
+node_modules/
+*.swp
+*.swo
+*~
+
+# build artifacts (root-level copies from src/) — kept for npm packaging
+# /fingerprint-hook.js
+# /relay.js
+
+# docker
+docker/.env
+data/
+CLAUDE.local.md
+
+# internal research docs (not for public)
+docs/internal/
+claude.exe

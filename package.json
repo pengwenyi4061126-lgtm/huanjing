@@ -1,0 +1,56 @@
+{
+  "name": "cac-windows",
+  "version": "1.0.27",
+  "description": "Claude Code Windows privacy tool — binary patches to remove Chinese identity markers.",
+  "bin": {
+    "cac": "cac"
+  },
+  "files": [
+    "cac",
+    "cac.ps1",
+    "cac.cmd",
+    "scripts/lib.ps1",
+    "scripts/menu.ps1",
+    "scripts/postinstall.js",
+    "scripts/patch-cli.js",
+    "scripts/cleanup.ps1",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "privacy",
+    "proxy",
+    "telemetry",
+    "fingerprint",
+    "windows",
+    "powershell",
+    "timezone",
+    "cloak",
+    "cli"
+  ],
+  "author": "234150476",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/234150476/cac-windows.git"
+  },
+  "homepage": "https://github.com/234150476/cac-windows",
+  "bugs": {
+    "url": "https://github.com/234150476/cac-windows/issues"
+  },
+  "os": [
+    "win32"
+  ],
+  "peerDependencies": {
+    "@anthropic-ai/claude-code": ">=2.1.294"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

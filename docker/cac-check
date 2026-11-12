@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# cac-docker network + identity diagnostics.
+set -uo pipefail
+
+PASS="\033[32mok\033[0m"
+FAIL="\033[31mFAIL\033[0m"
+errors=0
+
+run_check() {
+  local label="$1" hint="$2"
+  shift 2
+  local start end ms output
+  start=$(date +%s%N)
+  if output=$("$@" 2>&1); then
+    end=$(date +%s%N)
+    ms=$(( (end - start) / 1000000 ))
+    printf "[%-5s] $PASS  %s (%dms)\n" "$label" "$output" "$ms"
+  else
+    printf "[%-5s] $FAIL  %s\n" "$label" "$hint"
+    errors=$((errors + 1))
+  fi
+}
+
+# ── Network checks ──────────────────────────────────────────────────
+
+check_tun() {
+  ip -o link show tun0 >/dev/null 2>&1 && echo "tun0 up"
+}
+
+check_dns() {
+  timeout 5 getent hosts google.com >/dev/null && echo "google.com resolved"
+}
+
+check_leak() {
+  local ns
+  ns=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf 2>/dev/null)
+  [ -z "$ns" ] && { echo "no nameserver"; return 1; }
+  local tun_net
+  tun_net=$(ip -4 addr show tun0 2>/dev/null | awk '/inet/{print $2; exit}')
+  [ -z "$tun_net" ] && { echo "tun0 has no address"; return 1; }
+  local tun_prefix="${tun_net%.*}" ns_prefix="${ns%.*}"
+  if [ "$tun_prefix" = "$ns_prefix" ]; then
+    echo "DNS → $ns (TUN gateway, no leak)"
+  else
+    echo "DNS → $ns (NOT on TUN network — possible leak)"
+    return 1
+  fi
+}
+
+check_tcp() {
+  timeout 5 bash -c 'echo >/dev/tcp/google.com/443' 2>/dev/null && echo "google.com:443 reachable"
+}
+
+check_http() {
+  local code
+  code=$(timeout 10 curl -sL -o /dev/null -w "%{http_code}" https://www.google.com 2>/dev/null)
+  if [ -n "$code" ] && [ "$code" -ge 200 ] && [ "$code" -lt 500 ]; then
+    echo "https://www.google.com → $code"
+  else
+    return 1
+  fi
+}
+
+check_exit_ip() {
+  local ip
+  ip=$(timeout 10 curl -sf https://ifconfig.me 2>/dev/null || true)
+  if [ -n "$ip" ]; then
+    echo "$ip"
+  else
+    return 1
+  fi
+}
+
+check_geo() {
+  local tz="${TZ:-not set}"
+  local lang="${LANG:-not set}"
+  local accept="${ACCEPT_LANGUAGE:-not set}"
+  echo "TZ=$tz  LANG=$lang  Accept=$accept"
+}
+
+# ── Identity checks (cac) ───────────────────────────────────────────
+
+check_cac() {
+  if [ -d "$HOME/.cac" ]; then
+    local current
+    current=$(cat "$HOME/.cac/current" 2>/dev/null || echo "none")
+    echo "installed, profile: $current"
+  else
+    echo "not installed"
+    return 1
+  fi
+}
+
+check_hostname() {
+  local spoofed_hn
+  spoofed_hn="${CAC_HOSTNAME:-}"
+  if [ -n "$spoofed_hn" ]; then
+    echo "spoofed: $spoofed_hn"
+  else
+    local current
+    current=$(cat "$HOME/.cac/current" 2>/dev/null || echo "")
+    if [ -z "$current" ]; then
+      echo "no profile active (run: cac add <name> <proxy> inside container)"
+    else
+      echo "not spoofed"
+      return 1
+    fi
+  fi
+}
+
+# ── Run all checks ──────────────────────────────────────────────────
+
+printf "\033[1mNetwork\033[0m\n"
+run_check "TUN"   "tun0 not found — check SINGBOX_ENABLE=1 and NET_ADMIN capability" check_tun
+run_check "DNS"   "DNS resolution failed — check DNS_SERVER" check_dns
+run_check "LEAK"  "DNS may be leaking — resolv.conf not pointing to TUN" check_leak
+run_check "TCP"   "TCP connect failed — check proxy address and credentials" check_tcp
+run_check "HTTP"  "HTTP request failed — check TLS and proxy config" check_http
+run_check "EXIT"  "Cannot determine exit IP" check_exit_ip
+run_check "GEO"   "Timezone/locale not set" check_geo
+
+echo ""
+printf "\033[1mIdentity\033[0m\n"
+run_check "CAC"   "cac not installed — run: cac setup" check_cac
+run_check "HOST"  "Hostname not spoofed" check_hostname
+
+echo ""
+if [ "$errors" -eq 0 ]; then
+  printf "\033[32mAll checks passed.\033[0m\n"
+else
+  printf "\033[31m%d check(s) failed.\033[0m\n" "$errors"
+  exit 1
+fi

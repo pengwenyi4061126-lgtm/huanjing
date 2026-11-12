@@ -1,0 +1,340 @@
+---
+title: Changelog
+description: Release history and notable changes
+---
+
+All notable changes to this project are documented here. Each entry links to the corresponding PR or issue.
+
+## v1.5.7
+<sub>2026-04-27</sub>
+
+**Fix: `cac env create --clone` was missing `agents/`**
+
+`~/.claude/agents/` (subagent definitions) was not in the clone list, so newly created environments via `--clone` never inherited custom subagents — only `commands/hooks/skills/plugins/CLAUDE.md` were symlinked.
+
+- Added `agents` to `clone_dirs` in `cac env create`. From v1.5.7 onwards, `--clone host` and `--clone <env>` both symlink (or copy with `--no-link`) `~/.claude/agents/` alongside the other shared resources.
+- Existing environments are not auto-fixed — relink manually if needed: `ln -s ~/.claude/agents ~/.cac/envs/<name>/.claude/agents`.
+
+## v1.5.6
+<sub>2026-04-27</sub>
+
+**Fix: SOCKS5 diagnostics were using local DNS instead of proxy DNS**
+
+`cac env create` timezone detection and `cac env check` exit-IP detection previously called `curl --proxy socks5://...` directly. With SOCKS5, that makes `curl` resolve probe domains **locally** instead of through the remote proxy.
+
+In environments with DNS pollution, split-DNS, captive enterprise resolvers, or synthetic test ranges such as `198.18.0.0/15`, that created a bad failure mode:
+
+- the proxy itself was healthy
+- real proxied traffic still worked
+- but diagnostic requests resolved to the wrong address locally and failed during TLS
+- `cac env check` then reported `✗ exit IP unable to verify via proxy`
+- new environments could also inherit the wrong timezone during creation
+
+- Added an internal helper that rewrites curl-based SOCKS5 probes to `socks5h://...`, forcing remote DNS resolution.
+- Fixed timezone geo-detection during `cac env create`.
+- Fixed false-negative exit-IP and timezone diagnostics in `cac env check`.
+- Added a shell regression test to ensure SOCKS5 probe paths keep using `socks5h://`.
+
+## v1.5.5
+<sub>2026-04-22</sub>
+
+**Fix: proxy startup and diagnostics consistency**
+
+This release promotes the `1.5.5` beta line to stable after validating the new proxy-path behavior end to end.
+
+- Legacy SOCKS5 proxy URIs stored as `socks5://host:port:user:pass` are now normalized to the standard `socks5://user:pass@host:port` form before startup checks, relay startup, and environment diagnostics.
+- `cac env check` no longer reports a configured proxy as healthy when exit IP detection fails across all probe endpoints. Failed exit-IP verification now surfaces as a real problem instead of a retry hint.
+- The generated `claude` wrapper now performs proxy normalization without depending on helper functions from the main `cac` script, fixing the beta.1 startup regression.
+- CI now fails if `package.json`, `src/utils.sh`, and committed `cac` drift out of sync on version metadata.
+
+## v1.5.5-beta.2
+<sub>2026-04-22</sub>
+
+**Fix: wrapper startup regression in beta.1**
+
+`v1.5.5-beta.1` normalized legacy SOCKS5 proxy URIs inside the generated `claude` wrapper, but the wrapper accidentally called helper functions that only exist in the main `cac` script. Any proxied `claude` launch could fail immediately with `_parse_proxy: command not found`.
+
+- Inline proxy normalization inside the generated wrapper so proxied `claude` startup no longer depends on main-script helper functions.
+- Preserves the legacy SOCKS5 compatibility fix from beta.1 while restoring wrapper startup.
+
+## v1.5.5-beta.1
+<sub>2026-04-22</sub>
+
+**Fix: legacy SOCKS5 proxy URI compatibility**
+
+Some environments already stored SOCKS5 proxies in the legacy form `socks5://host:port:user:pass`. Startup pre-flight treated the last field as the TCP port, so `cac <env>` could reject a reachable proxy as "unreachable" before Claude even launched.
+
+- Normalize legacy protocol-prefixed proxy strings to the standard form `socks5://user:pass@host:port`.
+- Reuse the same normalization for startup pre-flight, `cac env check`, relay startup, and environment listing so old saved environments behave consistently.
+
+**Fix: `cac env check` false positive when exit IP cannot be verified**
+
+When a proxy was configured but every exit-IP probe failed, `cac env check` still printed a green `exit IP` line and could end with `all good`, hiding a broken proxy path behind a retry hint.
+
+- Exit IP detection now reports `✗ exit IP unable to verify via proxy` when all probe endpoints fail.
+- Failed exit-IP verification is added to the problem summary, so a configured-but-unverified proxy can no longer pass as healthy.
+
+**CI**
+
+- `build-check` now fails if `package.json`, `src/utils.sh`, and committed `cac` disagree on the release version.
+
+## v1.5.4
+<sub>2026-04-02</sub>
+
+**Fix: Claude auto-updater bypasses cac wrapper mid-session** — [PR #62](https://github.com/nmhjklnm/cac/pull/62)
+
+Claude Code's auto-updater re-execs a new binary directly, skipping the cac wrapper entirely — fingerprint spoofing, dns-guard, and timezone settings all stop working for the remainder of the session. The UI still shows the old version, but `/usage` reveals the real timezone.
+
+Root cause: Claude migrated the "disable auto-updates" setting from `autoUpdates: false` in `.claude.json` to `DISABLE_AUTOUPDATER=1` in `settings.json`. cac's `settings.json` template didn't include this field, so new environments were left unprotected.
+
+- New environments get `DISABLE_AUTOUPDATER: "1"` in `settings.json` from creation.
+- Existing environments are patched automatically on the next `cac` invocation (`_ensure_initialized`). A `grep` short-circuit prevents repeated python3 forks once already patched.
+
+## v1.5.3
+<sub>2026-04-01</sub>
+
+**Fix: `sudo cac` corrupts `~/.cac/` file ownership** — [PR #59](https://github.com/nmhjklnm/cac/pull/59)
+
+Running `cac` as root (e.g. `sudo cac <env>`) overwrites hook files (`fingerprint-hook.js`, `cac-dns-guard.js`, etc.) with root-owned copies. Subsequent normal-user runs load the stale root-owned version, causing claude to hang at startup with no error output.
+
+- **Self-healing writes**: `rm -f` before each hook file write — user owns `~/.cac/` directory so can always unlink files in it, even root-owned ones. Next `cac` command automatically replaces any stale root-owned files with the current version.
+- **Readability checks**: wrapper now uses `[[ -r ... ]]` instead of `[[ -f ... ]]` for hook files — skips injection gracefully if a file exists but is unreadable (mode 600), rather than crashing silently.
+- **Root warning**: `_ensure_initialized` now prints a warning when running as root.
+
+**Fix: `user_id mismatch` false positive after `/login`** — [PR #59](https://github.com/nmhjklnm/cac/pull/59)
+
+After OAuth login, Claude Code writes the real account `userID` to `.claude.json`, which `cac env check` flagged as a mismatch against the environment's stored fake ID — confusing and misleading.
+
+- Removed fake `userID` generation on `env create` — the fake ID provided no real protection (`account_uuid` is still sent via OAuth token and cannot be spoofed).
+- `cac env check` now auto-syncs `env/user_id` from `.claude.json` after login instead of reporting an error.
+
+## v1.5.1
+<sub>2026-03-31</sub>
+
+**Fix: Relay crash recovery regression** — [Issue #49](https://github.com/nmhjklnm/cac/issues/49)
+
+v1.5.0 removed the relay watchdog along with the EXIT trap, leaving no auto-recovery when the relay process crashes mid-session. Affected users would see **Connection Refused** until manually restarting the session.
+
+- **Env-level watchdog singleton** (`relay.watchdog.pid`): shared across all sessions, auto-restarts relay within 5s of crash. Exits automatically when relay is intentionally stopped — no orphaned processes.
+- **Connectivity check**: watchdog now verifies TCP reachability in addition to process liveness. If the relay port is unresponsive (process alive but frozen), it kills and restarts.
+
+**New: `cac stop` / `cac env stop`**
+
+Pause cac entirely — claude runs natively without any injection (no proxy, no fingerprint spoofing, no CLAUDE_CONFIG_DIR override). Resume with `cac <name>`. Useful when troubleshooting or temporarily bypassing cac.
+
+## v1.5.0
+<sub>2026-03-29</sub>
+
+**Anti-fingerprint overhaul based on v2.1.86 reverse engineering** — [Issue #47](https://github.com/nmhjklnm/cac/issues/47)
+
+Based on comprehensive static analysis of Claude Code v2.1.86 (679,353 lines deobfuscated JS) by [@mo-xiaoxi](https://github.com/mo-xiaoxi):
+
+- **Repository hash (rh) spoofing** [P0]: Claude computes `rh = SHA256(git_remote_url).hex.slice(0,16)` and sends it with every event — cross-account linkage even after device/account changes. Now intercepted via `child_process.execSync/exec` monkey-patch, returning per-environment fake remote URLs.
+- **Git email spoofing** [P1]: Claude runs `git config --get user.email` on startup, exposing real developer identity. Wrapper now sets `GIT_AUTHOR_EMAIL` + `GIT_COMMITTER_EMAIL` + process-level interception via `CAC_GIT_EMAIL`.
+- **Telemetry strategy redesign** [P1]: Zero telemetry is itself a risk signal — "no 1p_events but active API usage" strongly correlates with anti-detection tools. New three-tier model:
+  - `stealth` (new default): only `DISABLE_TELEMETRY=1` — blocks 1p_events but GrowthBook/Statsig/feature flags work normally. Indistinguishable from normal user; all reported fingerprints are fake.
+  - `paranoid` (was `aggressive`): full 12-layer telemetry kill — maximum privacy, potentially detectable.
+  - `transparent` (was `off`): no intervention — for when fingerprint coverage is complete.
+  - Backward compatible: old names (`conservative`/`aggressive`/`off`) auto-mapped. Existing environments migrated on upgrade.
+- **Persona presets** [P1]: Claude analyzes terminal environment (TERM_PROGRAM, CURSOR_TRACE_ID, __CFBundleIdentifier, etc.) and deployment context (Docker, K8s, Codespaces) to profile developer setup. `--persona macos-vscode|macos-cursor|macos-iterm|linux-desktop` injects desktop terminal env vars and hides Docker signals (`/.dockerenv`, `/proc/1/cgroup`) — critical when running in containers or servers to avoid being flagged as non-personal-developer environment. Use `cac env create <name> --persona macos-vscode` to apply a preset.
+- **Trusted Device Token** [P1]: `tengu_sessions_elevated_auth_enforcement` gate is currently off but mechanism is ready (stores token in macOS Keychain). Per-environment `CLAUDE_TRUSTED_DEVICE_TOKEN` preemptively overrides. `cac env check` now detects Keychain residuals.
+- **Billing header disabled** [P2]: `CLAUDE_CODE_ATTRIBUTION_HEADER=0` suppresses `x-anthropic-billing-header` (cc_version, cc_entrypoint, cc_workload).
+- **Datadog domain blocked** [P2]: `http-intake.logs.us5.datadoghq.com` added to DNS block list (event dual-write target, 48 whitelisted events only).
+- **metadata.user_id tracking** [P2]: `cac env check` tracks the logged-in account `userID` per environment (removed in v1.5.2 — see above).
+
+**New commands**
+
+- `cac env create <name> --persona <preset>` — create environment with terminal persona
+- `cac env set <name> telemetry <stealth|paranoid|transparent>` — change telemetry mode
+- `cac env set <name> persona <preset|--remove>` — change or remove persona
+
+**Migration**
+
+- Existing environments auto-migrated on `npm upgrade`: new files (`fake_git_remote`, `git_email`, `device_token`) generated, telemetry mode names updated.
+
+## v1.4.4
+<sub>2026-03-29</sub>
+
+**Critical fix: Relay killed on every session exit** — [PR #45](https://github.com/nmhjklnm/cac/pull/45)
+
+- Any `claude -p` one-shot invocation (e.g. from a Feishu/Slack auto-reply pipeline) killed the shared relay process via `_cleanup_all`, breaking all other active sessions with **Connection Refused**. Relay lifecycle changed from session-level to environment-level — persists across sessions, only stopped by `cac env activate` (switch) or `cac self delete`.
+- Added `relay.proxy` file to detect proxy mismatch on startup — if relay is running with a different proxy, it's automatically restarted.
+- `postinstall.js` now patches old wrappers to remove the `trap _cleanup_all EXIT INT TERM` line on upgrade.
+
+**Fix: `cac env check` incomplete** — [PR #45](https://github.com/nmhjklnm/cac/pull/45)
+
+- Same `pgrep` pipefail bug as the wrapper — `cac env check` crashed at the concurrent session check, skipping proxy connectivity, exit IP detection, and TUN conflict checks.
+
+**Fix: 10 silent failure points eliminated** — [PR #45](https://github.com/nmhjklnm/cac/pull/45)
+
+- Systematic audit of all `set -euo pipefail` failures: unguarded `grep` in subshells, `kill` race conditions, empty arrays on bash 3.2, missing `python3` fallbacks, broken symlinks, invalid network interfaces, `openssl` pipeline failures. Each now has explicit error handling instead of silently exiting.
+
+## v1.4.3
+<sub>2026-03-27</sub>
+
+**Critical fix: Claude silently fails to launch** — [commit](https://github.com/nmhjklnm/cac/commit/3258ca9)
+
+- Under `set -euo pipefail`, `pgrep` returns exit code 1 when no `claude` process is running. With `pipefail`, the entire pipeline fails, and `set -e` exits the wrapper before `"$_real" "$@"` executes — Claude appears to do nothing with no output.
+- `postinstall.js` now directly patches existing `~/.cac/bin/claude` on upgrade, so the fix takes effect immediately without requiring the user to run any `cac` command first.
+- `cac env ls` now triggers `_ensure_initialized`, enabling automatic wrapper regeneration on version upgrade.
+
+## v1.4.0
+<sub>2026-03-27</sub>
+
+**Critical fix: `body.cancel is not a function`** — [PR #44](https://github.com/nmhjklnm/cac/pull/44)
+
+- dns-guard.js replaced native `fetch` with `node-fetch`, whose `Response.body` is a Node.js Readable stream lacking `ReadableStream.cancel()`. Claude Code runs on Bun and expects native fetch — every streaming response broke. Now uses URL-checking wrapper instead of replacing the entire fetch implementation.
+
+**Relay hardening** — [PR #44](https://github.com/nmhjklnm/cac/pull/44)
+
+- **Heartbeat**: Upstream proxy connectivity check every 30s, logs state changes (unreachable → recovered)
+- **Crash recovery**: `uncaughtException`/`unhandledRejection` handlers prevent single-connection errors from killing the relay process
+- **Watchdog**: Wrapper monitors relay process every 10s, auto-restarts on crash — no more manual session restart
+- **Streaming timeout**: Idle timeout 120s → 30min, reset on data activity — long streaming responses no longer killed
+- **Fail-closed**: Dead relay → HTTPS_PROXY points to dead port → connection refused (no IP leak)
+
+**Cleanup** — [PR #44](https://github.com/nmhjklnm/cac/pull/44)
+
+- Removed deprecated `cac setup` command (auto-bootstrap via `_ensure_initialized` remains)
+- Updated stale error messages referencing `cac setup`
+
+**Security hardening** — [Issue #42](https://github.com/nmhjklnm/cac/issues/42)
+
+Based on community reverse engineering of Claude Code 2.1.83 (11.3MB JS bundle analysis by [@mo-xiaoxi](https://github.com/mo-xiaoxi)):
+
+- **Telemetry modes**: Three modes — `off` (no intervention, for pure API Key users) / `conservative` (new default, blocks non-essential traffic) / `aggressive` (12-layer full block)
+- **Block `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`**: Preemptively prevent enhanced telemetry activation via future feature flags
+- **Persist `firstStartTime` per environment**: Each environment maintains consistent "device age", avoiding the "perpetual new device" detection pattern
+- **Concurrent session warning**: Warns when claude process count exceeds threshold (default 10, configurable via `~/.cac/settings.json`)
+- **`LANG` auto-adaptation**: Locale now auto-detected from exit IP country code (e.g. JP→`ja_JP.UTF-8`, SG→`en_SG.UTF-8`)
+- **`cac env check` enhancements**: Runtime fingerprint verification, IPv6 leak detection, TZ/IP consistency check, residual telemetry file detection
+
+**Config inheritance** — [Issue #43](https://github.com/nmhjklnm/cac/issues/43)
+
+- **`--clone` flag**: `cac env create work --clone` inherits config from `~/.claude/` (commands, hooks, skills, plugins via symlink; CLAUDE.md via symlink; settings.json via layered merge)
+- **`--clone <env>`**: Clone from another cac environment instead of host
+- **`--no-link`**: Copy files instead of symlink for independent customization
+- **CAC Meta Prompt**: `--clone` with symlink skips CLAUDE.md injection; `--clone --no-link` appends cac instructions to copied CLAUDE.md
+- **`settings.override.json`**: Environment-specific settings layered on top of shared base config, auto-merged on each startup
+- **`~/.cac/settings.json`**: New cac-level config file for global preferences (max_sessions, telemetry_mode)
+
+**Infrastructure**
+
+- **Wrapper auto-upgrade**: `CAC_WRAPPER_VER` stamp detects version mismatch → wrapper auto-regenerated on next command
+- **Wrapper optimizations**: Settings merge skipped when inputs unchanged (mtime check), session count reads file instead of spawning python3
+- **macOS fixes**: `pgrep -cf` unavailable on macOS → `pgrep -f | wc -l`; `pgrep -x` for exact claude binary match (avoids MCP subprocess false positives)
+- **`--clone` arg parsing fix**: `--no-link` no longer consumed as clone source name
+
+## v1.3.3
+<sub>2026-03-27</sub>
+
+**Critical fix: Bun runtime support** — [Issue #30](https://github.com/nmhjklnm/cac/issues/30)
+
+- Claude Code standalone binaries (installed via `curl` or `cac claude install`) are compiled with **Bun v1.3.11**, not Node.js
+- `NODE_OPTIONS --require` is silently ignored by Bun — `fingerprint-hook.js` and `cac-dns-guard.js` were **never injected** in standalone builds
+- Wrapper now sets both `NODE_OPTIONS` (Node.js) and `BUN_OPTIONS --preload` (Bun) to ensure hooks are always injected regardless of runtime
+- Verified: all 7 monkey-patch points work correctly under Bun (os.hostname, os.networkInterfaces, dns.lookup, child_process.execSync, fetch, https.request, net.connect)
+
+## v1.3.2
+<sub>2026-03-27</sub>
+
+**i18n**
+
+- All terminal output translated to English for international users — source files fully English, no more Chinese in CLI output
+
+## v1.3.1
+<sub>2026-03-27</sub>
+
+**Hotfix**
+
+- Fixed shell function hardcoding `$HOME/bin/cac` — now dynamically finds `cac` via `command -v`, compatible with npm/nvm global installs
+
+## v1.3.0
+<sub>2026-03-26</sub>
+
+**Security enhancements** — [PR #28](https://github.com/nmhjklnm/cac/pull/28) / [Issue #27](https://github.com/nmhjklnm/cac/issues/27)
+
+Based on reverse engineering of Claude Code 2.1.83, fixed multiple fingerprint collection points:
+
+- **anonymousId**: A second persistent identifier in `.claude.json` (format: `claudecode.v1.<uuid>`) — now auto-reset on environment switch
+- **statsig.stable_id**: Fixed silent failure when no existing file; creates fallback `statsig.stable_id.local`
+- **GrowthBook**: New A/B testing framework discovered — `cdn.growthbook.io` added to DNS block list
+- **Per-interface MAC spoofing**: Different network interfaces now get different derived MACs (XOR with interface index), avoiding the "all interfaces share identical MAC" anomaly
+- **Stale field cleanup**: `numStartups`, `firstStartTime`, `cachedGrowthBookFeatures`, `cachedStatsigGates` cleared on environment switch
+
+**Streaming `cac env check`** — [PR #28](https://github.com/nmhjklnm/cac/pull/28)
+
+- Each check result displays immediately — no more 20-second blank wait
+- Animated dots during IP detection
+- Multi-source exit IP detection with fast retry: api.ip.sb, ip.3322.net, ipify, ipinfo
+- TUN conflict detection with relay bypass status
+
+**CI/CD**
+
+- Prerelease versions (e.g. `1.3.1-beta.1`) auto-publish to npm `beta` tag
+
+## v1.2.0
+<sub>2026-03-25</sub>
+
+**Environment management overhaul** — [PR #25](https://github.com/nmhjklnm/cac/pull/25)
+
+- **`cac env set`**: Modify existing environments — proxy, version, timezone, language
+- **Auto-activate on create**: `cac env create` automatically activates; removed `activate/deactivate`
+- **Table output**: `cac env ls` and `cac claude ls` use aligned table format
+- **Shell function wrapper**: Solves PATH conflicts with nvm, pyenv, and other version managers
+- **Auto-resolve latest version**: `cac env create` without `-c` automatically uses the latest installed version
+
+**Docs update** — [PR #26](https://github.com/nmhjklnm/cac/pull/26)
+
+- README rewrite for v1.2+ command structure
+- Mintlify docs site launched at [cac.nextmind.space/docs](https://cac.nextmind.space/docs)
+
+**Relay stability** — [PR #14](https://github.com/nmhjklnm/cac/pull/14) / [PR #15](https://github.com/nmhjklnm/cac/pull/15) / [PR #16](https://github.com/nmhjklnm/cac/pull/16) / [PR #17](https://github.com/nmhjklnm/cac/pull/17) / [PR #18](https://github.com/nmhjklnm/cac/pull/18)
+
+- Buffer accumulation prevents binary data corruption — [Issue #9](https://github.com/nmhjklnm/cac/issues/9)
+- `Proxy-Authorization` header for authenticated upstream — [Issue #11](https://github.com/nmhjklnm/cac/issues/11)
+- Fix `upstreamExtra` forwarded to wrong direction — [Issue #10](https://github.com/nmhjklnm/cac/issues/10)
+- Colon support in proxy passwords — [Issue #12](https://github.com/nmhjklnm/cac/issues/12)
+- Complete `ChildProcess` mock (stdio, exitCode, signalCode) — [Issue #13](https://github.com/nmhjklnm/cac/issues/13)
+
+**Other** — [PR #22](https://github.com/nmhjklnm/cac/pull/22) / [PR #23](https://github.com/nmhjklnm/cac/pull/23)
+
+- Native Claude settings no longer leak into cac environments
+- Kill relay and port-forward processes on `cac delete` — [Issue #21](https://github.com/nmhjklnm/cac/issues/21)
+- CI: ShellCheck + build consistency checks
+
+## v1.1.x
+<sub>2026-03-24</sub>
+
+**npm ecosystem**
+
+- Published to npm: `npm install -g claude-cac`
+- nvm/npm global install compatibility: symlink resolution, `command -v` lookup
+- `CAC_VERSION` auto-synced with `package.json` in CI
+
+**Check output redesign**
+
+- Conclusion-first output, `-d` flag for full details
+- Skip TUN conflict check when proxy is unreachable
+- Verify relay connectivity before reporting TUN bypass success
+
+**Robustness**
+
+- JS hooks synced on every command, not just first init
+- Relay auto-bypass shown instead of alarming TUN conflict warning
+
+## v1.0.0
+<sub>2026-03-23</sub>
+
+**Initial architecture** — [PR #20](https://github.com/nmhjklnm/cac/pull/20)
+
+Rewrite from proxy management script to uv-style Claude Code manager:
+
+- **Version management**: `cac claude install/ls/pin/uninstall`
+- **Environment isolation**: `cac env create/ls/rm` with per-environment `CLAUDE_CONFIG_DIR`
+- **Node.js fingerprint hook**: Intercepts `os.hostname()`, `os.networkInterfaces()`, `child_process.execSync('wmic/ioreg')` — [PR #5](https://github.com/nmhjklnm/cac/pull/5)
+- **DNS guard**: Blocks telemetry domains via `dns.lookup` + `net.connect` + `fetch` monkey-patching — [PR #3](https://github.com/nmhjklnm/cac/pull/3)
+- **Health check bypass**: In-process Node.js interception, no `/etc/hosts` or root needed
+- **Local relay**: Auto-bypasses TUN interfaces via loopback forwarding
+- **mTLS**: Self-signed CA + per-environment client certificates
+- **Docker mode**: sing-box TUN network isolation + cac identity protection — [PR #8](https://github.com/nmhjklnm/cac/pull/8)

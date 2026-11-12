@@ -1,0 +1,349 @@
+[
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "annotations",
+        "importPath": "__future__",
+        "description": "__future__",
+        "isExtraImport": true,
+        "detail": "__future__",
+        "documentation": {}
+    },
+    {
+        "label": "os",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "os",
+        "description": "os",
+        "detail": "os",
+        "documentation": {}
+    },
+    {
+        "label": "sys",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "sys",
+        "description": "sys",
+        "detail": "sys",
+        "documentation": {}
+    },
+    {
+        "label": "json",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "json",
+        "description": "json",
+        "detail": "json",
+        "documentation": {}
+    },
+    {
+        "label": "urllib.request",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "urllib.request",
+        "description": "urllib.request",
+        "detail": "urllib.request",
+        "documentation": {}
+    },
+    {
+        "label": "base64",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "base64",
+        "description": "base64",
+        "detail": "base64",
+        "documentation": {}
+    },
+    {
+        "label": "dataclass",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
+        "label": "field",
+        "importPath": "dataclasses",
+        "description": "dataclasses",
+        "isExtraImport": true,
+        "detail": "dataclasses",
+        "documentation": {}
+    },
+    {
+        "label": "parse_qs",
+        "importPath": "urllib.parse",
+        "description": "urllib.parse",
+        "isExtraImport": true,
+        "detail": "urllib.parse",
+        "documentation": {}
+    },
+    {
+        "label": "unquote",
+        "importPath": "urllib.parse",
+        "description": "urllib.parse",
+        "isExtraImport": true,
+        "detail": "urllib.parse",
+        "documentation": {}
+    },
+    {
+        "label": "urlparse",
+        "importPath": "urllib.parse",
+        "description": "urllib.parse",
+        "isExtraImport": true,
+        "detail": "urllib.parse",
+        "documentation": {}
+    },
+    {
+        "label": "Any",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Set",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Union",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Counter",
+        "importPath": "collections",
+        "description": "collections",
+        "isExtraImport": true,
+        "detail": "collections",
+        "documentation": {}
+    },
+    {
+        "label": "datetime",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "timezone",
+        "importPath": "datetime",
+        "description": "datetime",
+        "isExtraImport": true,
+        "detail": "datetime",
+        "documentation": {}
+    },
+    {
+        "label": "Path",
+        "importPath": "pathlib",
+        "description": "pathlib",
+        "isExtraImport": true,
+        "detail": "pathlib",
+        "documentation": {}
+    },
+    {
+        "label": "ctx",
+        "importPath": "mitmproxy",
+        "description": "mitmproxy",
+        "isExtraImport": true,
+        "detail": "mitmproxy",
+        "documentation": {}
+    },
+    {
+        "label": "http",
+        "importPath": "mitmproxy",
+        "description": "mitmproxy",
+        "isExtraImport": true,
+        "detail": "mitmproxy",
+        "documentation": {}
+    },
+    {
+        "label": "main",
+        "kind": 2,
+        "importPath": "docker.lib.config",
+        "description": "docker.lib.config",
+        "peekOfCode": "def main() -> None:\n    uri = os.environ.get(\"PROXY_URI\", \"\").strip()\n    if not uri:\n        print(\"Error: PROXY_URI is required.\", file=sys.stderr)\n        sys.exit(1)\n    proxy = parse(uri)\n    dns = os.environ.get(\"DNS_SERVER\", \"8.8.8.8\")\n    tun_addr = os.environ.get(\"TUN_ADDRESS\", \"172.19.0.1/30\")\n    tun_mtu = int(os.environ.get(\"TUN_MTU\", \"9000\"))\n    print(render_json(proxy, dns_server=dns, tun_address=tun_addr, tun_mtu=tun_mtu))",
+        "detail": "docker.lib.config",
+        "documentation": {}
+    },
+    {
+        "label": "detect",
+        "kind": 2,
+        "importPath": "docker.lib.geo",
+        "description": "docker.lib.geo",
+        "peekOfCode": "def detect() -> dict[str, str]:\n    \"\"\"Query exit IP geolocation, return timezone/locale/language info.\n    Returns dict with keys: timezone, locale, language, accept_language, country, ip\n    \"\"\"\n    try:\n        req = urllib.request.Request(\n            \"http://ip-api.com/json/?fields=status,country,countryCode,timezone,query\",\n            headers={\"User-Agent\": \"ccimage\"},\n        )\n        with urllib.request.urlopen(req, timeout=10) as resp:",
+        "detail": "docker.lib.geo",
+        "documentation": {}
+    },
+    {
+        "label": "COUNTRY_LOCALE",
+        "kind": 5,
+        "importPath": "docker.lib.geo",
+        "description": "docker.lib.geo",
+        "peekOfCode": "COUNTRY_LOCALE = {\n    \"US\": (\"en_US\", \"en-US,en;q=0.9\"),\n    \"GB\": (\"en_GB\", \"en-GB,en;q=0.9\"),\n    \"CA\": (\"en_US\", \"en-US,en;q=0.9\"),\n    \"AU\": (\"en_AU\", \"en-AU,en;q=0.9\"),\n    \"JP\": (\"ja_JP\", \"ja,en-US;q=0.9,en;q=0.8\"),\n    \"KR\": (\"ko_KR\", \"ko,en-US;q=0.9,en;q=0.8\"),\n    \"CN\": (\"zh_CN\", \"zh-CN,zh;q=0.9,en;q=0.8\"),\n    \"TW\": (\"zh_TW\", \"zh-TW,zh;q=0.9,en;q=0.8\"),\n    \"HK\": (\"zh_TW\", \"zh-HK,zh;q=0.9,en;q=0.8\"),",
+        "detail": "docker.lib.geo",
+        "documentation": {}
+    },
+    {
+        "label": "DEFAULT_LOCALE",
+        "kind": 5,
+        "importPath": "docker.lib.geo",
+        "description": "docker.lib.geo",
+        "peekOfCode": "DEFAULT_LOCALE = \"en_US\"\nDEFAULT_ACCEPT = \"en-US,en;q=0.9\"\ndef detect() -> dict[str, str]:\n    \"\"\"Query exit IP geolocation, return timezone/locale/language info.\n    Returns dict with keys: timezone, locale, language, accept_language, country, ip\n    \"\"\"\n    try:\n        req = urllib.request.Request(\n            \"http://ip-api.com/json/?fields=status,country,countryCode,timezone,query\",\n            headers={\"User-Agent\": \"ccimage\"},",
+        "detail": "docker.lib.geo",
+        "documentation": {}
+    },
+    {
+        "label": "DEFAULT_ACCEPT",
+        "kind": 5,
+        "importPath": "docker.lib.geo",
+        "description": "docker.lib.geo",
+        "peekOfCode": "DEFAULT_ACCEPT = \"en-US,en;q=0.9\"\ndef detect() -> dict[str, str]:\n    \"\"\"Query exit IP geolocation, return timezone/locale/language info.\n    Returns dict with keys: timezone, locale, language, accept_language, country, ip\n    \"\"\"\n    try:\n        req = urllib.request.Request(\n            \"http://ip-api.com/json/?fields=status,country,countryCode,timezone,query\",\n            headers={\"User-Agent\": \"ccimage\"},\n        )",
+        "detail": "docker.lib.geo",
+        "documentation": {}
+    },
+    {
+        "label": "ProxyConfig",
+        "kind": 6,
+        "importPath": "docker.lib.protocols",
+        "description": "docker.lib.protocols",
+        "peekOfCode": "class ProxyConfig:\n    type: str  # socks5 / vmess / vless / trojan / shadowsocks\n    server: str\n    port: int\n    username: str = \"\"\n    password: str = \"\"\n    uuid: str = \"\"\n    alter_id: int = 0\n    security: str = \"\"\n    method: str = \"\"",
+        "detail": "docker.lib.protocols",
+        "documentation": {}
+    },
+    {
+        "label": "parse",
+        "kind": 2,
+        "importPath": "docker.lib.protocols",
+        "description": "docker.lib.protocols",
+        "peekOfCode": "def parse(uri: str) -> ProxyConfig:\n    \"\"\"Auto-detect format and parse into ProxyConfig.\"\"\"\n    uri = uri.strip()\n    if \"://\" in uri:\n        scheme = uri.split(\"://\", 1)[0].lower()\n        parsers = {\n            \"ss\": _parse_ss,\n            \"vmess\": _parse_vmess,\n            \"vless\": _parse_vless,\n            \"trojan\": _parse_trojan,",
+        "detail": "docker.lib.protocols",
+        "documentation": {}
+    },
+    {
+        "label": "render",
+        "kind": 2,
+        "importPath": "docker.lib.singbox",
+        "description": "docker.lib.singbox",
+        "peekOfCode": "def render(\n    proxy: ProxyConfig,\n    *,\n    dns_server: str,\n    tun_address: str,\n    tun_mtu: int,\n) -> dict[str, Any]:\n    \"\"\"Build a complete sing-box config dict.\"\"\"\n    return {\n        \"log\": {\"level\": \"warn\"},",
+        "detail": "docker.lib.singbox",
+        "documentation": {}
+    },
+    {
+        "label": "render_json",
+        "kind": 2,
+        "importPath": "docker.lib.singbox",
+        "description": "docker.lib.singbox",
+        "peekOfCode": "def render_json(proxy: ProxyConfig, **kwargs: Any) -> str:\n    return json.dumps(render(proxy, **kwargs), indent=2)\ndef _dns_section(server: str) -> dict:\n    return {\n        \"servers\": [{\"tag\": \"remote-dns\", \"address\": server, \"detour\": \"proxy\"}],\n        \"final\": \"remote-dns\",\n        \"strategy\": \"ipv4_only\",\n    }\ndef _tun_inbound(address: str, mtu: int) -> dict:\n    return {",
+        "detail": "docker.lib.singbox",
+        "documentation": {}
+    },
+    {
+        "label": "DeviceFingerprintLogger",
+        "kind": 6,
+        "importPath": "mitm.scripts.log_device_fingerprint",
+        "description": "mitm.scripts.log_device_fingerprint",
+        "peekOfCode": "class DeviceFingerprintLogger:\n    def __init__(self) -> None:\n        # 报告目录优先由启动器注入；若未注入，则退回当前目录，方便独立调试。\n        report_dir = os.environ.get(\"CAC_MITM_REPORT_DIR\", os.getcwd())\n        self.report_dir = Path(report_dir).expanduser()\n        self.report_dir.mkdir(parents=True, exist_ok=True)\n        self.hits_path = self.report_dir / \"device_hits.jsonl\"\n        self.summary_path = Path(\n            os.environ.get(\n                \"CAC_MITM_SUMMARY_PATH\",",
+        "detail": "mitm.scripts.log_device_fingerprint",
+        "documentation": {}
+    },
+    {
+        "label": "utc_now",
+        "kind": 2,
+        "importPath": "mitm.scripts.log_device_fingerprint",
+        "description": "mitm.scripts.log_device_fingerprint",
+        "peekOfCode": "def utc_now() -> str:\n    return datetime.now(timezone.utc).isoformat()\nclass DeviceFingerprintLogger:\n    def __init__(self) -> None:\n        # 报告目录优先由启动器注入；若未注入，则退回当前目录，方便独立调试。\n        report_dir = os.environ.get(\"CAC_MITM_REPORT_DIR\", os.getcwd())\n        self.report_dir = Path(report_dir).expanduser()\n        self.report_dir.mkdir(parents=True, exist_ok=True)\n        self.hits_path = self.report_dir / \"device_hits.jsonl\"\n        self.summary_path = Path(",
+        "detail": "mitm.scripts.log_device_fingerprint",
+        "documentation": {}
+    },
+    {
+        "label": "SENSITIVE_HEADERS",
+        "kind": 5,
+        "importPath": "mitm.scripts.log_device_fingerprint",
+        "description": "mitm.scripts.log_device_fingerprint",
+        "peekOfCode": "SENSITIVE_HEADERS = {\n    \"authorization\",\n    \"cookie\",\n    \"proxy-authorization\",\n    \"x-api-key\",\n}\n# 为了避免日志过大，仅保留有限长度的请求体预览。\nMAX_BODY_PREVIEW = 16 * 1024\ndef utc_now() -> str:\n    return datetime.now(timezone.utc).isoformat()",
+        "detail": "mitm.scripts.log_device_fingerprint",
+        "documentation": {}
+    },
+    {
+        "label": "MAX_BODY_PREVIEW",
+        "kind": 5,
+        "importPath": "mitm.scripts.log_device_fingerprint",
+        "description": "mitm.scripts.log_device_fingerprint",
+        "peekOfCode": "MAX_BODY_PREVIEW = 16 * 1024\ndef utc_now() -> str:\n    return datetime.now(timezone.utc).isoformat()\nclass DeviceFingerprintLogger:\n    def __init__(self) -> None:\n        # 报告目录优先由启动器注入；若未注入，则退回当前目录，方便独立调试。\n        report_dir = os.environ.get(\"CAC_MITM_REPORT_DIR\", os.getcwd())\n        self.report_dir = Path(report_dir).expanduser()\n        self.report_dir.mkdir(parents=True, exist_ok=True)\n        self.hits_path = self.report_dir / \"device_hits.jsonl\"",
+        "detail": "mitm.scripts.log_device_fingerprint",
+        "documentation": {}
+    },
+    {
+        "label": "addons",
+        "kind": 5,
+        "importPath": "mitm.scripts.log_device_fingerprint",
+        "description": "mitm.scripts.log_device_fingerprint",
+        "peekOfCode": "addons = [DeviceFingerprintLogger()]",
+        "detail": "mitm.scripts.log_device_fingerprint",
+        "documentation": {}
+    }
+]

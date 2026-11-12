@@ -1,0 +1,16 @@
+# Remote server: macvlan — container bypasses host network stack entirely.
+services:
+  cac:
+    networks:
+      isolated:
+        ipv4_address: ${MACVLAN_IP:?Set MACVLAN_IP in .env}
+
+networks:
+  isolated:
+    driver: macvlan
+    driver_opts:
+      parent: ${HOST_INTERFACE:?Set HOST_INTERFACE in .env}
+    ipam:
+      config:
+        - subnet: ${MACVLAN_SUBNET:?Set MACVLAN_SUBNET in .env}
+          gateway: ${MACVLAN_GATEWAY:?Set MACVLAN_GATEWAY in .env}

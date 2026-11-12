@@ -1,0 +1,3688 @@
+#!/usr/bin/env bash
+# cac — Claude Anti-fingerprint Cloak
+# 由 build.sh 从 src/ 构建，勿直接编辑本文件
+set -euo pipefail
+
+CAC_DIR="$HOME/.cac"
+ENVS_DIR="$CAC_DIR/envs"
+VERSIONS_DIR="$CAC_DIR/versions"
+
+# ━━━ utils.sh ━━━
+# ── utils: colors, read/write, UUID, proxy parsing ───────────────────────
+
+# shellcheck disable=SC2034  # used in build-concatenated cac script
+CAC_VERSION="1.5.7"
+
+_read()   { [[ -f "$1" ]] && tr -d '[:space:]' < "$1" || echo "${2:-}"; }
+_die()    { printf '%b\n' "$(_red "error:") $*" >&2; exit 1; }
+
+# Read a value from ~/.cac/settings.json
+# Usage: _cac_setting "key" "default"
+_cac_setting() {
+    local key="$1" default="${2:-}"
+    local settings="$CAC_DIR/settings.json"
+    [[ -f "$settings" ]] || { echo "$default"; return; }
+    local val
+    val=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get(sys.argv[2],''))" "$settings" "$key" 2>/dev/null || true)
+    val="${val:-$default}"
+    # Sync hot-path keys as plain files (avoids python3 spawn in wrapper)
+    [[ "$key" == "max_sessions" ]] && echo "$val" > "$CAC_DIR/max_sessions"
+    echo "$val"
+}
+_bold()   { printf '\033[1m%s\033[0m' "$*"; }
+_green()  { printf '\033[32m%s\033[0m' "$*"; }
+_red()    { printf '\033[31m%s\033[0m' "$*"; }
+_yellow() { printf '\033[33m%s\033[0m' "$*"; }
+_cyan()   { printf '\033[36m%s\033[0m' "$*"; }
+_dim()    { printf '\033[2m%s\033[0m' "$*"; }
+_green_bold() { printf '\033[1;32m%s\033[0m' "$*"; }
+
+_detect_os() {
+    case "$(uname -s)" in
+        Darwin) echo "macos" ;;
+        Linux)  echo "linux" ;;
+        MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+        *) echo "unknown" ;;
+    esac
+}
+
+_gen_uuid() {
+    if command -v uuidgen &>/dev/null; then
+        uuidgen
+    elif [[ -f /proc/sys/kernel/random/uuid ]]; then
+        cat /proc/sys/kernel/random/uuid
+    else
+        python3 -c "import uuid; print(uuid.uuid4())" || _die "python3 required for UUID generation (install python3 or uuidgen)"
+    fi
+}
+_new_uuid()    { _gen_uuid | tr '[:lower:]' '[:upper:]'; }
+_new_user_id() { python3 -c "import os; print(os.urandom(32).hex())" || _die "python3 required"; }
+_new_machine_id() { _gen_uuid | tr -d '-' | tr '[:upper:]' '[:lower:]'; }
+_new_hostname_suffix() { _gen_uuid | tr -d '-' | tr '[:lower:]' '[:upper:]' | cut -c1-5; }
+_detect_hostname_platform() {
+    local os; os=$(_detect_os)
+    if [[ "$os" == "linux" ]]; then
+        if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ -n "${WSL_INTEROP:-}" ]] || \
+           grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null || \
+           uname -r 2>/dev/null | grep -qi microsoft; then
+            echo "windows"
+            return
+        fi
+    fi
+    echo "$os"
+}
+_new_hostname() {
+    local -a _first_names=(
+        "James" "John" "Robert" "Michael" "William" "David" "Richard" "Joseph"
+        "Thomas" "Charles" "Daniel" "Matthew" "Anthony" "Donald" "Mark" "Paul"
+        "Steven" "Andrew" "Kenneth" "Joshua" "Kevin" "Brian" "George" "Timothy"
+        "Emma" "Olivia" "Sophia" "Isabella" "Mia" "Charlotte" "Amelia" "Harper"
+        "Evelyn" "Abigail" "Emily" "Elizabeth" "Sofia" "Avery" "Ella" "Scarlett"
+        "Liam" "Noah" "Oliver" "Elijah" "Lucas" "Mason" "Ethan" "Aiden"
+        "Alex" "Ryan" "Tyler" "Jordan" "Taylor" "Morgan" "Casey" "Riley"
+    )
+    local _name="${_first_names[$((RANDOM % ${#_first_names[@]}))]}"
+    local _platform; _platform=$(_detect_hostname_platform)
+    case "$_platform" in
+        macos)
+            local -a _models=("MacBook-Pro" "MacBook-Air" "MacBook-Pro" "MacBook-Pro")
+            local _model="${_models[$((RANDOM % ${#_models[@]}))]}"
+            echo "${_name}s-${_model}.local"
+            ;;
+        windows)
+            local -a _prefixes=("DESKTOP" "LAPTOP")
+            local _prefix="${_prefixes[$((RANDOM % ${#_prefixes[@]}))]}"
+            echo "${_prefix}-$(_new_hostname_suffix)"
+            ;;
+        *)
+            local -a _devices=("desktop" "laptop" "workstation" "thinkpad")
+            local _device="${_devices[$((RANDOM % ${#_devices[@]}))]}"
+            echo "$(printf '%s' "$_name" | tr '[:upper:]' '[:lower:]')-${_device}"
+            ;;
+    esac
+}
+_new_mac() { printf '02:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)); }
+_new_git_remote() { echo "https://github.com/user-$(_gen_uuid | cut -d- -f1)/project-$(_gen_uuid | cut -d- -f2).git"; }
+_new_git_email() { echo "user-$(_gen_uuid | cut -d- -f1 | tr '[:upper:]' '[:lower:]')@users.noreply.github.com"; }
+_new_device_token() { _new_user_id; }
+
+# Get real command path (bypass shim)
+_get_real_cmd() {
+    local cmd="$1"
+    PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
+        command -v "$cmd" 2>/dev/null || true
+}
+
+# host:port:user:pass → http://user:pass@host:port
+# socks5://host:port:user:pass → socks5://user:pass@host:port
+# or pass a standard URL directly (http://, https://, socks5://)
+_parse_proxy() {
+    local raw="$1"
+    local proto rest
+
+    [[ -n "$raw" ]] || return 0
+
+    # Normalize protocol-prefixed legacy form:
+    #   socks5://host:port:user:pass -> socks5://user:pass@host:port
+    if [[ "$raw" =~ ^(http|https|socks5):// ]]; then
+        proto="${raw%%://*}"
+        rest="${raw#*://}"
+        if [[ "$rest" != *"@"* ]] && [[ "$rest" == *:*:* ]]; then
+            local host port user pass
+            host=$(echo "$rest" | cut -d: -f1)
+            port=$(echo "$rest" | cut -d: -f2)
+            user=$(echo "$rest" | cut -d: -f3)
+            pass=$(echo "$rest" | cut -d: -f4-)
+            if [[ -n "$host" ]] && [[ -n "$port" ]] && [[ -n "$user" ]]; then
+                echo "${proto}://${user}:${pass}@${host}:${port}"
+                return
+            fi
+        fi
+        echo "$raw"
+        return
+    fi
+    # Parse host:port:user:pass format
+    local host port user pass
+    host=$(echo "$raw" | cut -d: -f1)
+    port=$(echo "$raw" | cut -d: -f2)
+    user=$(echo "$raw" | cut -d: -f3)
+    pass=$(echo "$raw" | cut -d: -f4-)
+    if [[ -z "$user" ]]; then
+        echo "http://${host}:${port}"
+    else
+        echo "http://${user}:${pass}@${host}:${port}"
+    fi
+}
+
+# curl-based health probes should use remote DNS for SOCKS5.
+# Otherwise local DNS pollution can resolve probe domains to sinkhole/test
+# addresses, causing false negatives even when the proxy itself is healthy.
+_curl_proxy_url() {
+    local normalized
+    normalized=$(_parse_proxy "$1")
+    if [[ "$normalized" =~ ^socks5:// ]]; then
+        echo "socks5h://${normalized#socks5://}"
+    else
+        echo "$normalized"
+    fi
+}
+
+# socks5://user:pass@host:port → host:port
+_proxy_host_port() {
+    local normalized
+    normalized=$(_parse_proxy "$1")
+    echo "$normalized" | sed 's|.*@||' | sed 's|.*://||'
+}
+
+_proxy_reachable() {
+    local hp host port
+    hp=$(_proxy_host_port "$1")
+    host=$(echo "$hp" | cut -d: -f1)
+    port=$(echo "$hp" | cut -d: -f2)
+    (echo >/dev/tcp/"$host"/"$port") 2>/dev/null
+}
+
+# Auto-detect proxy protocol (when user didn't specify http/socks5/https)
+# Usage: _auto_detect_proxy "host:port:user:pass" → returns a working full URL
+_auto_detect_proxy() {
+    local raw="$1"
+    # Has protocol prefix, return as-is
+    if [[ "$raw" =~ ^(http|https|socks5):// ]]; then
+        echo "$raw"
+        return 0
+    fi
+
+    local host port user pass auth_part
+    host=$(echo "$raw" | cut -d: -f1)
+    port=$(echo "$raw" | cut -d: -f2)
+    user=$(echo "$raw" | cut -d: -f3)
+    pass=$(echo "$raw" | cut -d: -f4-)
+    if [[ -n "$user" ]]; then
+        auth_part="${user}:${pass}@"
+    else
+        auth_part=""
+    fi
+
+    # Try in order: http → socks5 → https
+    local proto try_url
+    for proto in http socks5 https; do
+        try_url="${proto}://${auth_part}${host}:${port}"
+        if curl --proxy "$try_url" -fsSL --connect-timeout 8 -o /dev/null https://api.ipify.org 2>/dev/null; then
+            echo "$try_url"
+            return 0
+        fi
+    done
+
+    # All failed, fallback to http
+    if [[ -n "$user" ]]; then
+        echo "http://${auth_part}${host}:${port}"
+    else
+        echo "http://${host}:${port}"
+    fi
+    return 1
+}
+
+_current_env()  { _read "$CAC_DIR/current"; }
+_env_dir()      { echo "$ENVS_DIR/$1"; }
+
+# ── Version management helpers ────────────────────────────────────
+
+# Find the highest installed version by semver sort
+_update_latest() {
+    local highest=""
+    for d in "$VERSIONS_DIR"/*/; do
+        [[ -d "$d" ]] || continue
+        local v
+        v=$(basename "$d")
+        [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] || continue
+        if [[ -z "$highest" ]] || [[ "$(printf '%s\n%s\n' "$highest" "$v" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)" == "$v" ]]; then
+            highest="$v"
+        fi
+    done
+    if [[ -n "$highest" ]]; then
+        echo "$highest" > "$VERSIONS_DIR/.latest"
+    else
+        rm -f "$VERSIONS_DIR/.latest"
+    fi
+}
+
+_resolve_version() {
+    local v="$1"
+    if [[ "$v" == "latest" || -z "$v" ]]; then
+        _read "$VERSIONS_DIR/.latest" ""
+    else
+        echo "$v"
+    fi
+}
+
+_version_binary() {
+    echo "$VERSIONS_DIR/$1/claude"
+}
+
+_detect_platform() {
+    local os arch platform
+    case "$(uname -s)" in
+        Darwin) os="darwin" ;;
+        Linux)  os="linux" ;;
+        *) echo "unsupported" ; return 1 ;;
+    esac
+    case "$(uname -m)" in
+        x86_64|amd64)   arch="x64" ;;
+        arm64|aarch64)  arch="arm64" ;;
+        *) echo "unsupported" ; return 1 ;;
+    esac
+    if [[ "$os" == "darwin" && "$arch" == "x64" ]]; then
+        [[ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" == "1" ]] && arch="arm64"
+    fi
+    if [[ "$os" == "linux" ]]; then
+        if [ -f /lib/libc.musl-x86_64.so.1 ] || [ -f /lib/libc.musl-aarch64.so.1 ] || ldd /bin/ls 2>&1 | grep -q musl; then
+            platform="linux-${arch}-musl"
+        else
+            platform="linux-${arch}"
+        fi
+    else
+        platform="${os}-${arch}"
+    fi
+    echo "$platform"
+}
+
+_sha256() {
+    case "$(uname -s)" in
+        Darwin) shasum -a 256 "$1" | cut -d' ' -f1 ;;
+        *)      sha256sum "$1" | cut -d' ' -f1 ;;
+    esac
+}
+
+# Ensure a Claude Code version is installed (just-in-time, like uv)
+# Usage: _ensure_version_installed <version>
+# Resolves "latest", auto-downloads if missing, writes .latest
+_ensure_version_installed() {
+    local ver="$1"
+    ver=$(_resolve_version "$ver")
+    if [[ -z "$ver" ]]; then
+        printf "Fetching latest version ... " >&2
+        ver=$(_fetch_latest_version) || _die "failed to fetch latest version"
+        echo "$(_cyan "$ver")" >&2
+    fi
+    if [[ ! -x "$(_version_binary "$ver")" ]]; then
+        echo "Version $(_cyan "$ver") not installed, downloading ..." >&2
+        mkdir -p "$VERSIONS_DIR"
+        _download_version "$ver" >&2 || return 1
+        _update_latest
+        echo >&2
+    fi
+    echo "$ver"
+}
+
+# Count environments using a specific version
+_envs_using_version() {
+    local ver="$1" count=0
+    for env_dir in "$ENVS_DIR"/*/; do
+        [[ -d "$env_dir" ]] || continue
+        [[ "$(_read "$env_dir/version" "")" == "$ver" ]] && (( count++ )) || true
+    done
+    echo "$count"
+}
+
+# Elapsed time helper: call _timer_start, then _timer_elapsed
+_time_now() {
+    local now
+    now=$(date +%s%N 2>/dev/null || true)
+    if [[ "$now" =~ ^[0-9]{11,}$ ]]; then
+        echo "$now"
+    else
+        date +%s
+    fi
+}
+
+_timer_start() { _TIMER_START=$(_time_now); }
+_timer_elapsed() {
+    local now; now=$(_time_now)
+    if [[ "$now" =~ ^[0-9]{11,}$ && "${_TIMER_START:-}" =~ ^[0-9]{11,}$ ]]; then
+        # nanoseconds available
+        local ms=$(( (now - _TIMER_START) / 1000000 ))
+        if [[ $ms -ge 1000 ]]; then
+            printf '%d.%ds' $((ms/1000)) $(( (ms%1000)/100 ))
+        else
+            printf '%dms' "$ms"
+        fi
+    else
+        printf '%ds' $(( now - _TIMER_START ))
+    fi
+}
+
+_require_setup() {
+    _ensure_initialized
+}
+
+_require_env() {
+    [[ -d "$ENVS_DIR/$1" ]] || {
+        echo "error: environment '$1' not found, use 'cac ls' to list" >&2; exit 1
+    }
+}
+
+_find_real_claude() {
+    PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/bin" | tr '\n' ':') \
+        command -v claude 2>/dev/null || true
+}
+
+_detect_rc_file() {
+    local shell_name
+    shell_name=$(basename "${SHELL:-/bin/bash}")
+    case "$shell_name" in
+        fish)
+            echo "$HOME/.config/fish/config.fish"
+            return
+            ;;
+        zsh)
+            echo "$HOME/.zshrc"
+            return
+            ;;
+        bash)
+            [[ -f "$HOME/.bashrc" ]] && { echo "$HOME/.bashrc"; return; }
+            [[ -f "$HOME/.bash_profile" ]] && { echo "$HOME/.bash_profile"; return; }
+            echo "$HOME/.bashrc"
+            return
+            ;;
+    esac
+    # Fallback: try common rc files
+    [[ -f "$HOME/.bashrc" ]] && { echo "$HOME/.bashrc"; return; }
+    [[ -f "$HOME/.zshrc" ]] && { echo "$HOME/.zshrc"; return; }
+    [[ -f "$HOME/.bash_profile" ]] && { echo "$HOME/.bash_profile"; return; }
+    [[ -f "$HOME/.config/fish/config.fish" ]] && { echo "$HOME/.config/fish/config.fish"; return; }
+    echo "$HOME/.bashrc"
+}
+
+_is_fish_rc() {
+    [[ "$1" == */.config/fish/config.fish ]]
+}
+
+_install_method() {
+    local self="$0"
+    local resolved="$self"
+    if [[ -L "$self" ]]; then
+        resolved=$(readlink "$self" 2>/dev/null || echo "$self")
+        # Handle relative symlinks
+        if [[ "$resolved" != /* ]]; then
+            resolved="$(dirname "$self")/$resolved"
+        fi
+    fi
+    if [[ "$resolved" == *"node_modules"* ]] || [[ -f "$(dirname "$resolved")/package.json" ]]; then
+        echo "npm"
+    else
+        echo "bash"
+    fi
+}
+
+_write_path_to_rc() {
+    local rc_file="${1:-$(_detect_rc_file)}"
+    if [[ -z "$rc_file" ]]; then
+        echo "  $(_yellow '⚠') shell config file not found, please add PATH manually:"
+        echo '    export PATH="$HOME/bin:$PATH"'
+        echo '    export PATH="$HOME/.cac/bin:$PATH"'
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$rc_file")"
+    [[ -f "$rc_file" ]] || touch "$rc_file"
+
+    if grep -q '# >>> cac >>>' "$rc_file" 2>/dev/null; then
+        echo "  ✓ PATH already exists in $rc_file, skipping"
+        return 0
+    fi
+
+    # Compat: remove old format if present
+    if ! _is_fish_rc "$rc_file" && grep -q '\.cac/bin' "$rc_file" 2>/dev/null; then
+        _remove_path_from_rc "$rc_file"
+    fi
+
+    if _is_fish_rc "$rc_file"; then
+        cat >> "$rc_file" << 'CACEOF'
+
+# >>> cac — Claude Code Cloak >>>
+fish_add_path --move --path "$HOME/.cac/bin" >/dev/null 2>&1
+function cac
+    command cac $argv
+    set -l _rc $status
+    fish_add_path --move --path "$HOME/.cac/bin" >/dev/null 2>&1
+    return $_rc
+end
+# <<< cac — Claude Code Cloak <<<
+CACEOF
+        echo "  ✓ PATH written to $rc_file"
+        return 0
+    fi
+
+    cat >> "$rc_file" << 'CACEOF'
+
+# >>> cac — Claude Code Cloak >>>
+PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.cac/bin' | tr '\n' ':' | sed 's/:$//')
+export PATH="$HOME/.cac/bin:$PATH"
+cac() {
+    local _cac_bin
+    _cac_bin=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.cac/bin' | tr '\n' ':') command -v cac 2>/dev/null)
+    [[ -z "$_cac_bin" ]] && { echo "[cac] error: cac binary not found in PATH" >&2; return 1; }
+    command "$_cac_bin" "$@"
+    local _rc=$?
+    PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.cac/bin' | tr '\n' ':' | sed 's/:$//')
+    export PATH="$HOME/.cac/bin:$PATH"
+    return $_rc
+}
+# <<< cac — Claude Code Cloak <<<
+CACEOF
+    echo "  ✓ PATH written to $rc_file"
+    return 0
+}
+
+_remove_path_from_rc() {
+    local rc_file="${1:-$(_detect_rc_file)}"
+    [[ -z "$rc_file" ]] && return 0
+
+    # Remove marked block (new format)
+    if grep -q '# >>> cac' "$rc_file" 2>/dev/null; then
+        local tmp="${rc_file}.cac-tmp"
+        awk '/# >>> cac/{skip=1; next} /# <<< cac/{skip=0; next} !skip' "$rc_file" > "$tmp"
+        cat -s "$tmp" > "$rc_file"
+        rm -f "$tmp"
+        echo "  ✓ Removed PATH config from $rc_file"
+        return 0
+    fi
+
+    # Compat: old format
+    if grep -qE '(\.cac/bin|# cac —)' "$rc_file" 2>/dev/null; then
+        local tmp="${rc_file}.cac-tmp"
+        grep -vE '(# cac — Claude Code Cloak|\.cac/bin|# cac 命令|# claude wrapper)' "$rc_file" > "$tmp" || true
+        cat -s "$tmp" > "$rc_file"
+        rm -f "$tmp"
+        echo "  ✓ Removed PATH config from $rc_file (old format)"
+        return 0
+    fi
+}
+
+_update_claude_json_user_id() {
+    local user_id="$1"
+    local config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    local claude_json="$config_dir/.claude.json"
+    [[ -f "$claude_json" ]] || claude_json="$HOME/.claude.json"
+    [[ -f "$claude_json" ]] || return 0
+
+    # Find firstStartTime from current env
+    local fst=""
+    local current_env; current_env=$(_current_env)
+    if [[ -n "$current_env" ]] && [[ -f "$ENVS_DIR/$current_env/first_start_time" ]]; then
+        fst=$(tr -d '[:space:]' < "$ENVS_DIR/$current_env/first_start_time")
+    fi
+
+    python3 - "$claude_json" "$user_id" "$fst" << 'PYEOF'
+import json, sys, uuid
+fpath, uid, fst = sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else ""
+with open(fpath) as f:
+    d = json.load(f)
+d['userID'] = uid
+d['anonymousId'] = 'claudecode.v1.' + str(uuid.uuid4())
+d.pop('numStartups', None)
+if fst:
+    d['firstStartTime'] = fst
+else:
+    d.pop('firstStartTime', None)
+d.pop('cachedGrowthBookFeatures', None)
+d.pop('cachedStatsigGates', None)
+with open(fpath, 'w') as f:
+    json.dump(d, f, indent=2, ensure_ascii=False)
+PYEOF
+    [[ $? -eq 0 ]] || echo "warning: failed to update claude.json userID" >&2
+}
+
+# ━━━ dns_block.sh ━━━
+# ── DNS interception & telemetry domain blocking ─────────────────────────────────────
+
+# telemetry domains to block
+TELEMETRY_DOMAINS=(
+    "statsig.anthropic.com"
+    "sentry.io"
+    "o1137031.ingest.sentry.io"
+    "cdn.growthbook.io"
+    "http-intake.logs.us5.datadoghq.com"
+)
+
+# write HOSTALIASES file (fallback layer: gethostbyname-level blocking)
+# HOSTALIASES format is hostname-to-hostname mapping (not IP)
+_write_blocked_hosts() {
+    local hosts_file="$CAC_DIR/blocked_hosts"
+    {
+        echo "# cac — blocked telemetry domains"
+        echo "# Generated by cac, used via HOSTALIASES"
+        for domain in "${TELEMETRY_DOMAINS[@]}"; do
+            printf '%s\tlocalhost\n' "$domain"
+        done
+    } > "$hosts_file"
+}
+
+# write Node.js DNS guard module (core layer: dns.lookup / dns.resolve level blocking + mTLS)
+_write_dns_guard_js() {
+    local guard_file="$CAC_DIR/cac-dns-guard.js"
+    cat > "$guard_file" << 'DNSGUARD_EOF'
+// ═══════════════════════════════════════════════════════════════
+// cac-dns-guard.js
+// DNS-level telemetry domain blocking | mTLS certificate injection | fetch leak prevention
+// Injected into Claude Code process via NODE_OPTIONS="--require <this>"
+// ═══════════════════════════════════════════════════════════════
+'use strict';
+
+var dns  = require('dns');
+var net  = require('net');
+var tls  = require('tls');
+var http = require('http');
+var https = require('https');
+var fs   = require('fs');
+
+// ─── 1. DNS-level telemetry domain blocking ──────────────────────────────────
+
+var BLOCKED_DOMAINS = new Set([
+    'statsig.anthropic.com',
+    'sentry.io',
+    'o1137031.ingest.sentry.io',
+    'cdn.growthbook.io',
+    'http-intake.logs.us5.datadoghq.com',
+]);
+
+/**
+ * Check if domain is in block list (including subdomain matching)
+ * e.g. "foo.sentry.io" matches "sentry.io"
+ */
+function isDomainBlocked(hostname) {
+    if (!hostname) return false;
+    var h = hostname.toLowerCase().replace(/\.$/,'');
+    if (BLOCKED_DOMAINS.has(h)) return true;
+    var parts = h.split('.');
+    for (var i = 1; i < parts.length - 1; i++) {
+        if (BLOCKED_DOMAINS.has(parts.slice(i).join('.'))) return true;
+    }
+    return false;
+}
+
+function makeBlockedError(hostname, syscall) {
+    var msg = 'connect ECONNREFUSED (blocked by cac): ' + hostname;
+    var err = new Error(msg);
+    err.code     = 'ECONNREFUSED';
+    err.errno    = -111;
+    err.hostname = hostname;
+    err.syscall  = syscall || 'connect';
+    return err;
+}
+
+// ── 1a. intercept dns.lookup ──
+var _origLookup = dns.lookup;
+dns.lookup = function cacLookup(hostname, options, callback) {
+    if (typeof options === 'function') { callback = options; options = {}; }
+    if (isDomainBlocked(hostname)) {
+        var err = makeBlockedError(hostname, 'getaddrinfo');
+        if (typeof callback === 'function') process.nextTick(function() { callback(err); });
+        return {};
+    }
+    return _origLookup.call(dns, hostname, options, callback);
+};
+
+// ── 1b. intercept dns.resolve / resolve4 / resolve6 ──
+['resolve','resolve4','resolve6'].forEach(function(method) {
+    var orig = dns[method];
+    if (!orig) return;
+    dns[method] = function(hostname) {
+        var args = Array.prototype.slice.call(arguments);
+        var cb = args[args.length - 1];
+        if (isDomainBlocked(hostname)) {
+            var err = makeBlockedError(hostname, 'query');
+            if (typeof cb === 'function') process.nextTick(function() { cb(err); });
+            return;
+        }
+        return orig.apply(dns, args);
+    };
+});
+
+// ── 1c. intercept dns.promises ──
+if (dns.promises) {
+    var _origPLookup = dns.promises.lookup;
+    if (_origPLookup) {
+        dns.promises.lookup = function cacPromiseLookup(hostname, options) {
+            if (isDomainBlocked(hostname)) return Promise.reject(makeBlockedError(hostname, 'getaddrinfo'));
+            return _origPLookup.call(dns.promises, hostname, options);
+        };
+    }
+    ['resolve','resolve4','resolve6'].forEach(function(method) {
+        var orig = dns.promises[method];
+        if (!orig) return;
+        dns.promises[method] = function(hostname) {
+            if (isDomainBlocked(hostname)) return Promise.reject(makeBlockedError(hostname, 'query'));
+            return orig.apply(dns.promises, arguments);
+        };
+    });
+}
+
+// ── 1d. network layer safety net: intercept net.connect to telemetry domains ──
+var _origNetConnect    = net.connect;
+var _origNetCreateConn = net.createConnection;
+
+function getHostFromArgs(args) {
+    if (typeof args[0] === 'object') return args[0].host || args[0].hostname || '';
+    return '';
+}
+
+function makeBlockedSocket(host) {
+    var sock = new net.Socket();
+    var err = makeBlockedError(host, 'connect');
+    process.nextTick(function() { sock.destroy(err); });
+    return sock;
+}
+
+net.connect = function cacNetConnect() {
+    var host = getHostFromArgs(arguments);
+    if (isDomainBlocked(host)) return makeBlockedSocket(host);
+    return _origNetConnect.apply(net, arguments);
+};
+net.createConnection = function cacNetCreateConnection() {
+    var host = getHostFromArgs(arguments);
+    if (isDomainBlocked(host)) return makeBlockedSocket(host);
+    return _origNetCreateConn.apply(net, arguments);
+};
+
+
+// ─── 2. mTLS certificate injection ──────────────────────────────────
+
+var mtlsCert = process.env.CAC_MTLS_CERT;
+var mtlsKey  = process.env.CAC_MTLS_KEY;
+var mtlsCa   = process.env.CAC_MTLS_CA;
+var proxyHostPort = process.env.CAC_PROXY_HOST || '';
+
+if (mtlsCert && mtlsKey) {
+    var certData, keyData, caData;
+    try {
+        certData = fs.readFileSync(mtlsCert);
+        keyData  = fs.readFileSync(mtlsKey);
+        if (mtlsCa) caData = fs.readFileSync(mtlsCa);
+    } catch(e) {
+        certData = null; keyData = null;
+    }
+
+    if (certData && keyData) {
+        // inject mTLS cert only for proxy connections
+        var proxyHost = proxyHostPort.split(':')[0];
+        var proxyPort = parseInt(proxyHostPort.split(':')[1], 10) || 0;
+
+        // 2a. intercept tls.connect, inject client cert for proxy connections
+        var _origTlsConnect = tls.connect;
+        tls.connect = function cacTlsConnect() {
+            // normalize parameters: tls.connect(options[, cb]) or tls.connect(port[, host][, options][, cb])
+            var args = Array.prototype.slice.call(arguments);
+            var options, callback;
+
+            if (typeof args[0] === 'object') {
+                options = args[0];
+                callback = (typeof args[1] === 'function') ? args[1] : undefined;
+            } else {
+                // tls.connect(port, host, options, cb) form
+                var port = args[0];
+                var host = (typeof args[1] === 'string') ? args[1] : 'localhost';
+                var optIdx = (typeof args[1] === 'string') ? 2 : 1;
+                options = (typeof args[optIdx] === 'object') ? args[optIdx] : {};
+                options.port = port;
+                options.host = host;
+                callback = args[args.length - 1];
+                if (typeof callback !== 'function') callback = undefined;
+            }
+
+            // inject only for proxy connections (exact host:port match)
+            var targetHost = options.host || options.hostname || '';
+            var targetPort = options.port || 0;
+            if (proxyHost && targetHost === proxyHost &&
+                (proxyPort === 0 || targetPort === proxyPort)) {
+                if (!options.cert) {
+                    options.cert = certData;
+                    options.key  = keyData;
+                    if (caData) {
+                        options.ca = options.ca
+                            ? [].concat(options.ca, caData)
+                            : [caData];
+                    }
+                }
+            }
+
+            if (callback) return _origTlsConnect.call(tls, options, callback);
+            return _origTlsConnect.call(tls, options);
+        };
+
+        // 2b. inject CA into https.globalAgent (trust CA only, no client private key)
+        if (caData && https.globalAgent && https.globalAgent.options) {
+            https.globalAgent.options.ca = https.globalAgent.options.ca
+                ? [].concat(https.globalAgent.options.ca, caData)
+                : [caData];
+        }
+    }
+}
+
+
+// ─── 3. fetch telemetry interception patch ──────────────────────────────────
+// Wrap native fetch to block telemetry domains by URL check
+// (do NOT replace with node-fetch — its Response.body lacks ReadableStream.cancel(),
+//  which breaks Bun-based Claude Code streaming)
+
+(function patchFetch() {
+    if (typeof globalThis === 'undefined' || typeof globalThis.fetch !== 'function') return;
+
+    var _origFetch = globalThis.fetch;
+    globalThis.fetch = function cacFetch(input, init) {
+        var hostname;
+        try {
+            var urlStr = typeof input === 'string' ? input :
+                         (input && input.url) ? input.url : '';
+            if (urlStr) hostname = new URL(urlStr).hostname;
+        } catch(e) { /* ignore */ }
+
+        if (hostname && isDomainBlocked(hostname)) {
+            return Promise.reject(makeBlockedError(hostname, 'fetch'));
+        }
+        return _origFetch(input, init);
+    };
+})();
+
+
+// ─── 4. health check bypass (in-process interception, URL-specific) ────────────────
+// Claude Code pings https://api.anthropic.com/api/hello on startup
+// Cloudflare blocks Node.js TLS fingerprint (JA3/JA4) -> 403
+// Solution: intercept this request at Node.js layer, return 200 directly, no network traffic
+// Only intercepts health check, does not affect OAuth/API or other requests
+
+function isHealthCheck(url) {
+    if (!url) return false;
+    // match https://api.anthropic.com/api/hello or variants with query params
+    return /^https?:\/\/api\.anthropic\.com\/api\/hello/.test(url);
+}
+
+function makeHealthResponse(callback) {
+    var EventEmitter = require('events');
+    var body = '{"message":"hello"}';
+
+    // Fake IncomingMessage
+    var res = new EventEmitter();
+    res.statusCode = 200;
+    res.headers = { 'content-type': 'application/json' };
+    res.setEncoding = function() { return res; };
+
+    // Callback first (so caller attaches handlers), then emit data/end
+    if (typeof callback === 'function') {
+        process.nextTick(function() {
+            callback(res);
+            process.nextTick(function() {
+                res.emit('data', body);
+                res.emit('end');
+            });
+        });
+    } else {
+        process.nextTick(function() {
+            res.emit('data', body);
+            res.emit('end');
+        });
+    }
+
+    // Fake ClientRequest (no-op)
+    var req = new EventEmitter();
+    req.end = function() { return req; };
+    req.write = function() { return true; };
+    req.destroy = function() {};
+    req.setTimeout = function() { return req; };
+    req.on = function(ev, fn) { EventEmitter.prototype.on.call(req, ev, fn); return req; };
+    return req;
+}
+
+// 4a. intercept https.get / https.request
+var _origHttpsRequest = https.request;
+var _origHttpsGet = https.get;
+
+https.request = function cacHttpsRequest(urlOrOpts, optsOrCb, cb) {
+    var url = '';
+    if (typeof urlOrOpts === 'string') {
+        url = urlOrOpts;
+    } else if (urlOrOpts && typeof urlOrOpts === 'object' && urlOrOpts.href) {
+        url = urlOrOpts.href;
+    } else if (urlOrOpts && typeof urlOrOpts === 'object') {
+        var proto = urlOrOpts.protocol || 'https:';
+        var host = urlOrOpts.hostname || urlOrOpts.host || '';
+        var path = urlOrOpts.path || '/';
+        url = proto + '//' + host + path;
+    }
+    var callback = typeof optsOrCb === 'function' ? optsOrCb : cb;
+    if (isHealthCheck(url)) return makeHealthResponse(callback);
+    return _origHttpsRequest.apply(https, arguments);
+};
+
+https.get = function cacHttpsGet(urlOrOpts, optsOrCb, cb) {
+    var url = '';
+    if (typeof urlOrOpts === 'string') {
+        url = urlOrOpts;
+    } else if (urlOrOpts && typeof urlOrOpts === 'object' && urlOrOpts.href) {
+        url = urlOrOpts.href;
+    } else if (urlOrOpts && typeof urlOrOpts === 'object') {
+        var proto = urlOrOpts.protocol || 'https:';
+        var host = urlOrOpts.hostname || urlOrOpts.host || '';
+        var path = urlOrOpts.path || '/';
+        url = proto + '//' + host + path;
+    }
+    var callback = typeof optsOrCb === 'function' ? optsOrCb : cb;
+    if (isHealthCheck(url)) return makeHealthResponse(callback);
+    return _origHttpsGet.apply(https, arguments);
+};
+
+// 4b. intercept fetch (undici bypasses https module)
+(function patchHealthFetch() {
+    if (typeof globalThis === 'undefined' || typeof globalThis.fetch !== 'function') return;
+    var _prevFetch = globalThis.fetch;
+    globalThis.fetch = function cacHealthFetch(input, init) {
+        var url = '';
+        try {
+            url = typeof input === 'string' ? input : (input && input.url) ? input.url : '';
+        } catch(e) {}
+        if (isHealthCheck(url)) {
+            return Promise.resolve(new Response('{"message":"hello"}', {
+                status: 200,
+                headers: { 'content-type': 'application/json' }
+            }));
+        }
+        return _prevFetch(input, init);
+    };
+})();
+DNSGUARD_EOF
+    chmod 644 "$guard_file"
+}
+
+# verify DNS blocking is active
+_check_dns_block() {
+    local domain="${1:-statsig.anthropic.com}"
+    local guard_file="$CAC_DIR/cac-dns-guard.js"
+
+    if [[ ! -f "$guard_file" ]]; then
+        echo "$(_red "✗") DNS guard module not found"
+        return 1
+    fi
+
+    local result
+    result=$(node -e '
+        require(process.argv[1]);
+        var dns = require("dns");
+        dns.lookup(process.argv[2], function(err) {
+            process.stdout.write(err && (err.code === "ECONNREFUSED" || err.code === "ENOTFOUND") ? "BLOCKED" : "OPEN");
+        });
+    ' "$guard_file" "$domain" 2>/dev/null || echo "ERROR")
+
+    if [[ "$result" == "BLOCKED" ]]; then
+        echo "$(_green "✓") $domain blocked"
+        return 0
+    else
+        echo "$(_red "✗") $domain not blocked ($result)"
+        return 1
+    fi
+}
+
+# ━━━ mtls.sh ━━━
+# ── mTLS client certificate management ─────────────────────────────────────────
+
+# generate self-signed CA (called during setup, generated only once)
+_generate_ca_cert() {
+    local ca_dir="$CAC_DIR/ca"
+    local ca_key="$ca_dir/ca_key.pem"
+    local ca_cert="$ca_dir/ca_cert.pem"
+
+    if [[ -f "$ca_cert" ]] && [[ -f "$ca_key" ]]; then
+        echo "  CA cert exists, skipping"
+        return 0
+    fi
+
+    mkdir -p "$ca_dir"
+
+    # generate CA private key (4096-bit RSA)
+    openssl genrsa -out "$ca_key" 4096 2>/dev/null || {
+        echo "error: failed to generate CA private key" >&2; return 1
+    }
+    chmod 600 "$ca_key"
+
+    # generate self-signed CA cert (valid for 10 years)
+    openssl req -new -x509 \
+        -key "$ca_key" \
+        -out "$ca_cert" \
+        -days 3650 \
+        -subj "/CN=cac-privacy-ca/O=cac/OU=mtls" \
+        -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" \
+        2>/dev/null || {
+        echo "error: failed to generate CA cert" >&2; return 1
+    }
+    chmod 644 "$ca_cert"
+}
+
+# generate client cert for environment (called during cac add)
+_generate_client_cert() {
+    local name="$1"
+    local env_dir="$ENVS_DIR/$name"
+    local ca_key="$CAC_DIR/ca/ca_key.pem"
+    local ca_cert="$CAC_DIR/ca/ca_cert.pem"
+
+    if [[ ! -f "$ca_key" ]] || [[ ! -f "$ca_cert" ]]; then
+        echo "  warning: CA cert not found, skipping client cert generation" >&2
+        return 1
+    fi
+
+    local client_key="$env_dir/client_key.pem"
+    local client_csr="$env_dir/client_csr.pem"
+    local client_cert="$env_dir/client_cert.pem"
+
+    # generate client private key (2048-bit RSA)
+    openssl genrsa -out "$client_key" 2048 2>/dev/null || {
+        echo "error: failed to generate client private key" >&2; return 1
+    }
+    chmod 600 "$client_key"
+
+    # generate CSR
+    openssl req -new \
+        -key "$client_key" \
+        -out "$client_csr" \
+        -subj "/CN=cac-client-${name}/O=cac/OU=env-${name}" \
+        2>/dev/null || {
+        echo "error: failed to generate CSR" >&2; return 1
+    }
+
+    # sign client cert with CA (valid for 1 year)
+    openssl x509 -req \
+        -in "$client_csr" \
+        -CA "$ca_cert" \
+        -CAkey "$ca_key" \
+        -CAcreateserial \
+        -out "$client_cert" \
+        -days 365 \
+        -extfile <(printf "keyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth") \
+        2>/dev/null || {
+        echo "error: failed to sign client cert" >&2; return 1
+    }
+    chmod 644 "$client_cert"
+
+    # cleanup CSR (no longer needed)
+    rm -f "$client_csr"
+}
+
+# verify mTLS certificate status
+_check_mtls() {
+    local env_dir="$1"
+    local ca_cert="$CAC_DIR/ca/ca_cert.pem"
+    local client_cert="$env_dir/client_cert.pem"
+    local client_key="$env_dir/client_key.pem"
+
+    # check CA
+    if [[ ! -f "$ca_cert" ]]; then
+        echo "$(_red "✗") CA cert not found"
+        return 1
+    fi
+
+    # check client cert
+    if [[ ! -f "$client_cert" ]] || [[ ! -f "$client_key" ]]; then
+        echo "$(_yellow "⚠") client cert not found"
+        return 1
+    fi
+
+    # verify certificate chain
+    if openssl verify -CAfile "$ca_cert" "$client_cert" >/dev/null 2>&1; then
+        # check certificate expiry
+        local expiry
+        expiry=$(openssl x509 -in "$client_cert" -noout -enddate 2>/dev/null | cut -d= -f2 || true)
+        local cn
+        cn=$(openssl x509 -in "$client_cert" -noout -subject 2>/dev/null | sed 's/.*CN *= *//' || true)
+        echo "$(_green "✓") mTLS certificate valid (CN=$cn, expires: $expiry)"
+        return 0
+    else
+        echo "$(_red "✗") certificate chain verification failed"
+        return 1
+    fi
+}
+
+# ━━━ templates.sh ━━━
+# ── templates: wrapper, shim, env init ──────────────────
+
+# write statusline-command.sh to env .claude dir
+_write_statusline_script() {
+    local config_dir="$1"
+    cat > "$config_dir/statusline-command.sh" << 'STATUSLINE_EOF'
+#!/usr/bin/env bash
+input=$(cat)
+
+model=$(echo "$input" | jq -r '.model.display_name // empty')
+cwd=$(echo "$input" | jq -r '.cwd // empty')
+version=$(echo "$input" | jq -r '.version // empty')
+session_name=$(echo "$input" | jq -r '.session_name // empty')
+
+used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+ctx_size=$(echo "$input" | jq -r '.context_window.context_window_size // empty')
+input_tokens=$(echo "$input" | jq -r '.context_window.current_usage.input_tokens // empty')
+
+five_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
+week_pct=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
+five_reset=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
+
+worktree_name=$(echo "$input" | jq -r '.worktree.name // empty')
+worktree_branch=$(echo "$input" | jq -r '.worktree.branch // empty')
+
+reset='\033[0m'; bold='\033[1m'; dim='\033[2m'
+cyan='\033[36m'; yellow='\033[33m'; green='\033[32m'; red='\033[31m'
+magenta='\033[35m'; blue='\033[34m'
+
+parts=()
+
+[ -n "$model" ] && parts+=("$(printf "${cyan}${bold}%s${reset}" "$model")")
+[ -n "$version" ] && parts+=("$(printf "${dim}v%s${reset}" "$version")")
+[ -n "$session_name" ] && parts+=("$(printf "${magenta}[%s]${reset}" "$session_name")")
+
+if [ -n "$cwd" ]; then
+  short_cwd="${cwd/#$HOME/~}"
+  parts+=("$(printf "${blue}%s${reset}" "$short_cwd")")
+fi
+
+if [ -n "$used_pct" ] && [ -n "$ctx_size" ]; then
+  ctx_int=$(printf "%.0f" "$used_pct")
+  if [ "$ctx_int" -ge 80 ]; then ctx_color="$red"
+  elif [ "$ctx_int" -ge 50 ]; then ctx_color="$yellow"
+  else ctx_color="$green"; fi
+  ctx_k=$(echo "$ctx_size" | awk '{printf "%.0fk", $1/1000}')
+  if [ -n "$input_tokens" ]; then
+    tokens_k=$(echo "$input_tokens" | awk '{printf "%.1fk", $1/1000}')
+    parts+=("$(printf "${ctx_color}ctx:%.0f%% %s/%s${reset}" "$used_pct" "${tokens_k}" "${ctx_k}")")
+  else
+    parts+=("$(printf "${ctx_color}ctx:%.0f%% (%s)${reset}" "$used_pct" "${ctx_k}")")
+  fi
+fi
+
+rate_parts=()
+if [ -n "$five_pct" ]; then
+  five_int=$(printf "%.0f" "$five_pct")
+  if [ "$five_int" -ge 80 ]; then rc="$red"
+  elif [ "$five_int" -ge 50 ]; then rc="$yellow"
+  else rc="$green"; fi
+  rs="$(printf "${rc}5h:%.0f%%${reset}" "$five_pct")"
+  if [ -n "$five_reset" ] && [ "$five_int" -ge 50 ]; then
+    rm=$(( (five_reset - $(date +%s)) / 60 ))
+    [ "$rm" -gt 0 ] && rs="$rs$(printf "${dim}(${rm}m)${reset}")"
+  fi
+  rate_parts+=("$rs")
+fi
+if [ -n "$week_pct" ]; then
+  week_int=$(printf "%.0f" "$week_pct")
+  if [ "$week_int" -ge 80 ]; then wc="$red"
+  elif [ "$week_int" -ge 50 ]; then wc="$yellow"
+  else wc="$green"; fi
+  rate_parts+=("$(printf "${wc}7d:%.0f%%${reset}" "$week_pct")")
+fi
+if [ "${#rate_parts[@]}" -gt 0 ]; then
+  rstr="${rate_parts[0]}"
+  for i in "${rate_parts[@]:1}"; do rstr="$rstr $i"; done
+  parts+=("$rstr")
+fi
+
+if [ -n "$worktree_name" ]; then
+  wt="wt:$worktree_name"
+  [ -n "$worktree_branch" ] && wt="$wt($worktree_branch)"
+  parts+=("$(printf "${cyan}%s${reset}" "$wt")")
+fi
+
+if [ "${#parts[@]}" -eq 0 ]; then printf "${dim}claude${reset}\n"; exit 0; fi
+sep="$(printf " ${dim}|${reset} ")"
+result="${parts[0]}"
+for p in "${parts[@]:1}"; do result="$result$sep$p"; done
+printf "%b\n" "$result"
+STATUSLINE_EOF
+    chmod +x "$config_dir/statusline-command.sh"
+}
+
+# write settings.json to env .claude dir
+_write_env_settings() {
+    local config_dir="$1"
+    cat > "$config_dir/settings.json" << 'SETTINGS_EOF'
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "statusLine": {
+    "type": "command",
+    "command": "bash $CLAUDE_CONFIG_DIR/statusline-command.sh"
+  },
+  "env": {
+    "DISABLE_AUTOUPDATER": "1"
+  }
+}
+SETTINGS_EOF
+}
+
+# write CAC Meta Prompt to env .claude/CLAUDE.md
+# Usage: _write_env_claude_md <config_dir> <env_name> [--append]
+_write_env_claude_md() {
+    local config_dir="$1"
+    local env_name="$2"
+    local _meta
+    _meta=$(cat << CLAUDEMD_EOF
+
+# cac managed environment
+
+This Claude Code instance is managed by **cac** (Claude Code Cloak).
+
+- Environment name: \`$env_name\`
+- Config directory: \`CLAUDE_CONFIG_DIR\` is set to this \`.claude/\` folder
+- Your settings, credentials, and sessions are isolated per-environment
+
+Useful commands:
+- \`cac env ls\` — list all environments and their config paths
+- \`cac env check\` — verify current environment health
+- \`cac <name>\` — switch to another environment
+CLAUDEMD_EOF
+    )
+    if [[ "${3:-}" == "--append" ]]; then
+        printf '\n%s\n' "$_meta" >> "$config_dir/CLAUDE.md"
+    else
+        printf '%s\n' "$_meta" > "$config_dir/CLAUDE.md"
+    fi
+}
+
+_write_wrapper() {
+    mkdir -p "$CAC_DIR/bin"
+    cat > "$CAC_DIR/bin/claude" << 'WRAPPER_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# CAC_WRAPPER_VER=__CAC_VER__
+
+CAC_DIR="$HOME/.cac"
+ENVS_DIR="$CAC_DIR/envs"
+
+# cacstop state: passthrough directly
+if [[ -f "$CAC_DIR/stopped" ]]; then
+    _real=$(tr -d '[:space:]' < "$CAC_DIR/real_claude" 2>/dev/null || true)
+    [[ -x "$_real" ]] && exec "$_real" "$@"
+    echo "[cac] error: real claude not found, reinstall with 'npm i -g claude-cac'" >&2; exit 1
+fi
+
+# read current environment
+if [[ ! -f "$CAC_DIR/current" ]]; then
+    echo "[cac] error: no active environment, run 'cac <name>'" >&2; exit 1
+fi
+_name=$(tr -d '[:space:]' < "$CAC_DIR/current")
+_env_dir="$ENVS_DIR/$_name"
+[[ -d "$_env_dir" ]] || { echo "[cac] error: environment '$_name' not found" >&2; exit 1; }
+
+# Isolated .claude config directory
+if [[ -d "$_env_dir/.claude" ]]; then
+    export CLAUDE_CONFIG_DIR="$_env_dir/.claude"
+    # ensure settings.json exists, prevent Claude Code fallback to ~/.claude/settings.json
+    [[ -f "$_env_dir/.claude/settings.json" ]] || echo '{}' > "$_env_dir/.claude/settings.json"
+    # Merge settings: if override exists, re-merge from source on each start (skip if unchanged)
+    if [[ -f "$_env_dir/.claude/settings.override.json" ]]; then
+        _src_settings=""
+        if [[ -f "$_env_dir/clone_source" ]]; then
+            _src_settings="$(tr -d '[:space:]' < "$_env_dir/clone_source")/settings.json"
+        elif [[ -f "$HOME/.claude/settings.json" ]]; then
+            _src_settings="$HOME/.claude/settings.json"
+        fi
+        if [[ -n "$_src_settings" ]] && [[ -f "$_src_settings" ]]; then
+            # Skip merge if settings.json is newer than both inputs
+            if [[ "$_src_settings" -nt "$_env_dir/.claude/settings.json" ]] || \
+               [[ "$_env_dir/.claude/settings.override.json" -nt "$_env_dir/.claude/settings.json" ]]; then
+                python3 -c "
+import json,sys
+b=json.load(open(sys.argv[1]))
+o=json.load(open(sys.argv[2]))
+def m(b,o):
+    r=dict(b)
+    for k,v in o.items():
+        if k in r and isinstance(r[k],dict) and isinstance(v,dict): r[k]=m(r[k],v)
+        else: r[k]=v
+    return r
+json.dump(m(b,o),open(sys.argv[3],'w'),indent=2,ensure_ascii=False)
+" "$_src_settings" "$_env_dir/.claude/settings.override.json" "$_env_dir/.claude/settings.json" 2>/dev/null || true
+            fi
+        fi
+    fi
+fi
+
+# Proxy — optional: only if proxy file exists and is non-empty
+PROXY=""
+if [[ -f "$_env_dir/proxy" ]]; then
+    PROXY=$(tr -d '[:space:]' < "$_env_dir/proxy")
+    if [[ "$PROXY" =~ ^(http|https|socks5):// ]]; then
+        _proto="${PROXY%%://*}"
+        _rest="${PROXY#*://}"
+        if [[ "$_rest" != *"@"* ]] && [[ "$_rest" == *:*:* ]]; then
+            _phost=$(echo "$_rest" | cut -d: -f1)
+            _pport=$(echo "$_rest" | cut -d: -f2)
+            _puser=$(echo "$_rest" | cut -d: -f3)
+            _ppass=$(echo "$_rest" | cut -d: -f4-)
+            if [[ -n "$_phost" ]] && [[ -n "$_pport" ]] && [[ -n "$_puser" ]]; then
+                PROXY="${_proto}://${_puser}:${_ppass}@${_phost}:${_pport}"
+            fi
+        fi
+    fi
+fi
+
+if [[ -n "$PROXY" ]]; then
+    # pre-flight: proxy connectivity (pure bash, no fork)
+    _hp="${PROXY##*@}"; _hp="${_hp##*://}"
+    _host="${_hp%%:*}"
+    _port=$(echo "$_hp" | cut -d: -f2)
+    if ! (echo >/dev/tcp/"$_host"/"$_port") 2>/dev/null; then
+        echo "[cac] error: [$_name] proxy $_hp unreachable, refusing to start." >&2
+        echo "[cac] hint: run 'cac check' to diagnose, or 'cac stop' to disable temporarily" >&2
+        exit 1
+    fi
+fi
+
+# inject env vars — proxy (only when proxy is configured)
+if [[ -n "$PROXY" ]]; then
+    export _CAC_PROXY="$PROXY"
+    export HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" ALL_PROXY="$PROXY"
+    export NO_PROXY="localhost,127.0.0.1"
+fi
+export PATH="$CAC_DIR/shim-bin:$PATH"
+
+# ── multi-layer telemetry protection ──
+# Modes: stealth (default) | paranoid | transparent
+#   stealth:     only DISABLE_TELEMETRY=1 — 1p_events blocked, GrowthBook/Statsig/Feature flags normal
+#                looks like a normal user; all fingerprints are fake so telemetry data is useless
+#   paranoid:    full 12-layer telemetry kill — zero telemetry (detectable as "anti-telemetry user")
+#   transparent: no intervention — for when fingerprint coverage is complete
+# Backward compat: conservative→stealth, aggressive→paranoid, off→transparent
+_telemetry_mode="stealth"
+[[ -f "$_env_dir/telemetry_mode" ]] && _telemetry_mode=$(tr -d '[:space:]' < "$_env_dir/telemetry_mode")
+case "$_telemetry_mode" in
+    conservative) _telemetry_mode="stealth" ;;
+    aggressive)   _telemetry_mode="paranoid" ;;
+    off)          _telemetry_mode="transparent" ;;
+esac
+if [[ "$_telemetry_mode" != "stealth" ]] && [[ "$_telemetry_mode" != "paranoid" ]] && [[ "$_telemetry_mode" != "transparent" ]]; then
+    echo "[cac] warning: unknown telemetry mode '$_telemetry_mode', using stealth" >&2
+    _telemetry_mode="stealth"
+fi
+
+if [[ "$_telemetry_mode" == "stealth" ]]; then
+    # Block 1p_event reporting only; GrowthBook/Statsig/Feature flags work normally
+    # Behavior indistinguishable from normal user — feature flags, fast mode etc. all enabled
+    export DISABLE_TELEMETRY=1
+    export CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=
+fi
+
+if [[ "$_telemetry_mode" == "paranoid" ]]; then
+    # Full 12-layer telemetry kill — zero telemetry + zero auxiliary requests
+    export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    export CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=
+    export CLAUDE_CODE_ENABLE_TELEMETRY=
+    export DO_NOT_TRACK=1
+    export OTEL_SDK_DISABLED=true
+    export OTEL_TRACES_EXPORTER=none
+    export OTEL_METRICS_EXPORTER=none
+    export OTEL_LOGS_EXPORTER=none
+    export SENTRY_DSN=
+    export DISABLE_ERROR_REPORTING=1
+    export DISABLE_BUG_COMMAND=1
+    export TELEMETRY_DISABLED=1
+    export DISABLE_TELEMETRY=1
+fi
+
+# ── billing header suppression (x-anthropic-billing-header) ──
+export CLAUDE_CODE_ATTRIBUTION_HEADER=0
+
+# with proxy: force OAuth (clear API config to prevent leaks)
+# without proxy: preserve user's API Key / Base URL
+if [[ -n "$PROXY" ]]; then
+    unset ANTHROPIC_BASE_URL
+    unset ANTHROPIC_AUTH_TOKEN
+    unset ANTHROPIC_API_KEY
+fi
+
+# ── git identity spoofing ──
+# Intercept `git config --get user.email` at process level (telemetry read only)
+# Do NOT set GIT_AUTHOR_EMAIL/GIT_COMMITTER_EMAIL — those would affect real git commits
+if [[ -f "$_env_dir/git_email" ]]; then
+    export CAC_GIT_EMAIL=$(tr -d '[:space:]' < "$_env_dir/git_email")
+fi
+
+# ── repository fingerprint (rh) spoofing ──
+# Claude computes rh=SHA256(git_remote_url) per event — cross-account linkage vector
+if [[ -f "$_env_dir/fake_git_remote" ]]; then
+    export CAC_FAKE_GIT_REMOTE=$(tr -d '[:space:]' < "$_env_dir/fake_git_remote")
+fi
+
+# ── Trusted Device Token (preemptive) ──
+# tengu_sessions_elevated_auth_enforcement gate is currently off but mechanism is ready
+if [[ -f "$_env_dir/device_token" ]]; then
+    export CLAUDE_TRUSTED_DEVICE_TOKEN=$(tr -d '[:space:]' < "$_env_dir/device_token")
+fi
+
+# ── persona (Docker/server environment spoofing) ──
+if [[ -f "$_env_dir/persona" ]]; then
+    _persona=$(tr -d '[:space:]' < "$_env_dir/persona")
+    # Clear all high-priority detectTerminal() variables before injecting persona,
+    # so real env vars from the host (e.g. CURSOR_TRACE_ID in Cursor) don't override.
+    unset CURSOR_TRACE_ID VSCODE_GIT_ASKPASS_MAIN TERMINAL_EMULATOR VisualStudioVersion
+    unset ITERM_SESSION_ID TERM_PROGRAM __CFBundleIdentifier
+    unset TMUX STY KONSOLE_VERSION GNOME_TERMINAL_SERVICE XTERM_VERSION VTE_VERSION
+    unset TERMINATOR_UUID KITTY_WINDOW_ID ALACRITTY_LOG TILIX_ID WT_SESSION
+    unset MSYSTEM ConEmuANSI ConEmuPID ConEmuTask WSL_DISTRO_NAME
+    export TERM="xterm-256color"
+    case "$_persona" in
+        macos-vscode)
+            export TERM_PROGRAM="vscode"
+            export VSCODE_GIT_ASKPASS_MAIN="/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/git/dist/askpass-main.js"
+            export __CFBundleIdentifier="com.microsoft.VSCode"
+            ;;
+        macos-cursor)
+            export TERM_PROGRAM="vscode"
+            [[ -f "$_env_dir/cursor_trace_id" ]] || printf 'cursor-%s' "$(od -An -tx1 -N8 /dev/urandom | tr -d ' \n')" > "$_env_dir/cursor_trace_id"
+            export CURSOR_TRACE_ID=$(tr -d '[:space:]' < "$_env_dir/cursor_trace_id")
+            export __CFBundleIdentifier="com.todesktop.230313mzl4w4u92"
+            ;;
+        macos-iterm)
+            export TERM_PROGRAM="iTerm.app"
+            export __CFBundleIdentifier="com.googlecode.iterm2"
+            [[ -f "$_env_dir/iterm_session_id" ]] || printf 'w0t0p0:%s' "$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')" > "$_env_dir/iterm_session_id"
+            export ITERM_SESSION_ID=$(tr -d '[:space:]' < "$_env_dir/iterm_session_id")
+            ;;
+        linux-desktop)
+            export TERM_PROGRAM="vscode"
+            ;;
+    esac
+    export CAC_HIDE_DOCKER=1
+fi
+
+# ── NS-level DNS interception ──
+# Use -r (readable) not -f (exists) — root-owned files with mode 600 exist but
+# can't be read by normal user, causing bun/node to crash silently.
+if [[ -r "$CAC_DIR/cac-dns-guard.js" ]]; then
+    case "${NODE_OPTIONS:-}" in
+        *cac-dns-guard.js*) ;; # already injected, skip
+        *) export NODE_OPTIONS="${NODE_OPTIONS:-} --require $CAC_DIR/cac-dns-guard.js" ;;
+    esac
+    case "${BUN_OPTIONS:-}" in
+        *cac-dns-guard.js*) ;;
+        *) export BUN_OPTIONS="${BUN_OPTIONS:-} --preload $CAC_DIR/cac-dns-guard.js" ;;
+    esac
+fi
+# fallback layer: HOSTALIASES (gethostbyname level)
+[[ -r "$CAC_DIR/blocked_hosts" ]] && export HOSTALIASES="$CAC_DIR/blocked_hosts"
+
+# ── mTLS client certificate ──
+if [[ -f "$_env_dir/client_cert.pem" ]] && [[ -f "$_env_dir/client_key.pem" ]]; then
+    export CAC_MTLS_CERT="$_env_dir/client_cert.pem"
+    export CAC_MTLS_KEY="$_env_dir/client_key.pem"
+    [[ -f "$CAC_DIR/ca/ca_cert.pem" ]] && {
+        export CAC_MTLS_CA="$CAC_DIR/ca/ca_cert.pem"
+        export NODE_EXTRA_CA_CERTS="$CAC_DIR/ca/ca_cert.pem"
+    }
+    [[ -n "${_hp:-}" ]] && export CAC_PROXY_HOST="$_hp"
+fi
+
+# ensure CA cert is always trusted (required for mTLS)
+[[ -f "$CAC_DIR/ca/ca_cert.pem" ]] && export NODE_EXTRA_CA_CERTS="$CAC_DIR/ca/ca_cert.pem"
+
+[[ -f "$_env_dir/tz" ]]   && export TZ=$(tr -d '[:space:]' < "$_env_dir/tz")
+[[ -f "$_env_dir/lang" ]] && export LANG=$(tr -d '[:space:]' < "$_env_dir/lang")
+if [[ -f "$_env_dir/hostname" ]]; then
+    _hn=$(tr -d '[:space:]' < "$_env_dir/hostname")
+    export HOSTNAME="$_hn" CAC_HOSTNAME="$_hn"
+fi
+
+# Node.js-level fingerprint interception (bypasses shell shim limitations)
+[[ -f "$_env_dir/mac_address" ]] && export CAC_MAC=$(tr -d '[:space:]' < "$_env_dir/mac_address")
+[[ -f "$_env_dir/machine_id" ]]  && export CAC_MACHINE_ID=$(tr -d '[:space:]' < "$_env_dir/machine_id")
+export CAC_USERNAME="user-$(echo "$_name" | cut -c1-8)"
+export USER="$CAC_USERNAME" LOGNAME="$CAC_USERNAME"
+if [[ -r "$CAC_DIR/fingerprint-hook.js" ]]; then
+    case "${NODE_OPTIONS:-}" in
+        *fingerprint-hook.js*) ;;
+        *) export NODE_OPTIONS="--require $CAC_DIR/fingerprint-hook.js ${NODE_OPTIONS:-}" ;;
+    esac
+    case "${BUN_OPTIONS:-}" in
+        *fingerprint-hook.js*) ;;
+        *) export BUN_OPTIONS="--preload $CAC_DIR/fingerprint-hook.js ${BUN_OPTIONS:-}" ;;
+    esac
+fi
+
+# exec real claude — versioned binary or system fallback
+_real=""
+if [[ -f "$_env_dir/version" ]]; then
+    _ver=$(tr -d '[:space:]' < "$_env_dir/version")
+    _ver_bin="$CAC_DIR/versions/$_ver/claude"
+    [[ -x "$_ver_bin" ]] && _real="$_ver_bin"
+fi
+if [[ -z "$_real" ]] || [[ ! -x "$_real" ]]; then
+    _real=$(tr -d '[:space:]' < "$CAC_DIR/real_claude")
+fi
+[[ -x "$_real" ]] || { echo "[cac] error: claude not found, run 'cac claude install latest'" >&2; exit 1; }
+
+# ── Relay local forwarding (always enabled when proxy is set) ──
+# Relay lifecycle: ENVIRONMENT-level, not session-level.
+# - Started on demand by the first session that needs it
+# - Persists across sessions (no cleanup on exit)
+# - Restarted if proxy changes (relay.proxy mismatch)
+# - Stopped by: cac env activate (switch), cac self delete, or machine reboot
+_relay_active=false
+if [[ -n "$PROXY" ]] && [[ -f "$CAC_DIR/relay.js" ]]; then
+    _relay_js="$CAC_DIR/relay.js"
+    _relay_pid_file="$CAC_DIR/relay.pid"
+    _relay_port_file="$CAC_DIR/relay.port"
+    _relay_proxy_file="$CAC_DIR/relay.proxy"
+
+    # check if relay is already running
+    _relay_running=false
+    if [[ -f "$_relay_pid_file" ]]; then
+        _rpid=$(tr -d '[:space:]' < "$_relay_pid_file")
+        [[ -n "$_rpid" ]] && kill -0 "$_rpid" 2>/dev/null && _relay_running=true
+    fi
+
+    # kill stale relay if proxy changed (env switch without going through cac activate)
+    # skip if relay.proxy absent (first run after upgrade — assume match)
+    if [[ "$_relay_running" == "true" ]] && [[ -f "$_relay_proxy_file" ]]; then
+        _old_proxy=$(tr -d '[:space:]' < "$_relay_proxy_file")
+        if [[ "$_old_proxy" != "$PROXY" ]]; then
+            kill "$_rpid" 2>/dev/null || true
+            rm -f "$_relay_pid_file" "$_relay_port_file" "$_relay_proxy_file"
+            _relay_running=false
+        fi
+    fi
+
+    # start if not running
+    if [[ "$_relay_running" != "true" ]]; then
+        _rport=17890
+        while (echo >/dev/tcp/127.0.0.1/$_rport) 2>/dev/null; do
+            (( _rport++ ))
+            [[ $_rport -gt 17999 ]] && break
+        done
+        node "$_relay_js" "$_rport" "$PROXY" "$_relay_pid_file" </dev/null >"$CAC_DIR/relay.log" 2>&1 &
+        disown
+        for _ri in {1..30}; do
+            (echo >/dev/tcp/127.0.0.1/$_rport) 2>/dev/null && break
+            sleep 0.1
+        done
+        echo "$PROXY" > "$_relay_proxy_file"
+        echo "$_rport" > "$_relay_port_file"
+    fi
+
+    # env-level watchdog singleton: auto-restarts relay if it crashes
+    # - one watchdog per environment, shared across all sessions
+    # - exits automatically when relay is intentionally stopped (relay.proxy removed)
+    _relay_watchdog_file="$CAC_DIR/relay.watchdog.pid"
+    _wd_running=false
+    if [[ -f "$_relay_watchdog_file" ]]; then
+        _wpid=$(tr -d '[:space:]' < "$_relay_watchdog_file")
+        [[ -n "$_wpid" ]] && kill -0 "$_wpid" 2>/dev/null && _wd_running=true
+    fi
+    if [[ "$_wd_running" != "true" ]]; then
+        (
+            trap 'rm -f "$CAC_DIR/relay.watchdog.pid"' EXIT
+            set +e
+            while true; do
+                sleep 5
+                # relay.proxy removed by _relay_stop — intentional stop, exit watchdog
+                [[ -f "$CAC_DIR/relay.proxy" ]] || exit 0
+                # relay alive and port reachable — nothing to do
+                if [[ -f "$CAC_DIR/relay.pid" ]]; then
+                    _rpid=$(tr -d '[:space:]' < "$CAC_DIR/relay.pid")
+                    if kill -0 "$_rpid" 2>/dev/null; then
+                        _rport=$(tr -d '[:space:]' < "$CAC_DIR/relay.port" 2>/dev/null || true)
+                        (echo >/dev/tcp/127.0.0.1/"$_rport") 2>/dev/null && continue
+                        # process alive but port unresponsive — kill and restart
+                        kill "$_rpid" 2>/dev/null || true
+                    fi
+                fi
+                # relay dead — restart on same port with same proxy
+                _rport=$(tr -d '[:space:]' < "$CAC_DIR/relay.port" 2>/dev/null || true)
+                _rproxy=$(tr -d '[:space:]' < "$CAC_DIR/relay.proxy" 2>/dev/null || true)
+                [[ -n "$_rport" ]] && [[ -n "$_rproxy" ]] || exit 0
+                node "$CAC_DIR/relay.js" "$_rport" "$_rproxy" "$CAC_DIR/relay.pid" </dev/null >>"$CAC_DIR/relay.log" 2>&1 &
+            done
+        ) &
+        _new_wpid=$!
+        echo "$_new_wpid" > "$_relay_watchdog_file"
+        disown "$_new_wpid"
+    fi
+
+    # override proxy to point to local relay
+    if [[ -f "$_relay_port_file" ]]; then
+        _rport=$(tr -d '[:space:]' < "$_relay_port_file")
+        export HTTPS_PROXY="http://127.0.0.1:$_rport"
+        export HTTP_PROXY="http://127.0.0.1:$_rport"
+        export ALL_PROXY="http://127.0.0.1:$_rport"
+        _relay_active=true
+    fi
+fi
+
+# ── Concurrent session check ──
+_max_sessions=10
+[[ -f "$CAC_DIR/max_sessions" ]] && _ms=$(tr -d '[:space:]' < "$CAC_DIR/max_sessions") && [[ -n "$_ms" ]] && _max_sessions="$_ms"
+# pgrep exits 1 when no match; with pipefail + set -e that would abort the wrapper
+_claude_count=$(pgrep -x "claude" 2>/dev/null | wc -l | tr -d '[:space:]') || _claude_count=0
+if [[ "$_claude_count" -gt "$_max_sessions" ]]; then
+    echo "[cac] warning: $_claude_count claude sessions running (threshold: $_max_sessions)" >&2
+    echo "[cac] hint: concurrent sessions on the same device may trigger detection" >&2
+    echo "[cac] hint: adjust threshold with: echo '{\"max_sessions\": 20}' > ~/.cac/settings.json" >&2
+fi
+
+# claude non-zero exit must not leave _ec unset (set -u) or abort before cleanup (set -e)
+_ec=0
+set +e
+"$_real" "$@"
+_ec=$?
+set -e
+exit "$_ec"
+WRAPPER_EOF
+    local _tmp="$CAC_DIR/bin/claude.tmp"
+    sed "s/__CAC_VER__/$CAC_VERSION/" "$CAC_DIR/bin/claude" > "$_tmp" && mv "$_tmp" "$CAC_DIR/bin/claude"
+    chmod +x "$CAC_DIR/bin/claude"
+}
+
+_write_ioreg_shim() {
+    mkdir -p "$CAC_DIR/shim-bin"
+    cat > "$CAC_DIR/shim-bin/ioreg" << 'IOREG_EOF'
+#!/usr/bin/env bash
+CAC_DIR="$HOME/.cac"
+
+# non-target call: passthrough to real ioreg
+if ! echo "$*" | grep -q "IOPlatformExpertDevice"; then
+    _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
+            command -v ioreg 2>/dev/null || true)
+    [[ -n "$_real" ]] && exec "$_real" "$@"
+    exit 0
+fi
+
+# read current env UUID
+_uuid_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/uuid"
+if [[ ! -f "$_uuid_file" ]]; then
+    _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
+            command -v ioreg 2>/dev/null || true)
+    [[ -n "$_real" ]] && exec "$_real" "$@"
+    exit 0
+fi
+FAKE_UUID=$(tr -d '[:space:]' < "$_uuid_file")
+
+cat <<EOF
++-o Root  <class IORegistryEntry, id 0x100000100, retain 11>
+  +-o J314sAP  <class IOPlatformExpertDevice, id 0x100000101, registered, matched, active, busy 0 (0 ms), retain 28>
+    {
+      "IOPlatformUUID" = "$FAKE_UUID"
+      "IOPlatformSerialNumber" = "C02FAKE000001"
+      "manufacturer" = "Apple Inc."
+      "model" = "Mac14,5"
+    }
+EOF
+IOREG_EOF
+    chmod +x "$CAC_DIR/shim-bin/ioreg"
+}
+
+_write_machine_id_shim() {
+    mkdir -p "$CAC_DIR/shim-bin"
+    cat > "$CAC_DIR/shim-bin/cat" << 'CAT_EOF'
+#!/usr/bin/env bash
+CAC_DIR="$HOME/.cac"
+
+# get real cat path first (avoid recursive self-call)
+_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') command -v cat 2>/dev/null || true)
+
+# intercept /etc/machine-id and /var/lib/dbus/machine-id
+if [[ "$1" == "/etc/machine-id" ]] || [[ "$1" == "/var/lib/dbus/machine-id" ]]; then
+    _mid_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/machine_id"
+    if [[ -f "$_mid_file" ]] && [[ -n "$_real" ]]; then
+        exec "$_real" "$_mid_file"
+    fi
+fi
+
+# non-target call: passthrough to real cat
+[[ -n "$_real" ]] && exec "$_real" "$@"
+exit 1
+CAT_EOF
+    chmod +x "$CAC_DIR/shim-bin/cat"
+}
+
+_write_hostname_shim() {
+    mkdir -p "$CAC_DIR/shim-bin"
+    cat > "$CAC_DIR/shim-bin/hostname" << 'HOSTNAME_EOF'
+#!/usr/bin/env bash
+CAC_DIR="$HOME/.cac"
+
+# read spoofed hostname
+_hn_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/hostname"
+if [[ -f "$_hn_file" ]]; then
+    tr -d '[:space:]' < "$_hn_file"
+    exit 0
+fi
+
+# passthrough to real hostname
+_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') command -v hostname 2>/dev/null || true)
+[[ -n "$_real" ]] && exec "$_real" "$@"
+exit 1
+HOSTNAME_EOF
+    chmod +x "$CAC_DIR/shim-bin/hostname"
+}
+
+_write_ifconfig_shim() {
+    mkdir -p "$CAC_DIR/shim-bin"
+    cat > "$CAC_DIR/shim-bin/ifconfig" << 'IFCONFIG_EOF'
+#!/usr/bin/env bash
+CAC_DIR="$HOME/.cac"
+
+_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') command -v ifconfig 2>/dev/null || true)
+
+_mac_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/mac_address"
+if [[ -f "$_mac_file" ]] && [[ -n "$_real" ]]; then
+    FAKE_MAC=$(tr -d '[:space:]' < "$_mac_file")
+    "$_real" "$@" | sed "s/ether [0-9a-f:]\{17\}/ether $FAKE_MAC/g" && exit 0
+fi
+
+[[ -n "$_real" ]] && exec "$_real" "$@"
+exit 1
+IFCONFIG_EOF
+    chmod +x "$CAC_DIR/shim-bin/ifconfig"
+}
+
+# ━━━ cmd_setup.sh ━━━
+# ── auto-bootstrap (silent, idempotent) ─────────────────────────
+
+# Called automatically by any command — no manual setup needed
+_ensure_initialized() {
+    mkdir -p "$CAC_DIR" "$ENVS_DIR" "$VERSIONS_DIR"
+
+    # Always sync JS hooks + dns-guard (they update with cac versions)
+    # Find the real package directory — npm creates symlinks:
+    #   ~/.nvm/.../bin/cac → ../lib/node_modules/claude-cac/cac
+    # relay.js and fingerprint-hook.js live alongside the real cac script
+    local _self_dir=""
+    local _cac_bin; _cac_bin="$(command -v cac 2>/dev/null || true)"
+    if [[ -n "$_cac_bin" ]] && [[ -L "$_cac_bin" ]]; then
+        local _link; _link="$(readlink "$_cac_bin")"
+        [[ "$_link" != /* ]] && _link="$(dirname "$_cac_bin")/$_link"
+        _self_dir="$(cd "$(dirname "$_link")" 2>/dev/null && pwd)" || _self_dir=""
+    fi
+    # Fallback: directory of the running script
+    if [[ -z "$_self_dir" ]] || [[ ! -f "$_self_dir/relay.js" ]]; then
+        _self_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+    fi
+    # Warn if running as root — files written here become root-owned and break
+    # normal-user invocations (wrapper has set -e and will silently exit).
+    if [[ $EUID -eq 0 ]]; then
+        echo "[cac] warning: running as root may corrupt ~/.cac/ file ownership" >&2
+        echo "[cac] hint: run as your normal user instead" >&2
+    fi
+    # rm -f first: user owns ~/.cac/ dir so can delete root-owned files even if can't overwrite them
+    if [[ -f "$_self_dir/fingerprint-hook.js" ]]; then
+        rm -f "$CAC_DIR/fingerprint-hook.js" 2>/dev/null || true
+        cp "$_self_dir/fingerprint-hook.js" "$CAC_DIR/fingerprint-hook.js" 2>/dev/null || true
+    fi
+    if [[ -f "$_self_dir/relay.js" ]]; then
+        rm -f "$CAC_DIR/relay.js" 2>/dev/null || true
+        cp "$_self_dir/relay.js" "$CAC_DIR/relay.js" 2>/dev/null || true
+    fi
+    rm -f "$CAC_DIR/cac-dns-guard.js" 2>/dev/null || true
+    _write_dns_guard_js 2>/dev/null || true
+    rm -f "$CAC_DIR/blocked_hosts" 2>/dev/null || true
+    _write_blocked_hosts 2>/dev/null || true
+
+    # Patch all existing envs: ensure DISABLE_AUTOUPDATER=1 in settings.json
+    local _sf
+    for _sf in "$ENVS_DIR"/*/.claude/settings.json; do
+        [[ -f "$_sf" ]] || continue
+        grep -q '"DISABLE_AUTOUPDATER"' "$_sf" 2>/dev/null && continue
+        python3 - "$_sf" << 'PYEOF' 2>/dev/null || true
+import json, sys
+path = sys.argv[1]
+with open(path) as f:
+    d = json.load(f)
+if d.get('env', {}).get('DISABLE_AUTOUPDATER') == '1':
+    sys.exit(0)
+d.setdefault('env', {})['DISABLE_AUTOUPDATER'] = '1'
+with open(path, 'w') as f:
+    json.dump(d, f, indent=2)
+    f.write('\n')
+PYEOF
+    done
+
+    # PATH (idempotent — always ensure it's in rc file)
+    local rc_file; rc_file=$(_detect_rc_file)
+    _write_path_to_rc "$rc_file" >/dev/null 2>&1 || true
+
+    # Keep .latest pointing to highest installed version
+    _update_latest 2>/dev/null || true
+
+    # Re-generate wrapper on version upgrade
+    if [[ -f "$CAC_DIR/bin/claude" ]]; then
+        local _wrapper_ver
+        _wrapper_ver=$(grep 'CAC_WRAPPER_VER=' "$CAC_DIR/bin/claude" 2>/dev/null | sed 's/.*CAC_WRAPPER_VER=//' | tr -d '[:space:]' || true)
+        if [[ "$_wrapper_ver" != "$CAC_VERSION" ]]; then
+            _write_wrapper
+        fi
+        return 0
+    fi
+
+    # Find real claude (system-installed or managed)
+    local real_claude
+    real_claude=$(_find_real_claude)
+    if [[ -z "$real_claude" ]]; then
+        local latest_ver; latest_ver=$(_read "$VERSIONS_DIR/.latest" "")
+        if [[ -n "$latest_ver" ]]; then
+            real_claude="$VERSIONS_DIR/$latest_ver/claude"
+        fi
+    fi
+    if [[ -n "$real_claude" ]] && [[ -x "$real_claude" ]]; then
+        echo "$real_claude" > "$CAC_DIR/real_claude"
+    fi
+
+    local os; os=$(_detect_os)
+    _write_wrapper
+
+    # Shims
+    _write_hostname_shim
+    _write_ifconfig_shim
+    if [[ "$os" == "macos" ]]; then
+        _write_ioreg_shim
+    elif [[ "$os" == "linux" ]]; then
+        _write_machine_id_shim
+    fi
+
+    # mTLS CA
+    _generate_ca_cert 2>/dev/null || true
+}
+
+# ━━━ cmd_env.sh ━━━
+# ── cmd: env (environment management, like "uv venv") ────────────
+
+_env_cmd_create() {
+    _require_setup
+    local name="" proxy="" claude_ver="" env_type="local" telemetry_mode="" clone_source="" clone_link=true persona=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--proxy)  [[ $# -ge 2 ]] || _die "$1 requires a value"; proxy="$2"; shift 2 ;;
+            -c|--claude) [[ $# -ge 2 ]] || _die "$1 requires a value"; claude_ver="$2"; shift 2 ;;
+            --type)      [[ $# -ge 2 ]] || _die "$1 requires a value"; env_type="$2"; shift 2 ;;
+            --telemetry) [[ $# -ge 2 ]] || _die "$1 requires a value"; telemetry_mode="$2"; shift 2
+                         # Accept both old and new names
+                         case "$telemetry_mode" in
+                             conservative) telemetry_mode="stealth" ;;
+                             aggressive)   telemetry_mode="paranoid" ;;
+                             off)          telemetry_mode="transparent" ;;
+                         esac
+                         [[ "$telemetry_mode" =~ ^(stealth|paranoid|transparent)$ ]] || _die "invalid telemetry mode '$telemetry_mode' (use stealth, paranoid, or transparent)" ;;
+            --persona)   [[ $# -ge 2 ]] || _die "$1 requires a value"; persona="$2"; shift 2
+                         [[ "$persona" =~ ^(macos-vscode|macos-cursor|macos-iterm|linux-desktop)$ ]] || _die "invalid persona '$persona' (use macos-vscode, macos-cursor, macos-iterm, or linux-desktop)" ;;
+            --clone)     shift; if [[ -n "${1:-}" ]] && [[ "${1:-}" != -* ]]; then clone_source="$1"; shift; else clone_source="host"; fi ;;
+            --no-link)   clone_link=false; shift ;;
+            -*)          _die "unknown option: $1" ;;
+            *)           [[ -z "$name" ]] && name="$1" || _die "extra argument: $1"; shift ;;
+        esac
+    done
+
+    [[ -n "$name" ]] || _die "usage: cac env create <name> [-p <proxy>] [-c <version>] [--clone [source]] [--no-link] [--telemetry <mode>] [--persona <preset>]"
+    [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || _die "invalid name '$name' (use alphanumeric, dash, underscore)"
+
+    local env_dir="$ENVS_DIR/$name"
+    [[ -d "$env_dir" ]] && _die "environment $(_cyan "'$name'") already exists"
+
+    _timer_start
+
+    # Auto-install version (just-in-time, like uv)
+    # No version specified → use latest
+    [[ -z "$claude_ver" ]] && claude_ver="latest"
+    claude_ver=$(_ensure_version_installed "$claude_ver") || exit 1
+
+    # Auto-detect proxy protocol
+    local proxy_url=""
+    if [[ -n "$proxy" ]]; then
+        if [[ ! "$proxy" =~ ^(http|https|socks5):// ]]; then
+            printf "  $(_dim "Detecting proxy protocol ...") "
+            if proxy_url=$(_auto_detect_proxy "$proxy"); then
+                echo "$(_cyan "$(echo "$proxy_url" | grep -oE '^[a-z]+' || echo "http")")"
+            else
+                echo "$(_yellow "failed, defaulting to http")"
+            fi
+        else
+            proxy_url=$(_parse_proxy "$proxy")
+        fi
+    fi
+
+    # Geo-detect timezone (single request via proxy)
+    local tz="America/New_York" lang="en_US.UTF-8"
+    if [[ -n "$proxy_url" ]]; then
+        printf "  $(_dim "Detecting timezone ...") "
+        local ip_info
+        ip_info=$(curl -s --proxy "$(_curl_proxy_url "$proxy_url")" --connect-timeout 8 "http://ip-api.com/json/?fields=timezone,countryCode" 2>/dev/null || true)
+        if [[ -n "$ip_info" ]]; then
+            local detected_tz country_code
+            read -r detected_tz country_code < <(echo "$ip_info" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('timezone',''), d.get('countryCode',''))" 2>/dev/null || echo "")
+            [[ -n "$detected_tz" ]] && tz="$detected_tz"
+            if [[ -n "$country_code" ]]; then
+                case "$country_code" in
+                    US) lang="en_US.UTF-8" ;;
+                    GB) lang="en_GB.UTF-8" ;;
+                    AU) lang="en_AU.UTF-8" ;;
+                    CA) lang="en_CA.UTF-8" ;;
+                    SG) lang="en_SG.UTF-8" ;;
+                    HK) lang="zh_HK.UTF-8" ;;
+                    TW) lang="zh_TW.UTF-8" ;;
+                    JP) lang="ja_JP.UTF-8" ;;
+                    KR) lang="ko_KR.UTF-8" ;;
+                    DE) lang="de_DE.UTF-8" ;;
+                    FR) lang="fr_FR.UTF-8" ;;
+                    ES) lang="es_ES.UTF-8" ;;
+                    IT) lang="it_IT.UTF-8" ;;
+                    PT|BR) lang="pt_BR.UTF-8" ;;
+                    RU) lang="ru_RU.UTF-8" ;;
+                    NL) lang="nl_NL.UTF-8" ;;
+                    IN) lang="en_IN.UTF-8" ;;
+                    *)  lang="en_US.UTF-8" ;;
+                esac
+            fi
+            echo "$(_cyan "$tz") $(_dim "($country_code)")"
+        else
+            echo "$(_dim "default $tz")"
+        fi
+    fi
+
+    mkdir -p "$env_dir"
+    [[ -n "$proxy_url" ]] && echo "$proxy_url" > "$env_dir/proxy"
+    echo "$(_new_uuid)"       > "$env_dir/uuid"
+    touch "$env_dir/user_id"
+    echo "$(_new_machine_id)" > "$env_dir/machine_id"
+    echo "$(_new_hostname)"   > "$env_dir/hostname"
+    echo "$(_new_mac)"        > "$env_dir/mac_address"
+    echo "$tz"                > "$env_dir/tz"
+    echo "$lang"              > "$env_dir/lang"
+    [[ -n "$claude_ver" ]]    && echo "$claude_ver" > "$env_dir/version"
+    echo "$env_type"          > "$env_dir/type"
+    echo "$(_new_git_remote)" > "$env_dir/fake_git_remote"
+    echo "$(_new_git_email)"  > "$env_dir/git_email"
+    echo "$(_new_device_token)" > "$env_dir/device_token"
+    date -u +"%Y-%m-%dT%H:%M:%S.000Z" > "$env_dir/first_start_time"
+    [[ -n "$persona" ]] && echo "$persona" > "$env_dir/persona"
+
+    # Telemetry mode: stealth (default), paranoid, or transparent
+    [[ -z "$telemetry_mode" ]] && telemetry_mode=$(_cac_setting telemetry_mode stealth)
+    echo "$telemetry_mode" > "$env_dir/telemetry_mode"
+
+    mkdir -p "$env_dir/.claude"
+
+    # Initialize settings.json, statusline, and CLAUDE.md
+    _write_env_settings "$env_dir/.claude"
+    _write_statusline_script "$env_dir/.claude"
+    _write_env_claude_md "$env_dir/.claude" "$name"
+
+    # Clone config from source
+    if [[ -n "$clone_source" ]]; then
+        local src_claude_dir
+        if [[ "$clone_source" == "host" ]]; then
+            src_claude_dir="$HOME/.claude"
+        elif [[ -d "$ENVS_DIR/$clone_source/.claude" ]]; then
+            src_claude_dir="$ENVS_DIR/$clone_source/.claude"
+        else
+            echo "  $(_yellow "⚠") clone source '$clone_source' not found, skipping" >&2
+            clone_source=""
+        fi
+
+        if [[ -n "$clone_source" ]] && [[ -d "$src_claude_dir" ]]; then
+            local clone_dirs="commands agents hooks skills plugins"
+            for d in $clone_dirs; do
+                if [[ -d "$src_claude_dir/$d" ]]; then
+                    rm -rf "$env_dir/.claude/$d"
+                    if [[ "$clone_link" == "true" ]]; then
+                        ln -sf "$src_claude_dir/$d" "$env_dir/.claude/$d"
+                    else
+                        cp -r "$src_claude_dir/$d" "$env_dir/.claude/$d"
+                    fi
+                fi
+            done
+            if [[ -f "$src_claude_dir/CLAUDE.md" ]]; then
+                if [[ "$clone_link" == "true" ]]; then
+                    ln -sf "$src_claude_dir/CLAUDE.md" "$env_dir/.claude/CLAUDE.md"
+                else
+                    cp "$src_claude_dir/CLAUDE.md" "$env_dir/.claude/CLAUDE.md"
+                    _write_env_claude_md "$env_dir/.claude" "$name" --append
+                fi
+            fi
+            if [[ -f "$src_claude_dir/settings.json" ]]; then
+                cp "$env_dir/.claude/settings.json" "$env_dir/.claude/settings.override.json"
+                python3 - "$src_claude_dir/settings.json" "$env_dir/.claude/settings.override.json" "$env_dir/.claude/settings.json" << 'MERGE_EOF'
+import json, sys
+base = json.load(open(sys.argv[1]))
+override = json.load(open(sys.argv[2]))
+# Deep merge: override wins
+def merge(b, o):
+    r = dict(b)
+    for k, v in o.items():
+        if k in r and isinstance(r[k], dict) and isinstance(v, dict):
+            r[k] = merge(r[k], v)
+        else:
+            r[k] = v
+    return r
+result = merge(base, override)
+with open(sys.argv[3], 'w') as f:
+    json.dump(result, f, indent=2, ensure_ascii=False)
+MERGE_EOF
+            fi
+            # Store clone source for wrapper merge-on-startup
+            echo "$src_claude_dir" > "$env_dir/clone_source"
+            local link_mode="symlinked"
+            [[ "$clone_link" != "true" ]] && link_mode="copied"
+            echo "  $(_green "+") cloned   from ${src_claude_dir/#$HOME/~} ($link_mode)"
+        fi
+    fi
+
+    _generate_client_cert "$name" >/dev/null 2>&1 || true
+
+    # Auto-activate
+    echo "$name" > "$CAC_DIR/current"
+    rm -f "$CAC_DIR/stopped"
+    if [[ -d "$env_dir/.claude" ]]; then
+        export CLAUDE_CONFIG_DIR="$env_dir/.claude"
+    fi
+
+    local elapsed; elapsed=$(_timer_elapsed)
+    echo
+    echo "  $(_green_bold "Created") $(_bold "$name") $(_dim "in $elapsed")"
+    echo
+    [[ -n "$proxy_url" ]] && echo "  $(_green "+") proxy    $proxy_url"
+    [[ -n "$claude_ver" ]] && echo "  $(_green "+") claude   $(_cyan "$claude_ver")"
+    echo "  $(_green "+") env      $(_dim "${env_dir/#$HOME/~}/.claude/")"
+    echo
+    echo "  $(_dim "Environment activated. Run") $(_green "claude") $(_dim "to start.")"
+    echo
+}
+
+_env_cmd_ls() {
+    _require_setup
+    if [[ ! -d "$ENVS_DIR" ]] || [[ -z "$(ls -A "$ENVS_DIR" 2>/dev/null)" ]]; then
+        echo "$(_dim "  No environments yet.")"
+        echo "  Run $(_green "cac env create <name>") to get started."
+        return
+    fi
+
+    local current; current=$(_current_env)
+
+    # Collect data first to calculate column widths
+    local names=() versions=() proxies=() paths=()
+    for env_dir in "$ENVS_DIR"/*/; do
+        [[ -d "$env_dir" ]] || continue
+        names+=("$(basename "$env_dir")")
+        versions+=("$(_read "$env_dir/version" "system")")
+        local p; p=$(_parse_proxy "$(_read "$env_dir/proxy" "")")
+        if [[ -n "$p" ]] && [[ "$p" == *"://"*"@"* ]]; then
+            p=$(echo "$p" | sed 's|://[^@]*@|://***@|')
+        fi
+        proxies+=("${p:-—}")
+        local ep="${env_dir}.claude/"
+        paths+=("${ep/#$HOME/~}")
+    done
+
+    # Calculate max widths
+    local max_name=4 max_ver=6 max_proxy=5
+    local i
+    for i in "${!names[@]}"; do
+        local nl=${#names[$i]} vl=${#versions[$i]} pl=${#proxies[$i]}
+        (( nl > max_name )) && max_name=$nl
+        (( vl > max_ver )) && max_ver=$vl
+        (( pl > max_proxy )) && max_proxy=$pl
+    done
+    # Cap proxy column
+    (( max_proxy > 40 )) && max_proxy=40
+
+    # Header
+    printf "  $(_dim "  %-${max_name}s  %-${max_ver}s  %-${max_proxy}s  %s")" "NAME" "CLAUDE" "PROXY" "ENV"
+    echo
+
+    # Rows
+    for i in "${!names[@]}"; do
+        local name="${names[$i]}"
+        local ver="${versions[$i]}"
+        local proxy="${proxies[$i]}"
+        local epath="${paths[$i]}"
+
+        if [[ "$name" == "$current" ]]; then
+            printf "  $(_green "▶") $(_bold "%-${max_name}s")  $(_cyan "%-${max_ver}s")  %-${max_proxy}s  $(_dim "%s")\n" "$name" "$ver" "$proxy" "$epath"
+        else
+            printf "  $(_dim "○") %-${max_name}s  $(_cyan "%-${max_ver}s")  $(_dim "%-${max_proxy}s")  $(_dim "%s")\n" "$name" "$ver" "$proxy" "$epath"
+        fi
+    done
+}
+
+_env_cmd_rm() {
+    [[ -n "${1:-}" ]] || _die "usage: cac env rm <name>"
+    local name="$1"
+    _require_env "$name"
+
+    local current; current=$(_current_env)
+    [[ "$name" != "$current" ]] || _die "cannot remove active environment $(_cyan "'$name'")\n  switch to another environment first"
+
+    rm -rf "${ENVS_DIR:?}/$name"
+    echo "$(_green_bold "Removed") environment $(_cyan "$name")"
+}
+
+_env_cmd_activate() {
+    _require_setup
+    local name="$1"
+    _require_env "$name"
+
+    _timer_start
+
+    echo "$name" > "$CAC_DIR/current"
+    rm -f "$CAC_DIR/stopped"
+
+    if [[ -d "$ENVS_DIR/$name/.claude" ]]; then
+        export CLAUDE_CONFIG_DIR="$ENVS_DIR/$name/.claude"
+    fi
+
+
+    # Relay lifecycle
+    _relay_stop 2>/dev/null || true
+    if [[ -f "$ENVS_DIR/$name/relay" ]] && [[ "$(_read "$ENVS_DIR/$name/relay")" == "on" ]]; then
+        if _relay_start "$name" 2>/dev/null; then
+            local rport; rport=$(_read "$CAC_DIR/relay.port")
+            echo "  $(_green "+") relay: 127.0.0.1:$rport"
+        fi
+    fi
+
+    local elapsed; elapsed=$(_timer_elapsed)
+    echo "$(_green_bold "Activated") $(_bold "$name") $(_dim "in $elapsed")"
+}
+
+_env_cmd_set() {
+    _require_setup
+
+    # Parse: cac env set [name] <key> <value|--remove>
+    # If first arg is a known key, use current env; otherwise treat as env name
+    local name="" key="" value="" remove=false
+    local known_keys="proxy version telemetry persona tz lang"
+
+    if [[ $# -lt 1 ]] || [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]] || [[ "${1:-}" == "help" ]]; then
+        echo
+        echo "  $(_bold "cac env set") — modify environment configuration"
+        echo
+        echo "    $(_green "set") [name] proxy <url>                       Set proxy"
+        echo "    $(_green "set") [name] proxy --remove                  Remove proxy"
+        echo "    $(_green "set") [name] version <ver|latest>            Change Claude version"
+        echo "    $(_green "set") [name] telemetry <stealth|paranoid|transparent>"
+        echo "                                                          Telemetry blocking: stealth (1p_events only), paranoid (max), transparent (none)"
+        echo "    $(_green "set") [name] persona <macos-vscode|macos-cursor|macos-iterm|linux-desktop|--remove>"
+        echo "                                                          Terminal preset: inject desktop env vars, hide Docker signals (for containers)"
+        echo "    $(_green "set") [name] tz <timezone>                      Timezone (e.g. Pacific/Honolulu, America/New_York)"
+        echo "    $(_green "set") [name] lang <locale>                      Locale (e.g. en_US.UTF-8, ja_JP.UTF-8)"
+        echo
+        echo "  $(_dim "If name is omitted, uses the current active environment.")"
+        echo
+        return
+    fi
+
+    # Is first arg a known key or an env name?
+    if echo "$known_keys" | grep -qw "${1:-}"; then
+        name=$(_current_env)
+        [[ -n "$name" ]] || _die "no active environment — specify env name"
+    else
+        name="$1"; shift
+    fi
+
+    _require_env "$name"
+    local env_dir="$ENVS_DIR/$name"
+
+    [[ $# -ge 1 ]] || _die "usage: cac env set [name] <proxy|version|bypass> <value|--remove>"
+    key="$1"; shift
+
+    # Parse value or --remove
+    if [[ "${1:-}" == "--remove" ]]; then
+        remove=true; shift
+    elif [[ $# -ge 1 ]]; then
+        value="$1"; shift
+    fi
+
+    case "$key" in
+        proxy)
+            if [[ "$remove" == "true" ]]; then
+                rm -f "$env_dir/proxy"
+                echo "$(_green_bold "Removed") proxy from $(_bold "$name")"
+            else
+                [[ -n "$value" ]] || _die "usage: cac env set [name] proxy <url|host:port:user:pass>"
+                local proxy_url
+                if [[ ! "$value" =~ ^(http|https|socks5):// ]]; then
+                    printf "  $(_dim "Detecting proxy protocol ...") "
+                    if proxy_url=$(_auto_detect_proxy "$value"); then
+                        echo "$(_cyan "$(echo "$proxy_url" | grep -oE '^[a-z]+' || echo "http")")"
+                    else
+                        echo "$(_yellow "failed, defaulting to http")"
+                    fi
+                else
+                    proxy_url=$(_parse_proxy "$value")
+                fi
+                echo "$proxy_url" > "$env_dir/proxy"
+                echo "$(_green_bold "Set") proxy for $(_bold "$name") → $proxy_url"
+            fi
+            ;;
+        version)
+            [[ "$remove" != "true" ]] || _die "cannot remove version — use 'cac env set $name version latest'"
+            [[ -n "$value" ]] || _die "usage: cac env set [name] version <ver|latest>"
+            local ver
+            ver=$(_ensure_version_installed "$value") || exit 1
+            echo "$ver" > "$env_dir/version"
+            echo "$(_green_bold "Set") version for $(_bold "$name") → $(_cyan "$ver")"
+            ;;
+        telemetry)
+            [[ "$remove" != "true" ]] || _die "cannot remove telemetry mode"
+            [[ -n "$value" ]] || _die "usage: cac env set [name] telemetry <stealth|paranoid|transparent>"
+            # Accept old names
+            case "$value" in
+                conservative) value="stealth" ;;
+                aggressive)   value="paranoid" ;;
+                off)          value="transparent" ;;
+            esac
+            [[ "$value" =~ ^(stealth|paranoid|transparent)$ ]] || _die "invalid telemetry mode '$value' (use stealth, paranoid, or transparent)"
+            echo "$value" > "$env_dir/telemetry_mode"
+            echo "$(_green_bold "Set") telemetry for $(_bold "$name") → $(_cyan "$value")"
+            ;;
+        persona)
+            if [[ "$remove" == "true" ]]; then
+                rm -f "$env_dir/persona"
+                echo "$(_green_bold "Removed") persona from $(_bold "$name")"
+            else
+                [[ -n "$value" ]] || _die "usage: cac env set [name] persona <macos-vscode|macos-cursor|macos-iterm|linux-desktop>"
+                [[ "$value" =~ ^(macos-vscode|macos-cursor|macos-iterm|linux-desktop)$ ]] || _die "invalid persona '$value'"
+                echo "$value" > "$env_dir/persona"
+                echo "$(_green_bold "Set") persona for $(_bold "$name") → $(_cyan "$value")"
+            fi
+            ;;
+        tz)
+            [[ "$remove" != "true" ]] || _die "cannot remove timezone — set a new value instead"
+            [[ -n "$value" ]] || _die "usage: cac env set [name] tz <timezone>\n  examples: Pacific/Honolulu, America/New_York, Asia/Tokyo"
+            echo "$value" > "$env_dir/tz"
+            echo "$(_green_bold "Set") timezone for $(_bold "$name") → $(_cyan "$value")"
+            ;;
+        lang)
+            [[ "$remove" != "true" ]] || _die "cannot remove locale — set a new value instead"
+            [[ -n "$value" ]] || _die "usage: cac env set [name] lang <locale>\n  examples: en_US.UTF-8, ja_JP.UTF-8, zh_TW.UTF-8"
+            echo "$value" > "$env_dir/lang"
+            echo "$(_green_bold "Set") locale for $(_bold "$name") → $(_cyan "$value")"
+            ;;
+        *)
+            _die "unknown key '$key' — use proxy, version, telemetry, persona, tz, or lang"
+            ;;
+    esac
+}
+
+_env_cmd_stop() {
+    _relay_stop 2>/dev/null || true
+    touch "$CAC_DIR/stopped"
+    echo "  $(_green "✓") cac paused — claude will run without any cac injection"
+    echo "  $(_dim "resume with:") $(_green "cac <name>")"
+}
+
+cmd_env() {
+    case "${1:-help}" in
+        create)       _env_cmd_create "${@:2}" ;;
+        set)          _env_cmd_set "${@:2}" ;;
+        ls|list)      _env_cmd_ls ;;
+        rm|remove)    _env_cmd_rm "${@:2}" ;;
+        activate)     _env_cmd_activate "${@:2}" ;;
+        stop)         _env_cmd_stop ;;
+        check)        cmd_check "${@:2}" ;;
+        deactivate)   echo "$(_yellow "warning:") deactivate has been removed — switch with 'cac <name>' or uninstall with 'cac self delete'" >&2 ;;
+        help|-h|--help)
+            echo
+            echo "  $(_bold "cac env") — environment management"
+            echo
+            echo "    $(_green "create") <name> [-p proxy] [-c ver] [--clone [source]] [--no-link] [--telemetry mode] [--persona preset]"
+            echo "                             Create isolated environment (auto-activates)"
+            echo "                             --clone inherits commands/hooks/skills/plugins; --no-link copies instead of symlink"
+            echo "    $(_green "set") [name] <key> <value>        Modify environment"
+            echo "                             proxy, version, telemetry, or persona"
+            echo "    $(_green "ls")              List all environments"
+            echo "    $(_green "rm") <name>       Remove an environment"
+            echo "    $(_green "check")           Verify current environment"
+            echo "    $(_green "stop")            Pause cac (claude runs natively, no injection)"
+            echo "    $(_green "cac") <name>      Switch environment (also resumes if stopped)"
+            echo
+            ;;
+        *)
+            # If first arg is an existing env name, treat as: cac env set <name> ...
+            if [[ -d "$ENVS_DIR/$1" ]] && [[ $# -ge 2 ]]; then
+                _env_cmd_set "$@"
+            else
+                _die "unknown: cac env $1"
+            fi
+            ;;
+    esac
+}
+
+# ━━━ cmd_relay.sh ━━━
+# ── cmd: relay (local relay, bypass TUN) ──────────────────────────────
+
+_relay_start() {
+    local name="${1:-$(_current_env)}"
+    local env_dir="$ENVS_DIR/$name"
+    local proxy; proxy=$(_parse_proxy "$(_read "$env_dir/proxy")")
+    [[ -z "$proxy" ]] && return 1
+
+    local relay_js="$CAC_DIR/relay.js"
+    [[ -f "$relay_js" ]] || { echo "error: relay.js not found, reinstall with 'npm i -g claude-cac'" >&2; return 1; }
+
+    # find available port (17890-17999)
+    local port=17890
+    while (echo >/dev/tcp/127.0.0.1/$port) 2>/dev/null; do
+        (( port++ ))
+        if [[ $port -gt 17999 ]]; then
+            echo "error: all ports 17890-17999 occupied" >&2
+            return 1
+        fi
+    done
+
+    local pid_file="$CAC_DIR/relay.pid"
+    node "$relay_js" "$port" "$proxy" "$pid_file" </dev/null >"$CAC_DIR/relay.log" 2>&1 &
+    disown
+
+    # wait for relay ready
+    local _i
+    for _i in {1..30}; do
+        (echo >/dev/tcp/127.0.0.1/$port) 2>/dev/null && break
+        sleep 0.1
+    done
+
+    if ! (echo >/dev/tcp/127.0.0.1/$port) 2>/dev/null; then
+        echo "error: relay startup timeout" >&2
+        return 1
+    fi
+
+    echo "$proxy" > "$CAC_DIR/relay.proxy"
+    echo "$port" > "$CAC_DIR/relay.port"
+    return 0
+}
+
+_relay_stop() {
+    local pid_file="$CAC_DIR/relay.pid"
+    if [[ -f "$pid_file" ]]; then
+        local pid; pid=$(tr -d '[:space:]' < "$pid_file")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            # wait for process exit
+            local _i
+            for _i in {1..20}; do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.1
+            done
+        fi
+        rm -f "$pid_file"
+    fi
+    rm -f "$CAC_DIR/relay.port" "$CAC_DIR/relay.proxy"
+
+    # stop watchdog (relay.proxy already removed above, watchdog will self-exit within 5s;
+    # kill it immediately for clean teardown)
+    local wd_file="$CAC_DIR/relay.watchdog.pid"
+    if [[ -f "$wd_file" ]]; then
+        local wd_pid; wd_pid=$(tr -d '[:space:]' < "$wd_file")
+        [[ -n "$wd_pid" ]] && kill "$wd_pid" 2>/dev/null || true
+        rm -f "$wd_file"
+    fi
+
+    # cleanup route
+    _relay_remove_route 2>/dev/null || true
+}
+
+_relay_is_running() {
+    local pid_file="$CAC_DIR/relay.pid"
+    [[ -f "$pid_file" ]] || return 1
+    local pid; pid=$(tr -d '[:space:]' < "$pid_file")
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+# ── route management (direct route to bypass TUN) ──────────────────────────────
+
+_relay_add_route() {
+    local proxy="$1"
+    local proxy_host; proxy_host=$(_proxy_host_port "$proxy")
+    proxy_host="${proxy_host%%:*}"
+
+    # skip loopback addresses
+    [[ "$proxy_host" == "127."* || "$proxy_host" == "localhost" ]] && return 0
+
+    # resolve to IP
+    local proxy_ip
+    proxy_ip=$(python3 -c "import socket; print(socket.gethostbyname('$proxy_host'))" 2>/dev/null || echo "$proxy_host")
+
+    local os; os=$(_detect_os)
+    if [[ "$os" == "macos" ]]; then
+        local gateway
+        gateway=$(route -n get default 2>/dev/null | awk '/gateway:/{print $2}')
+        [[ -z "$gateway" ]] && return 1
+
+        # check if direct route exists
+        local current_gw
+        current_gw=$(route -n get "$proxy_ip" 2>/dev/null | awk '/gateway:/{print $2}')
+        [[ "$current_gw" == "$gateway" ]] && return 0
+
+        echo "  adding direct route: $proxy_ip -> $gateway (needs sudo)"
+        sudo route add -host "$proxy_ip" "$gateway" >/dev/null 2>&1 || return 1
+        echo "$proxy_ip" > "$CAC_DIR/relay_route_ip"
+
+    elif [[ "$os" == "linux" ]]; then
+        local gateway iface
+        gateway=$(ip route show default 2>/dev/null | awk '{print $3; exit}')
+        iface=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
+        [[ -z "$gateway" ]] && return 1
+
+        echo "  adding direct route: $proxy_ip -> $gateway dev $iface (needs sudo)"
+        sudo ip route add "$proxy_ip/32" via "$gateway" dev "$iface" 2>/dev/null || return 1
+        echo "$proxy_ip" > "$CAC_DIR/relay_route_ip"
+    fi
+}
+
+_relay_remove_route() {
+    local route_file="$CAC_DIR/relay_route_ip"
+    [[ -f "$route_file" ]] || return 0
+
+    local proxy_ip; proxy_ip=$(tr -d '[:space:]' < "$route_file")
+    [[ -z "$proxy_ip" ]] && return 0
+
+    local os; os=$(_detect_os)
+    if [[ "$os" == "macos" ]]; then
+        sudo route delete -host "$proxy_ip" >/dev/null 2>&1 || true
+    elif [[ "$os" == "linux" ]]; then
+        sudo ip route del "$proxy_ip/32" 2>/dev/null || true
+    fi
+    rm -f "$route_file"
+}
+
+# detect if TUN interface is active
+_detect_tun_active() {
+    local os; os=$(_detect_os)
+    if [[ "$os" == "macos" ]]; then
+        local tun_count
+        tun_count=$(ifconfig 2>/dev/null | grep -cE '^utun[0-9]+' || echo 0)
+        [[ "$tun_count" -gt 3 ]]
+    elif [[ "$os" == "linux" ]]; then
+        ip link show tun0 >/dev/null 2>&1
+    else
+        return 1
+    fi
+}
+
+# ── user commands ─────────────────────────────────────────────────────
+
+cmd_relay() {
+    _require_setup
+    local current; current=$(_current_env)
+    [[ -z "$current" ]] && { echo "error: no active environment, run 'cac <name>' first" >&2; exit 1; }
+
+    local env_dir="$ENVS_DIR/$current"
+    local action="${1:-status}"
+    local flag="${2:-}"
+
+    case "$action" in
+        on)
+            echo "on" > "$env_dir/relay"
+            echo "$(_green "✓") Relay enabled (env: $(_bold "$current"))"
+
+            # --route flag: add direct route
+            if [[ "$flag" == "--route" ]]; then
+                local proxy; proxy=$(_parse_proxy "$(_read "$env_dir/proxy")")
+                _relay_add_route "$proxy"
+            fi
+
+            # start relay if not running
+            if ! _relay_is_running; then
+                printf "  starting relay ... "
+                if _relay_start "$current"; then
+                    local port; port=$(_read "$CAC_DIR/relay.port")
+                    echo "$(_green "✓") 127.0.0.1:$port"
+                else
+                    echo "$(_red "✗ failed to start")"
+                fi
+            fi
+            echo "  next claude launch will automatically connect via local relay"
+            ;;
+        off)
+            rm -f "$env_dir/relay"
+            _relay_stop
+            echo "$(_green "✓") Relay disabled (env: $(_bold "$current"))"
+            ;;
+        status)
+            if [[ -f "$env_dir/relay" ]] && [[ "$(_read "$env_dir/relay")" == "on" ]]; then
+                echo "Relay mode: $(_green "enabled")"
+            else
+                echo "Relay mode: disabled"
+                if _detect_tun_active; then
+                    echo "  $(_yellow "⚠") TUN mode detected, consider running 'cac relay on'"
+                fi
+                return
+            fi
+
+            if _relay_is_running; then
+                local pid; pid=$(_read "$CAC_DIR/relay.pid")
+                local port; port=$(_read "$CAC_DIR/relay.port" "unknown")
+                echo "Relay process: $(_green "running") (PID=$pid, port=$port)"
+            else
+                echo "Relay process: $(_yellow "not started") (will auto-start with claude)"
+            fi
+
+            if [[ -f "$CAC_DIR/relay_route_ip" ]]; then
+                local route_ip; route_ip=$(_read "$CAC_DIR/relay_route_ip")
+                echo "Direct route: $route_ip"
+            fi
+            ;;
+        *)
+            echo "usage: cac relay [on|off|status]" >&2
+            echo "  on [--route]  enable local relay (--route adds direct route to bypass TUN)" >&2
+            echo "  off           disable local relay" >&2
+            echo "  status        show status" >&2
+            ;;
+    esac
+}
+
+# ━━━ cmd_check.sh ━━━
+# ── cmd: check ─────────────────────────────────────────────────
+
+cmd_check() {
+    _require_setup
+
+    local verbose=false
+    [[ "${1:-}" == "-d" || "${1:-}" == "--detail" ]] && verbose=true
+
+    local current; current=$(_current_env)
+
+    if [[ -z "$current" ]]; then
+        echo "error: no active environment — run $(_green "cac env create <name>")" >&2; exit 1
+    fi
+
+    local env_dir="$ENVS_DIR/$current"
+    local proxy; proxy=$(_parse_proxy "$(_read "$env_dir/proxy" "")")
+
+    # Resolve version
+    local ver; ver=$(_read "$env_dir/version" "")
+    if [[ -z "$ver" ]] || [[ "$ver" == "system" ]]; then
+        local _real; _real=$(_read "$CAC_DIR/real_claude" "")
+        if [[ -n "$_real" ]] && [[ -x "$_real" ]]; then
+            ver=$("$_real" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "?")
+        else
+            ver="?"
+        fi
+    fi
+
+    local problems=()
+
+    # ── header (neutral, no pass/fail yet) ──
+    echo
+    echo "  $(_bold "$current") $(_dim "(claude $ver)")"
+    echo
+
+    # ── wrapper check (instant) ──
+    local claude_path; claude_path="$(command -v claude 2>/dev/null || true)"
+    if [[ -z "$claude_path" ]] || [[ "$claude_path" != *"/.cac/bin/claude" ]]; then
+        local _rc; _rc=$(_detect_rc_file)
+        if [[ -n "$_rc" ]] && grep -q '# >>> cac' "$_rc" 2>/dev/null; then
+            echo "    $(_green "✓") wrapper    configured in ${_rc/#$HOME/~}"
+        else
+            _write_path_to_rc "$_rc" >/dev/null 2>&1 || true
+            echo "    $(_green "✓") wrapper    $(_dim "added to ${_rc/#$HOME/~}")"
+        fi
+    else
+        echo "    $(_green "✓") wrapper    active"
+    fi
+
+    # ── telemetry shield (instant) ──
+    local wrapper_file="$CAC_DIR/bin/claude"
+    local wrapper_content=""
+    [[ -f "$wrapper_file" ]] && wrapper_content=$(<"$wrapper_file")
+    local telemetry_mode; telemetry_mode=$(_read "$env_dir/telemetry_mode" "stealth")
+    # Normalize old names
+    case "$telemetry_mode" in conservative) telemetry_mode="stealth" ;; aggressive) telemetry_mode="paranoid" ;; off) telemetry_mode="transparent" ;; esac
+    local _tel_stealth_vars=("DISABLE_TELEMETRY" "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA")
+    local _tel_paranoid_vars=(
+        "CLAUDE_CODE_ENABLE_TELEMETRY" "DO_NOT_TRACK"
+        "OTEL_SDK_DISABLED" "OTEL_TRACES_EXPORTER" "OTEL_METRICS_EXPORTER" "OTEL_LOGS_EXPORTER"
+        "SENTRY_DSN" "DISABLE_ERROR_REPORTING" "DISABLE_BUG_COMMAND"
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" "TELEMETRY_DISABLED" "DISABLE_TELEMETRY"
+        "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"
+    )
+    if [[ "$telemetry_mode" == "transparent" ]]; then
+        echo "    $(_dim "○") telemetry  transparent (no protection)"
+    elif [[ "$telemetry_mode" == "paranoid" ]]; then
+        local env_ok=0 env_total=${#_tel_paranoid_vars[@]}
+        for var in "${_tel_paranoid_vars[@]}"; do
+            [[ "$wrapper_content" == *"$var"* ]] && (( env_ok++ )) || true
+        done
+        if [[ "$env_ok" -eq "$env_total" ]]; then
+            echo "    $(_green "✓") telemetry  paranoid ${env_ok}/${env_total} blocked"
+        else
+            echo "    $(_red "✗") telemetry  paranoid ${env_ok}/${env_total} blocked"
+            problems+=("telemetry shield ${env_ok}/${env_total}")
+        fi
+    else
+        local stealth_ok=0
+        for var in "${_tel_stealth_vars[@]}"; do
+            [[ "$wrapper_content" == *"$var"* ]] && (( stealth_ok++ )) || true
+        done
+        if [[ "$stealth_ok" -eq 2 ]]; then
+            echo "    $(_green "✓") telemetry  stealth (1p blocked, features normal)"
+        else
+            echo "    $(_red "✗") telemetry  stealth ($stealth_ok/2)"
+            problems+=("telemetry shield incomplete")
+        fi
+    fi
+
+    # ── identity spoofing (consolidated) ──
+    local os; os=$(_detect_os)
+    local _id_ok=0 _id_total=0 _id_issues=()
+
+    # fingerprint hook
+    local _fp_ok=false
+    if [[ -f "$CAC_DIR/fingerprint-hook.js" ]] && [[ -f "$env_dir/hostname" ]]; then
+        local expected_hn; expected_hn=$(_read "$env_dir/hostname")
+        local actual_hn
+        actual_hn=$(NODE_OPTIONS="--require $CAC_DIR/fingerprint-hook.js" CAC_HOSTNAME="$expected_hn" \
+            node -e "process.stdout.write(require('os').hostname())" 2>/dev/null || true)
+        (( _id_total++ )) || true
+        if [[ "$actual_hn" == "$expected_hn" ]]; then
+            _fp_ok=true; (( _id_ok++ )) || true
+        else
+            _id_issues+=("fingerprint hook not working")
+        fi
+    fi
+    # git email
+    (( _id_total++ )) || true
+    if [[ -f "$env_dir/git_email" ]]; then
+        (( _id_ok++ )) || true
+    else
+        _id_issues+=("git email not spoofed")
+    fi
+    # repo hash
+    (( _id_total++ )) || true
+    if [[ -f "$env_dir/fake_git_remote" ]]; then
+        (( _id_ok++ )) || true
+    else
+        _id_issues+=("repo hash not spoofed")
+    fi
+    # user_id tracking: sync from .claude.json after login (real userID wins)
+    local _uid_ok=true
+    local _config_dir="${CLAUDE_CONFIG_DIR:-$ENVS_DIR/$current/.claude}"
+    local _cj="$_config_dir/.claude.json"
+    [[ -f "$_cj" ]] || _cj="$HOME/.claude.json"
+    if [[ -f "$_cj" ]]; then
+        local _actual_uid
+        _actual_uid=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('userID',''))" "$_cj" 2>/dev/null || true)
+        if [[ -n "$_actual_uid" ]]; then
+            (( _id_total++ )) || true
+            echo "$_actual_uid" > "$env_dir/user_id" 2>/dev/null || true
+            (( _id_ok++ )) || true
+        fi
+    fi
+    # billing header
+    (( _id_total++ )) || true
+    [[ "$wrapper_content" == *"CLAUDE_CODE_ATTRIBUTION_HEADER"* ]] && { (( _id_ok++ )) || true; } || _id_issues+=("billing header exposed")
+
+    # display consolidated identity line
+    local _id_extra=""
+    [[ -f "$env_dir/persona" ]] && _id_extra=" + $(_read "$env_dir/persona")"
+    if [[ "$_id_ok" -eq "$_id_total" ]]; then
+        echo "    $(_green "✓") identity   ${_id_ok}/${_id_total} spoofed${_id_extra}"
+    else
+        echo "    $(_red "✗") identity   ${_id_ok}/${_id_total} spoofed${_id_extra}"
+        for _ii in "${_id_issues[@]}"; do
+            problems+=("$_ii")
+        done
+    fi
+
+    # ── IPv6 leak detection ──
+    local ipv6_leak=false
+    if [[ "$os" == "macos" ]]; then
+        local ipv6_addrs
+        ipv6_addrs=$(ifconfig 2>/dev/null | grep -c "inet6 [2-3]" || true)
+        [[ "$ipv6_addrs" -gt 0 ]] && ipv6_leak=true
+    elif [[ "$os" == "linux" ]]; then
+        local ipv6_addrs
+        ipv6_addrs=$(ip -6 addr show scope global 2>/dev/null | grep -c "inet6" || true)
+        [[ "$ipv6_addrs" -gt 0 ]] && ipv6_leak=true
+    fi
+    if [[ "$ipv6_leak" == "true" ]]; then
+        echo "    $(_yellow "⚠") IPv6       global address detected (potential leak)"
+    else
+        echo "    $(_green "✓") IPv6       no global address"
+    fi
+
+    # ── warnings (only shown when relevant) ──
+    if [[ -d "$HOME/.claude/telemetry" ]]; then
+        local tel_files
+        tel_files=$(find "$HOME/.claude/telemetry" -type f 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$tel_files" -gt 0 ]]; then
+            echo "    $(_yellow "⚠") residual   $tel_files telemetry files in ~/.claude/telemetry/"
+        fi
+    fi
+    local _claude_count
+    _claude_count=$(pgrep -x "claude" 2>/dev/null | wc -l | tr -d '[:space:]') || _claude_count=0
+    local _max_sessions; _max_sessions=$(_cac_setting max_sessions 10)
+    if [[ "$_claude_count" -gt "$_max_sessions" ]]; then
+        echo "    $(_yellow "⚠") sessions   $_claude_count running (threshold: $_max_sessions)"
+    fi
+    if [[ "$os" == "macos" ]]; then
+        security find-generic-password -s "claude-code-credentials" >/dev/null 2>&1 && \
+            echo "    $(_yellow "⚠") keychain   Trusted Device Token residual"
+    fi
+
+    # ── network check (slow — streaming output) ──
+    local proxy_ip=""
+    if [[ -n "$proxy" ]]; then
+        if ! _proxy_reachable "$proxy"; then
+            echo "    $(_red "✗") proxy      unreachable"
+            problems+=("proxy unreachable: $proxy")
+        else
+            # Fast retry with dots: each attempt adds a dot
+            local _ip_url _dots=""
+            local _urls="https://api.ip.sb/ip https://ip.3322.net https://api.ipify.org https://ipinfo.io/ip https://api.ip.sb/ip"
+            for _ip_url in $_urls; do
+                _dots="${_dots}."
+                printf "\r    · exit IP    $(_dim "detecting${_dots}")"
+                proxy_ip=$(curl --proxy "$(_curl_proxy_url "$proxy")" --connect-timeout 3 --max-time 6 "$_ip_url" 2>/dev/null || true)
+                [[ "$proxy_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && break
+                proxy_ip=""
+            done
+            # Overwrite the "detecting..." line
+            if [[ -n "$proxy_ip" ]]; then
+                printf "\r    $(_green "✓") exit IP    $(_cyan "$proxy_ip")\033[K\n"
+                # TZ vs exit IP consistency check
+                local env_tz; env_tz=$(_read "$env_dir/tz" "")
+                if [[ -n "$env_tz" ]] && [[ -n "$proxy_ip" ]]; then
+                    local ip_tz
+                    ip_tz=$(curl -s --proxy "$(_curl_proxy_url "$proxy")" --connect-timeout 5 "http://ip-api.com/json/$proxy_ip?fields=timezone" 2>/dev/null | \
+                        python3 -c "import sys,json; print(json.load(sys.stdin).get('timezone',''))" 2>/dev/null || true)
+                    if [[ -n "$ip_tz" ]] && [[ "$ip_tz" != "$env_tz" ]]; then
+                        echo "    $(_yellow "⚠") TZ        mismatch: env=$env_tz, IP=$ip_tz"
+                        problems+=("TZ mismatch: env=$env_tz vs IP=$ip_tz")
+                    fi
+                fi
+            else
+                printf "\r    $(_red "✗") exit IP    $(_dim "unable to verify via proxy")\033[K\n"
+                problems+=("exit IP undetected via proxy")
+            fi
+
+            # TUN conflict detection
+            if [[ -n "$proxy_ip" ]]; then
+            local has_conflict=false
+            local tun_procs="clash|mihomo|sing-box|surge|shadowrocket|v2ray|xray|hysteria|tuic|nekoray"
+            local running
+            if [[ "$os" == "macos" ]]; then
+                running=$(ps aux 2>/dev/null | grep -iE "$tun_procs" | grep -v grep || true)
+            else
+                running=$(ps -eo comm 2>/dev/null | grep -iE "$tun_procs" || true)
+            fi
+            [[ -n "$running" ]] && has_conflict=true
+            if [[ "$os" == "macos" ]]; then
+                local tun_count; tun_count=$(ifconfig 2>/dev/null | grep -cE '^utun[0-9]+' || echo 0)
+                [[ "$tun_count" -gt 3 ]] && has_conflict=true
+            elif [[ "$os" == "linux" ]]; then
+                ip link show tun0 >/dev/null 2>&1 && has_conflict=true
+            fi
+
+            if [[ "$has_conflict" == "true" ]]; then
+                local relay_ok=false
+                if _relay_is_running 2>/dev/null; then
+                    local rport; rport=$(_read "$CAC_DIR/relay.port" "")
+                    local relay_ip; relay_ip=$(curl --proxy "http://127.0.0.1:$rport" --connect-timeout 8 --max-time 12 https://api.ipify.org 2>/dev/null || true)
+                    [[ -n "$relay_ip" ]] && relay_ok=true
+                elif [[ -f "$CAC_DIR/relay.js" ]]; then
+                    local _test_env; _test_env=$(_current_env)
+                    if _relay_start "$_test_env" 2>/dev/null; then
+                        local rport; rport=$(_read "$CAC_DIR/relay.port" "")
+                        local relay_ip; relay_ip=$(curl --proxy "http://127.0.0.1:$rport" --connect-timeout 8 --max-time 12 https://api.ipify.org 2>/dev/null || true)
+                        _relay_stop 2>/dev/null || true
+                        [[ -n "$relay_ip" ]] && relay_ok=true
+                    fi
+                fi
+
+                if [[ "$relay_ok" == "true" ]]; then
+                    echo "    $(_green "✓") TUN        relay bypass active"
+                else
+                    local proxy_hp; proxy_hp=$(_proxy_host_port "$proxy")
+                    local proxy_host="${proxy_hp%%:*}"
+                    echo "    $(_red "✗") TUN        conflict — add DIRECT rule for $proxy_host"
+                    problems+=("TUN conflict: add DIRECT rule for $proxy_host in proxy software")
+                fi
+            fi
+            fi
+        fi
+    else
+        echo "    $(_green "✓") mode       API Key (no proxy)"
+    fi
+
+    # ── summary ──
+    echo
+    if [[ ${#problems[@]} -eq 0 ]]; then
+        echo "  $(_green "✓") all good"
+    else
+        for p in "${problems[@]}"; do
+            echo "  $(_red "✗") $p"
+        done
+    fi
+    echo
+
+    # ── verbose mode ──
+    if [[ "$verbose" == "true" ]]; then
+        echo "  $(_bold "Identity")"
+        echo "    $([[ "$_fp_ok" == "true" ]] && _green "✓" || _red "✗") hostname    $(_read "$env_dir/hostname" "—")"
+        echo "    $([[ -f "$env_dir/git_email" ]] && _green "✓" || _yellow "⚠") git email   $(_read "$env_dir/git_email" "—")"
+        echo "    $([[ -f "$env_dir/fake_git_remote" ]] && _green "✓" || _yellow "⚠") repo hash   $(_read "$env_dir/fake_git_remote" "—")"
+        echo "    $([[ "$_uid_ok" == "true" ]] && _green "✓" || _yellow "⚠") user_id     $(_read "$env_dir/user_id" "—" | cut -c1-16)..."
+        echo "    $([[ "$wrapper_content" == *"CLAUDE_CODE_ATTRIBUTION_HEADER"* ]] && _green "✓" || _yellow "⚠") billing     $([[ "$wrapper_content" == *"CLAUDE_CODE_ATTRIBUTION_HEADER"* ]] && echo "disabled" || echo "exposed")"
+        [[ -f "$env_dir/persona" ]] && echo "    $(_green "✓") persona     $(_read "$env_dir/persona")"
+        echo
+        echo "  $(_bold "Details")"
+        echo "    $(_dim "UUID")       $(_read "$env_dir/uuid")"
+        echo "    $(_dim "stable_id")  $(_read "$env_dir/stable_id")"
+        echo "    $(_dim "MAC")        $(_read "$env_dir/mac_address" "—")"
+        echo "    $(_dim "machine_id") $(_read "$env_dir/machine_id" "—")"
+        echo "    $(_dim "TZ")         $(_read "$env_dir/tz" "—")"
+        echo "    $(_dim "LANG")       $(_read "$env_dir/lang" "—")"
+        echo "    $(_dim "env")        ${env_dir/#$HOME/~}/.claude/"
+        echo
+        echo "  $(_bold "Telemetry") ($telemetry_mode mode)"
+        if [[ "$telemetry_mode" == "transparent" ]]; then
+            echo "    $(_dim "  no telemetry protection active")"
+        fi
+        local _vvars=("${_tel_stealth_vars[@]}")
+        [[ "$telemetry_mode" == "paranoid" ]] && _vvars=("${_tel_paranoid_vars[@]}")
+        for var in "${_vvars[@]}"; do
+            if [[ "$wrapper_content" == *"$var"* ]]; then
+                printf "    $(_green "✓") %s\n" "$var"
+            else
+                printf "    $(_red "✗") %s\n" "$var"
+            fi
+        done
+        echo
+        printf "  $(_bold "DNS block")  "
+        if [[ -f "$CAC_DIR/cac-dns-guard.js" ]]; then
+            _check_dns_block "statsig.anthropic.com"
+        else
+            echo "$(_red "✗")"
+        fi
+        printf "  $(_bold "mTLS")       "
+        _check_mtls "$env_dir"
+        echo
+    fi
+}
+
+# ━━━ cmd_stop.sh ━━━
+# ── cmd: stop / continue ───────────────────────────────────────
+
+cmd_stop() {
+    touch "$CAC_DIR/stopped"
+    echo "$(_yellow "⚠ cac stopped") — claude runs unprotected"
+    echo "  Resume: cac resume"
+}
+
+cmd_continue() {
+    if [[ ! -f "$CAC_DIR/stopped" ]]; then
+        echo "cac is not stopped, no need to resume"
+        return
+    fi
+
+    local current; current=$(_current_env)
+    if [[ -z "$current" ]]; then
+        echo "error: no active environment, run 'cac <name>'" >&2; exit 1
+    fi
+
+    rm -f "$CAC_DIR/stopped"
+    echo "$(_green "✓") cac resumed — current env: $(_bold "$current")"
+}
+
+# ━━━ cmd_claude.sh ━━━
+# ── cmd: claude (version management, like "uv python") ──────────
+
+_GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
+
+_download_version() {
+    local ver="$1"
+    local platform; platform=$(_detect_platform) || _die "unsupported platform"
+    local dest_dir="$VERSIONS_DIR/$ver"
+    local dest="$dest_dir/claude"
+
+    if [[ -x "$dest" ]]; then
+        echo "  Already installed: $(_cyan "$ver")"
+        return 0
+    fi
+
+    mkdir -p "$dest_dir"
+    _timer_start
+
+    printf "  Downloading manifest ... "
+    local manifest
+    manifest=$(curl -fsSL "$_GCS_BUCKET/$ver/manifest.json" 2>/dev/null) || {
+        echo "$(_red "failed")"
+        rm -rf "$dest_dir"
+        _die "version $(_cyan "$ver") not found or network unreachable"
+    }
+    echo "done"
+
+    local checksum=""
+    checksum=$(echo "$manifest" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('platforms',{}).get(sys.argv[1],{}).get('checksum',''))
+" "$platform" 2>/dev/null || true)
+
+    if [[ -z "$checksum" ]] || [[ ! "$checksum" =~ ^[a-f0-9]{64}$ ]]; then
+        rm -rf "$dest_dir"
+        _die "platform $(_cyan "$platform") not in manifest"
+    fi
+
+    echo "  Downloading $(_cyan "claude $ver") ($(_dim "$platform"))"
+    if ! curl -fL --progress-bar -o "$dest" "$_GCS_BUCKET/$ver/$platform/claude" 2>&1; then
+        rm -rf "$dest_dir"
+        _die "download failed"
+    fi
+
+    printf "  Verifying SHA256 checksum ... "
+    local actual; actual=$(_sha256 "$dest")
+    if [[ "$actual" != "$checksum" ]]; then
+        echo "$(_red "failed")"
+        rm -rf "$dest_dir"
+        _die "checksum mismatch (expected: $checksum, actual: $actual)"
+    fi
+    echo "done"
+
+    chmod +x "$dest"
+    echo "$ver" > "$dest_dir/.version"
+    local elapsed; elapsed=$(_timer_elapsed)
+    echo "$(_green_bold "Installed") Claude Code $(_cyan "$ver") $(_dim "in $elapsed")"
+}
+
+_fetch_latest_version() {
+    curl -fsSL "$_GCS_BUCKET/latest" 2>/dev/null
+}
+
+_claude_cmd_install() {
+    local target="${1:-latest}"
+    local ver
+    if [[ "$target" == "latest" ]]; then
+        printf "Fetching latest version ... "
+        ver=$(_fetch_latest_version) || _die "failed to fetch latest version"
+        echo "$(_cyan "$ver")"
+    else
+        ver="$target"
+    fi
+
+    [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?$ ]] || \
+        _die "invalid version $(_cyan "'$ver'")"
+
+    mkdir -p "$VERSIONS_DIR"
+    if _download_version "$ver"; then
+        _update_latest
+        echo
+        echo "  Bind to environment: $(_cyan "cac env create <name> -c $ver")"
+    fi
+}
+
+_claude_cmd_uninstall() {
+    [[ -n "${1:-}" ]] || _die "missing version\n  usage: cac claude uninstall <version>"
+    local ver="$1"
+    [[ -d "$VERSIONS_DIR/$ver" ]] || _die "version $(_cyan "$ver") not installed"
+
+    local count; count=$(_envs_using_version "$ver")
+    [[ "$count" -eq 0 ]] || _die "version $(_cyan "$ver") in use by $count environment(s)"
+
+    rm -rf "${VERSIONS_DIR:?}/$ver"
+    _update_latest
+    echo "$(_green_bold "Uninstalled") Claude Code $(_cyan "$ver")"
+}
+
+_claude_cmd_ls() {
+    _update_latest 2>/dev/null || true
+    if [[ ! -d "$VERSIONS_DIR" ]] || [[ -z "$(ls -A "$VERSIONS_DIR" 2>/dev/null)" ]]; then
+        echo "$(_dim "  No versions installed.")"
+        echo "  Run $(_green "cac claude install") to get started."
+        return
+    fi
+
+    local latest; latest=$(_read "$VERSIONS_DIR/.latest" "")
+
+    printf "  $(_dim "%-12s  %-8s  %s")\n" "VERSION" "STATUS" "ENVIRONMENTS"
+    for ver_dir in "$VERSIONS_DIR"/*/; do
+        [[ -d "$ver_dir" ]] || continue
+        local ver; ver=$(basename "$ver_dir")
+        local status=""; [[ "$ver" == "$latest" ]] && status="latest"
+        local count; count=$(_envs_using_version "$ver")
+        local usage="—"; [[ "$count" -gt 0 ]] && usage="$count env(s)"
+        if [[ -n "$status" ]]; then
+            printf "  $(_cyan "%-12s")  $(_green "%-8s")  %s\n" "$ver" "$status" "$usage"
+        else
+            printf "  $(_cyan "%-12s")  $(_dim "%-8s")  %s\n" "$ver" "—" "$usage"
+        fi
+    done
+}
+
+_claude_cmd_pin() {
+    [[ -n "${1:-}" ]] || _die "missing version\n  usage: cac claude pin <version>"
+    local ver="$1"
+    ver=$(_resolve_version "$ver")
+    [[ -x "$(_version_binary "$ver")" ]] || _die "version $(_cyan "$ver") not installed"
+
+    local current; current=$(_current_env)
+    [[ -n "$current" ]] || _die "no active environment"
+
+    echo "$ver" > "$ENVS_DIR/$current/version"
+    echo "$(_green_bold "Pinned") $(_bold "$current") -> Claude Code $(_cyan "$ver")"
+}
+
+cmd_claude() {
+    case "${1:-help}" in
+        install)    _claude_cmd_install "${@:2}" ;;
+        uninstall)  _claude_cmd_uninstall "${@:2}" ;;
+        ls|list)    _claude_cmd_ls ;;
+        pin)        _claude_cmd_pin "${@:2}" ;;
+        help|-h|--help)
+            echo "$(_bold "cac claude") — Claude Code version management"
+            echo
+            echo "  $(_bold "install") [latest|<ver>]  Install a Claude Code version"
+            echo "  $(_bold "uninstall") <ver>         Remove an installed version"
+            echo "  $(_bold "ls")                      List installed versions"
+            echo "  $(_bold "pin") <ver>               Pin current environment to a version"
+            ;;
+        *) _die "unknown: cac claude $1" ;;
+    esac
+}
+
+# ━━━ cmd_self.sh ━━━
+# ── cmd: self (cac self-management, like "uv self") ──────────────
+
+_SELF_REPO="https://raw.githubusercontent.com/nmhjklnm/cac/master"
+
+_self_cmd_update() {
+    local method; method=$(_install_method)
+
+    echo "Updating cac ..."
+    _timer_start
+
+    case "$method" in
+        npm)
+            echo "  Install method: $(_cyan "npm")"
+            npm update -g claude-cac 2>&1 || _die "npm update failed"
+            ;;
+        bash)
+            echo "  Install method: $(_cyan "bash")"
+            local bin_dir="$HOME/bin"
+            mkdir -p "$bin_dir"
+            echo "  Downloading latest cac"
+            if curl -fL --progress-bar -o "$bin_dir/cac.tmp" "$_SELF_REPO/cac" 2>&1; then
+                chmod +x "$bin_dir/cac.tmp"
+                mv "$bin_dir/cac.tmp" "$bin_dir/cac"
+            else
+                rm -f "$bin_dir/cac.tmp"
+                _die "download failed"
+            fi
+            # Regenerate wrapper and shims from new binary
+            _ensure_initialized
+            ;;
+        *)
+            _die "unknown install method\n  Reinstall with: curl -fsSL $_SELF_REPO/install.sh | bash"
+            ;;
+    esac
+
+    local elapsed; elapsed=$(_timer_elapsed)
+    echo "$(_green_bold "Updated") cac $(_dim "in $elapsed")"
+}
+
+cmd_self() {
+    case "${1:-help}" in
+        update)          _self_cmd_update ;;
+        delete|remove)   cmd_delete ;;
+        help|-h|--help)
+            echo "$(_bold "cac self") — cac self-management"
+            echo
+            echo "  $(_bold "update")    Update cac to the latest version"
+            echo "  $(_bold "delete")    Uninstall cac completely"
+            ;;
+        *) _die "unknown: cac self $1" ;;
+    esac
+}
+
+# ━━━ cmd_docker.sh ━━━
+# ── cac docker — 容器化部署管理 ─────────────────────────────────────
+
+_info()  { printf '\033[36m▸\033[0m %b\n' "$*"; }
+_ok()    { printf '\033[32m✓\033[0m %b\n' "$*"; }
+_warn()  { printf '\033[33m!\033[0m %b\n' "$*"; }
+_err()   { printf '\033[31m✗\033[0m %b\n' "$*" >&2; }
+
+_docker_dir() {
+  # Find docker/ relative to the cac script location
+  local script_path
+  script_path="$(command -v cac 2>/dev/null || echo "$0")"
+  script_path="$(cd "$(dirname "$script_path")" && pwd)"
+
+  # Check common locations
+  for d in \
+    "$script_path/docker" \
+    "$script_path/../docker" \
+    "$PWD/docker" \
+    "$HOME/.cac/docker"
+  do
+    [[ -d "$d" && -f "$d/docker-compose.yml" ]] && { echo "$d"; return 0; }
+  done
+
+  echo ""
+}
+
+_dk_env_file=""
+_dk_compose_base=()
+_dk_service="cac"
+_dk_shim_if="cac-docker-shim"
+_dk_port_dir="/tmp/cac-docker-ports"
+_dk_image="ghcr.io/nmhjklnm/cac-docker:latest"
+
+_dk_init() {
+  local docker_dir
+  docker_dir=$(_docker_dir)
+  if [[ -z "$docker_dir" ]]; then
+    _err "Cannot find docker/ directory. Run from the cac repo, or clone it first."
+    _err "  git clone https://github.com/nmhjklnm/cac.git && cd cac"
+    return 1
+  fi
+  _dk_env_file="${docker_dir}/.env"
+  _dk_compose_base=(-f "${docker_dir}/docker-compose.yml")
+}
+
+_dk_load_env() {
+  # shellcheck disable=SC1090  # dynamic env file path
+  [[ -f "$_dk_env_file" ]] && set -a && source "$_dk_env_file" && set +a
+}
+
+_dk_read_env() {
+  local key="$1"
+  [[ -f "$_dk_env_file" ]] && grep -m1 "^${key}=" "$_dk_env_file" 2>/dev/null | cut -d= -f2- || echo ""
+}
+
+_dk_write_env() {
+  local key="$1" value="$2"
+  if [[ -f "$_dk_env_file" ]] && grep -q "^${key}=" "$_dk_env_file" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$_dk_env_file"
+  else
+    echo "${key}=${value}" >> "$_dk_env_file"
+  fi
+}
+
+_dk_detect_mode() {
+  if docker info 2>/dev/null | grep -qi "docker desktop\|operating system:.*docker desktop\|platform.*desktop"; then
+    echo "local"
+  elif [[ "$(uname -s)" == "Darwin" ]] || [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == CYGWIN* ]]; then
+    echo "local"
+  else
+    echo "remote"
+  fi
+}
+
+_dk_get_mode() {
+  local mode
+  mode=$(_dk_read_env DEPLOY_MODE)
+  echo "${mode:-$(_dk_detect_mode)}"
+}
+
+_dk_compose_files() {
+  local docker_dir mode
+  docker_dir=$(_docker_dir)
+  mode=$(_dk_get_mode)
+  if [[ "$mode" == "local" ]]; then
+    echo "${_dk_compose_base[@]}" -f "${docker_dir}/docker-compose.local.yml"
+  else
+    echo "${_dk_compose_base[@]}" -f "${docker_dir}/docker-compose.macvlan.yml"
+  fi
+}
+
+_dk_compose() {
+  local files
+  # shellcheck disable=SC2207  # intentional word splitting
+  files=($(_dk_compose_files))
+  docker compose "${files[@]}" "$@"
+}
+
+_dk_detect_network() {
+  local iface gw addr ip prefix a b c d bits net_addr subnet container_last container_ip
+
+  iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+  gw=$(ip route show default 2>/dev/null | awk '/default/{print $3; exit}')
+
+  if [[ -z "$iface" || -z "$gw" ]]; then
+    _err "Cannot detect default network interface"
+    return 1
+  fi
+
+  addr=$(ip -4 addr show "$iface" 2>/dev/null | awk '/inet /{print $2; exit}') || addr=""
+  [[ -z "$addr" ]] && { echo "error: cannot get address for $iface" >&2; return 1; }
+  ip="${addr%/*}"
+  prefix="${addr#*/}"
+
+  IFS=. read -r a b c d <<< "$ip"
+  bits=$((0xFFFFFFFF << (32 - prefix) & 0xFFFFFFFF))
+  net_addr="$(( a & (bits >> 24 & 0xFF) )).$(( b & (bits >> 16 & 0xFF) )).$(( c & (bits >> 8 & 0xFF) )).$(( d & (bits & 0xFF) ))"
+  subnet="${net_addr}/${prefix}"
+
+  container_last=$(( (d + 100) % 254 + 1 ))
+  container_ip="${a}.${b}.${c}.${container_last}"
+  local shim_last=$(( container_last % 254 + 1 ))
+  local shim_ip="${a}.${b}.${c}.${shim_last}"
+
+  _dk_write_env HOST_INTERFACE "$iface"
+  _dk_write_env MACVLAN_SUBNET "$subnet"
+  _dk_write_env MACVLAN_GATEWAY "$gw"
+  _dk_write_env MACVLAN_IP "$container_ip"
+  _dk_write_env SHIM_IP "$shim_ip"
+
+  printf "  Interface:  \033[1m%s\033[0m\n" "$iface"
+  printf "  Host IP:    %s\n" "$ip"
+  printf "  Gateway:    %s\n" "$gw"
+  printf "  Container:  \033[1m%s\033[0m\n" "$container_ip"
+}
+
+_dk_shim_up() {
+  [[ "$(_dk_get_mode)" != "remote" ]] && return 0
+  _dk_load_env
+  local parent="${HOST_INTERFACE:-}" cip="${MACVLAN_IP:-}" sip="${SHIM_IP:-}"
+  [[ -z "$parent" || -z "$cip" || -z "$sip" ]] && return 0
+  ip link show "$_dk_shim_if" &>/dev/null && return 0
+
+  ip link add "$_dk_shim_if" link "$parent" type macvlan mode bridge
+  ip addr add "${sip}/32" dev "$_dk_shim_if"
+  ip link set "$_dk_shim_if" up
+  ip route add "${cip}/32" dev "$_dk_shim_if" 2>/dev/null || true
+}
+
+_dk_shim_down() {
+  ip link show "$_dk_shim_if" &>/dev/null && ip link del "$_dk_shim_if" 2>/dev/null || true
+}
+
+# ── Port forwarding ──────────────────────────────────────────────────
+
+_dk_port_forward() {
+  local port="$1" mode
+  mode=$(_dk_get_mode)
+
+  mkdir -p "$_dk_port_dir"
+  local pidfile="${_dk_port_dir}/${port}.pid"
+  if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+    _warn "Port $port already forwarded (pid $(cat "$pidfile"))"
+    return 0
+  fi
+
+  local cip
+  if [[ "$mode" == "remote" ]]; then
+    _dk_load_env
+    cip="${MACVLAN_IP:-}"
+    [[ -z "$cip" ]] && { _err "MACVLAN_IP not set. Run: cac docker setup"; return 1; }
+    _dk_shim_up
+  else
+    cip=$(_dk_compose exec -T "$_dk_service" hostname -I 2>/dev/null | awk '{print $1}')
+    [[ -z "$cip" ]] && { _err "Cannot determine container IP"; return 1; }
+  fi
+
+  if command -v socat &>/dev/null; then
+    socat TCP-LISTEN:"$port",fork,reuseaddr,bind=127.0.0.1 TCP:"${cip}":"$port" &
+  elif command -v python3 &>/dev/null; then
+    python3 -c "
+import socket, threading
+def fwd(src, dst):
+    try:
+        while d := src.recv(4096):
+            dst.sendall(d)
+    except: pass
+    finally: src.close(); dst.close()
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', $port)); s.listen(8)
+while True:
+    c, _ = s.accept()
+    r = socket.create_connection(('$cip', $port))
+    threading.Thread(target=fwd, args=(c,r), daemon=True).start()
+    threading.Thread(target=fwd, args=(r,c), daemon=True).start()
+" &
+  else
+    _err "Need socat or python3 for port forwarding"
+    return 1
+  fi
+  local pid=$!
+  echo "$pid" > "$pidfile"
+  sleep 0.3
+  if kill -0 "$pid" 2>/dev/null; then
+    _ok "localhost:${port} → ${cip}:${port} (pid $pid)"
+  else
+    _err "Failed to forward port $port"
+    rm -f "$pidfile"
+    return 1
+  fi
+}
+
+_dk_port_stop() {
+  local port="$1"
+  local pidfile="${_dk_port_dir}/${port}.pid"
+  if [[ -f "$pidfile" ]]; then
+    kill "$(cat "$pidfile")" 2>/dev/null || true
+    rm -f "$pidfile"
+    _ok "Stopped forwarding port $port"
+  else
+    _warn "Port $port is not being forwarded"
+  fi
+}
+
+_dk_port_list() {
+  mkdir -p "$_dk_port_dir"
+  local found=0
+  for pidfile in "$_dk_port_dir"/*.pid; do
+    [[ -f "$pidfile" ]] || continue
+    local port pid
+    port=$(basename "$pidfile" .pid)
+    pid=$(cat "$pidfile")
+    if kill -0 "$pid" 2>/dev/null; then
+      printf "  \033[32m●\033[0m localhost:%-6s (pid %s)\n" "$port" "$pid"
+      found=1
+    else
+      rm -f "$pidfile"
+    fi
+  done
+  [[ "$found" -eq 0 ]] && _info "No ports forwarded. Use: cac docker port <port>"
+}
+
+_dk_port_stop_all() {
+  mkdir -p "$_dk_port_dir"
+  for pidfile in "$_dk_port_dir"/*.pid; do
+    [[ -f "$pidfile" ]] || continue
+    kill "$(cat "$pidfile")" 2>/dev/null || true
+    rm -f "$pidfile"
+  done
+}
+
+# ── Docker subcommands ───────────────────────────────────────────────
+
+_dk_cmd_setup() {
+  _dk_init || return 1
+  echo ""
+  printf "\033[1mcac docker setup\033[0m\n"
+  echo ""
+
+  local proxy
+  proxy=$(_dk_read_env PROXY_URI)
+  if [[ -n "$proxy" ]]; then
+    _info "Current proxy: \033[1m${proxy}\033[0m"
+    read -rp "  New proxy URI (Enter to keep): " input
+    [[ -n "$input" ]] && proxy="$input"
+  else
+    read -rp "  Proxy URI (e.g. ss://..., ip:port:user:pass): " proxy
+  fi
+  if [[ -z "$proxy" ]]; then
+    _err "Proxy is required"
+    return 1
+  fi
+  _dk_write_env PROXY_URI "$proxy"
+
+  local mode
+  mode=$(_dk_detect_mode)
+  _dk_write_env DEPLOY_MODE "$mode"
+
+  echo ""
+  if [[ "$mode" == "local" ]]; then
+    _info "Detected: \033[1mlocal laptop\033[0m (Docker Desktop)"
+    _info "Mode: bridge network — container isolated"
+  else
+    _info "Detected: \033[1mremote server\033[0m (native Linux Docker)"
+    _info "Mode: macvlan — container isolated from host"
+    echo ""
+    _info "Detecting network..."
+    _dk_detect_network
+  fi
+
+  echo ""
+  # Create persistent data directory
+  local docker_dir
+  docker_dir=$(_docker_dir)
+  mkdir -p "${docker_dir}/data/root" "${docker_dir}/data/home"
+
+  _ok "Config saved"
+  echo ""
+  _info "Next: \033[1mcac docker create\033[0m"
+}
+
+_dk_cmd_create() {
+  _dk_init || return 1
+  [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
+  echo ""
+  _info "Pulling image..."
+  docker pull "$_dk_image"
+  echo ""
+  _ok "Image ready"
+  _info "Start with: \033[1mcac docker start\033[0m"
+}
+
+_dk_cmd_start() {
+  _dk_init || return 1
+  [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
+  _dk_load_env
+  _info "Starting container..."
+  _dk_compose up -d
+  _dk_shim_up
+  sleep 2
+
+  local state
+  state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "unknown")
+  if [[ "$state" == "running" ]]; then
+    _ok "Container running"
+    _info "Enter with:   \033[1mcac docker enter\033[0m"
+    _info "Check with:   \033[1mcac docker check\033[0m"
+    _info "Forward port: \033[1mcac docker port <port>\033[0m"
+  else
+    _err "Container state: $state"
+    _info "Logs: cac docker logs"
+  fi
+}
+
+_dk_cmd_stop() {
+  _dk_init || return 1
+  _dk_port_stop_all
+  _dk_shim_down
+  _info "Stopping container..."
+  _dk_compose down
+  _ok "Stopped"
+}
+
+_dk_cmd_restart() {
+  _dk_cmd_stop
+  _dk_cmd_start
+}
+
+_dk_cmd_enter() {
+  _dk_init || return 1
+  _dk_compose exec "$_dk_service" bash
+}
+
+_dk_cmd_check() {
+  _dk_init || return 1
+  _dk_compose exec "$_dk_service" cac-check
+
+  echo ""
+  printf "\033[1mExit IP Comparison\033[0m\n"
+  echo ""
+
+  local container_ip
+  container_ip=$(_dk_compose exec -T "$_dk_service" timeout 10 curl -sf https://ifconfig.me 2>/dev/null || echo "")
+  if [[ -n "$container_ip" ]]; then
+    _ok "Container exit: \033[1m${container_ip}\033[0m"
+  else
+    _err "Container cannot reach ifconfig.me"
+  fi
+
+  local host_ip
+  host_ip=$(timeout 10 curl -sf https://ifconfig.me 2>/dev/null || echo "")
+  if [[ -n "$host_ip" ]]; then
+    _ok "Host exit:      \033[1m${host_ip}\033[0m"
+  else
+    _info "Host cannot reach ifconfig.me (blocked or no proxy — this is fine)"
+  fi
+
+  echo ""
+  if [[ -n "$container_ip" && -n "$host_ip" ]]; then
+    if [[ "$container_ip" != "$host_ip" ]]; then
+      _ok "Exit IPs differ — container uses a different network path than host"
+    else
+      _info "Exit IPs are the same — verify \033[1m${container_ip}\033[0m is your proxy's exit IP"
+    fi
+  elif [[ -n "$container_ip" && -z "$host_ip" ]]; then
+    _ok "Container can reach internet, host cannot — proxy is working"
+  fi
+  echo ""
+}
+
+_dk_cmd_port() {
+  _dk_init || return 1
+  local subcmd="${1:-}" port="${2:-}"
+  case "$subcmd" in
+    ""|ls|list)   _dk_port_list ;;
+    stop)
+      if [[ -z "$port" ]]; then
+        _dk_port_stop_all; _ok "All port forwarders stopped"
+      else
+        _dk_port_stop "$port"
+      fi ;;
+    [0-9]*)       _dk_port_forward "$subcmd" ;;
+    *)
+      echo "Usage:"
+      echo "  cac docker port <port>       Forward localhost:port to container"
+      echo "  cac docker port list         List active forwarders"
+      echo "  cac docker port stop [port]  Stop forwarder(s)" ;;
+  esac
+}
+
+_dk_cmd_logs() {
+  _dk_init || return 1
+  _dk_compose logs --tail=50 -f "$_dk_service"
+}
+
+_dk_cmd_status() {
+  _dk_init || return 1
+  _dk_load_env
+  echo ""
+  printf "\033[1mcac docker status\033[0m\n"
+  echo ""
+
+  printf "  Mode:       %s\n" "$(_dk_get_mode)"
+
+  local proxy
+  proxy=$(_dk_read_env PROXY_URI)
+  if [[ -n "$proxy" ]]; then
+    local dp
+    if [[ "$proxy" == *"://"* ]]; then dp="${proxy%%://*}://***"
+    else IFS=: read -r _h _p _rest <<< "$proxy"; dp="${_h}:${_p}:***"; fi
+    printf "  Proxy:      %s\n" "$dp"
+  else
+    printf "  Proxy:      \033[33mnot configured\033[0m\n"
+  fi
+
+  if [[ "$(_dk_get_mode)" == "remote" ]]; then
+    local cip; cip=$(_dk_read_env MACVLAN_IP)
+    [[ -n "$cip" ]] && printf "  Container:  %s\n" "$cip"
+  fi
+
+  local state
+  state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "not created")
+  case "$state" in
+    running) printf "  Status:     \033[32mrunning\033[0m\n" ;;
+    *)       printf "  Status:     \033[33m%s\033[0m\n" "$state" ;;
+  esac
+
+  local health
+  health=$(_dk_compose ps --format '{{.Health}}' "$_dk_service" 2>/dev/null || echo "")
+  [[ -n "$health" ]] && printf "  Health:     %s\n" "$health"
+
+  echo ""
+  printf "\033[1mPorts\033[0m\n"
+  _dk_port_list
+  echo ""
+}
+
+_dk_cmd_destroy() {
+  _dk_init || return 1
+  read -rp "Remove container and image? [y/N]: " confirm
+  if [[ "$confirm" == [yY] ]]; then
+    _dk_port_stop_all
+    _dk_shim_down
+    _dk_compose down --rmi local --volumes 2>/dev/null || true
+    _ok "Removed"
+  fi
+}
+
+# ── Docker command dispatcher ────────────────────────────────────────
+
+cmd_docker() {
+  local subcmd="${1:-}"
+  shift 2>/dev/null || true
+
+  case "$subcmd" in
+    setup)    _dk_cmd_setup ;;
+    create)   _dk_cmd_create ;;
+    start)    _dk_cmd_start ;;
+    stop)     _dk_cmd_stop ;;
+    restart)  _dk_cmd_restart ;;
+    enter)    _dk_cmd_enter ;;
+    check)    _dk_cmd_check ;;
+    port)     _dk_cmd_port "$@" ;;
+    status)   _dk_cmd_status ;;
+    logs)     _dk_cmd_logs ;;
+    destroy)  _dk_cmd_destroy ;;
+    help|-h|--help|"")
+      echo ""
+      printf "\033[1mUsage:\033[0m cac docker <command>\n"
+      echo ""
+      printf "\033[1mLifecycle:\033[0m\n"
+      echo "  setup               Configure proxy (interactive)"
+      echo "  create              Pull the Docker image"
+      echo "  start               Start the container"
+      echo "  stop                Stop the container"
+      echo "  restart             Restart the container"
+      echo "  destroy             Remove container and image"
+      echo ""
+      printf "\033[1mUse:\033[0m\n"
+      echo "  enter               Open a shell (claude + cac ready)"
+      echo "  port <port>         Forward localhost:port to container"
+      echo "  port list           List active port forwarders"
+      echo "  port stop [port]    Stop port forwarder(s)"
+      echo ""
+      printf "\033[1mDiagnostics:\033[0m\n"
+      echo "  check               Network + identity diagnostics"
+      echo "  status              Show config, state, and ports"
+      echo "  logs                Follow container logs"
+      echo "" ;;
+    *)
+      _err "Unknown docker command: $subcmd"
+      cmd_docker help
+      return 1 ;;
+  esac
+}
+
+# ━━━ cmd_delete.sh ━━━
+# ── cmd: delete (uninstall) ────────────────────────────────────────
+
+cmd_delete() {
+    echo "=== cac delete ==="
+    echo
+
+    local rc_file
+    rc_file=$(_detect_rc_file)
+
+    _remove_path_from_rc "$rc_file"
+
+    # stop relay processes and routes
+    if [[ -d "$CAC_DIR" ]]; then
+        _relay_stop 2>/dev/null || true
+
+        # stop docker port-forward processes
+        if [[ -d /tmp/cac-docker-ports ]]; then
+            for _pf in /tmp/cac-docker-ports/*.pid; do
+                [[ -f "$_pf" ]] || continue
+                kill "$(cat "$_pf")" 2>/dev/null || true
+                rm -f "$_pf"
+            done
+            echo "  ✓ stopped docker port-forward processes"
+        fi
+
+        # fallback: clean up orphaned relay processes
+        pkill -f "node.*\.cac/relay\.js" 2>/dev/null || true
+
+        rm -rf "$CAC_DIR"
+        echo "  ✓ deleted $CAC_DIR"
+    else
+        echo "  - $CAC_DIR does not exist, skipping"
+    fi
+
+    local method
+    method=$(_install_method)
+    echo
+    if [[ "$method" == "npm" ]]; then
+        echo "  ✓ cleared all cac data and config"
+        echo
+        echo "to fully uninstall the cac command, run:"
+        echo "  npm uninstall -g claude-cac"
+    else
+        if [[ -f "$HOME/bin/cac" ]]; then
+            rm -f "$HOME/bin/cac"
+            echo "  ✓ deleted $HOME/bin/cac"
+        fi
+        echo "  ✓ uninstall complete"
+    fi
+
+    echo
+    if [[ -n "$rc_file" ]]; then
+        echo "please restart terminal or run source $rc_file for changes to take effect."
+    else
+        echo "please restart terminal for changes to take effect."
+    fi
+}
+
+# ━━━ cmd_version.sh ━━━
+# ── cmd: version ───────────────────────────────────────────────
+
+cmd_version() {
+    echo "  $(_bold "cac") $(_cyan "$CAC_VERSION")"
+}
+
+# ━━━ cmd_help.sh ━━━
+# ── cmd: help ──────────────────────────────────────────────────
+
+cmd_help() {
+    echo
+    echo "  $(_bold "cac") $(_dim "$CAC_VERSION") — Isolate, protect, and manage your Claude Code"
+    echo
+
+    echo "  $(_bold "Environment")"
+    echo "    $(_green "cac env create") <name> [-p proxy] [-c ver] [--clone [source]] [--no-link]"
+    echo "    $(_green "cac env set") [name] <key> <value>   Modify environment"
+    echo "    $(_green "cac env ls")                  List all environments"
+    echo "    $(_green "cac env rm") <name>           Remove an environment"
+    echo "    $(_green "cac env check")               Verify current environment"
+    echo "    $(_green "cac") <name>                  Switch environment"
+    echo
+
+    echo "  $(_bold "Version")"
+    echo "    $(_green "cac claude install") [latest|ver]   Install Claude Code"
+    echo "    $(_green "cac claude ls")                     List installed versions"
+    echo "    $(_green "cac claude pin") <ver>              Pin env to a version"
+    echo "    $(_green "cac claude uninstall") <ver>        Remove a version"
+    echo
+
+    echo "  $(_bold "Self")"
+    echo "    $(_green "cac self update")             Update cac"
+    echo "    $(_green "cac self delete")             Uninstall cac completely"
+    echo
+
+    echo "  $(_bold "Docker")"
+    echo "    $(_green "cac docker") setup|start|enter|check|port|stop"
+    echo
+
+    echo "  $(_dim "Examples:")"
+    echo "    $(_dim "cac env create work -p 1.2.3.4:1080:u:p -c 2.1.81")"
+    echo "    $(_dim "cac env create personal")"
+    echo "    $(_dim "cac work")"
+    echo
+}
+
+# ━━━ main.sh ━━━
+# ── entry: dispatch commands ──────────────────────────────────────────────
+
+[[ $# -eq 0 ]] && { cmd_help; exit 0; }
+
+case "$1" in
+    env)                cmd_env    "${@:2}" ;;
+    claude)             cmd_claude "${@:2}" ;;
+    self)               cmd_self   "${@:2}" ;;
+    docker)             cmd_docker "${@:2}" ;;
+    ls|list)            _env_cmd_ls         ;;
+    -v|--version)       cmd_version         ;;
+    help|--help|-h)     cmd_help            ;;
+    # ── deprecated (shims with warnings) ──
+    add)                echo "$(_yellow "warning:") 'cac add' → 'cac env create <name> -p <proxy>'" >&2; exit 1 ;;
+    setup)              echo "$(_yellow "removed:") 'cac setup' no longer exists — cac auto-initializes on first use" >&2 ;;
+    check)              echo "$(_yellow "warning:") 'cac check' → 'cac env check'" >&2; cmd_check ;;
+    stop)               _env_cmd_stop ;;
+    resume|-c)          echo "$(_yellow "warning:") 'cac resume' removed — use 'cac env activate <name>'" >&2; exit 1 ;;
+    relay)              echo "$(_yellow "warning:") relay is now automatic (TUN auto-detected)" >&2 ;;
+    delete|uninstall)   echo "$(_yellow "warning:") 'cac delete' → 'cac self delete'" >&2; cmd_delete ;;
+    *)                  _env_cmd_activate "$1" ;;
+esac
+
