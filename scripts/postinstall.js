@@ -83,9 +83,8 @@ if (process.platform === 'win32') {
     try {
       var ccVersion = JSON.parse(fs.readFileSync(ccPkgJson, 'utf8')).version;
       if (ccVersion !== SUPPORTED_CLAUDE_VERSION) {
-        console.log('  Claude Code v' + ccVersion + ' detected (TZ patch supports v' + SUPPORTED_CLAUDE_VERSION + ').');
-        console.log('  TZ patch will be skipped. Other cac features work normally.');
-        console.log('  To get TZ support: npm i -g ' + CC_PKG + '@' + SUPPORTED_CLAUDE_VERSION);
+        console.log('  Claude Code v' + ccVersion + ' detected; cac-windows requires v' + SUPPORTED_CLAUDE_VERSION + ' for its pinned patch set.');
+        console.log('  Run cac and choose version update, or install: npm i -g ' + CC_PKG + '@' + SUPPORTED_CLAUDE_VERSION);
       }
     } catch (e) { needInstall = true; }
   }

@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$CAC_VERSION = "1.0.27"
+$CAC_VERSION = "1.0.28"
 $SUPPORTED_CC = "2.1.294"
 
 $scriptDir = Split-Path $MyInvocation.MyCommand.Definition -Parent
@@ -10,32 +10,116 @@ $scriptDir = Split-Path $MyInvocation.MyCommand.Definition -Parent
 
 # ── helpers ────────────────────────────────────────────────
 
+function Get-CcInstallDir {
+    return Join-Path $env:APPDATA "npm\node_modules\@anthropic-ai\claude-code"
+}
+
 function Get-CcVersion {
-    $pkg = Join-Path $env:APPDATA "npm\node_modules\@anthropic-ai\claude-code\package.json"
+    $pkg = Join-Path (Get-CcInstallDir) "package.json"
     if (Test-Path $pkg) {
         try { return (Get-Content $pkg -Raw | ConvertFrom-Json).version } catch { return $null }
     }
     return $null
 }
 
-$script:_patchedCache = $null
-function Test-Patched {
-    if ($script:_patchedCache -ne $null) { return $script:_patchedCache }
-    $exe = Join-Path $env:APPDATA "npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe"
-    if (-not (Test-Path $exe)) { $script:_patchedCache = $false; return $false }
-    $bytes = [System.IO.File]::ReadAllBytes($exe)
-    $text = [System.Text.Encoding]::GetEncoding("iso-8859-1").GetString($bytes, 0, [Math]::Min($bytes.Length, 280000000))
-    $script:_patchedCache = $text.Contains('=process.env.TZ||"UTC"   ')
-    return $script:_patchedCache
+$script:_integrityCache = $null
+function Invoke-CliVerify {
+    $verify = Join-Path $scriptDir "scripts\verify-cli.js"
+    $ccDir = Get-CcInstallDir
+    if (-not (Test-Path $verify) -or -not (Test-Path $ccDir)) { return $null }
+    $raw = @(& node $verify $ccDir $SUPPORTED_CC 2>$null)
+    if ($raw.Count -eq 0) { return $null }
+    try { return ($raw | Select-Object -Last 1 | ConvertFrom-Json) } catch { return $null }
 }
 
-function Reset-PatchCache { $script:_patchedCache = $null }
+function Get-CcIntegrityStatus {
+    if ($script:_integrityCache -ne $null) { return $script:_integrityCache }
+    $check = Invoke-CliVerify
+    $manifestPath = Join-Path $CAC_DIR "claude-binary-manifest.json"
+    $manifest = $null
+    if (Test-Path $manifestPath) {
+        try { $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json } catch { $manifest = $null }
+    }
+    if ($null -eq $check) {
+        $manifestSha = $null
+        if ($null -ne $manifest) { $manifestSha = $manifest.sha256 }
+        $script:_integrityCache = [pscustomobject]@{
+            Ok = $false; VersionOk = $false; MarkersOk = $false; ManifestPresent = ($null -ne $manifest)
+            ManifestMatch = $false; Version = $null; Sha256 = $null; ManifestSha256 = $manifestSha
+            Exe = $null; Reason = "Claude Code 未安装或完整性检查脚本不可用"
+        }
+        return $script:_integrityCache
+    }
+    $manifestMatch = ($null -ne $manifest -and
+        [string]$manifest.claudeVersion -eq [string]$check.version -and
+        ([string]$manifest.sha256).ToUpperInvariant() -eq ([string]$check.sha256).ToUpperInvariant() -and
+        [bool]$manifest.markersOk)
+    $versionOk = [bool]$check.versionOk
+    $markersOk = [bool]$check.markersOk
+    $ok = $versionOk -and $markersOk -and $manifestMatch
+    $reason = "通过"
+    if (-not $versionOk) { $reason = "Claude Code 版本不是 $SUPPORTED_CC" }
+    elseif (-not $markersOk) { $reason = "补丁标记不完整" }
+    elseif ($null -eq $manifest) { $reason = "缺少二进制完整性清单" }
+    elseif (-not $manifestMatch) { $reason = "claude.exe SHA-256 与清单不一致" }
+    $manifestSha = $null
+    if ($null -ne $manifest) { $manifestSha = $manifest.sha256 }
+    $script:_integrityCache = [pscustomobject]@{
+        Ok = $ok; VersionOk = $versionOk; MarkersOk = $markersOk; ManifestPresent = ($null -ne $manifest)
+        ManifestMatch = $manifestMatch; Version = $check.version; Sha256 = $check.sha256
+        ManifestSha256 = $manifestSha; Exe = $check.exe; Reason = $reason
+        Markers = $check.markers
+    }
+    return $script:_integrityCache
+}
+
+function Test-Patched {
+    return [bool](Get-CcIntegrityStatus).Ok
+}
+
+function Reset-PatchCache { $script:_integrityCache = $null }
 
 function Do-Patch {
     $ps = Join-Path $scriptDir "scripts\patch-cli.js"
-    if (-not (Test-Path $ps)) { Write-Err "patch-cli.js 未找到"; return }
-    $ccDir = Join-Path $env:APPDATA "npm\node_modules\@anthropic-ai\claude-code"
-    & node $ps $ccDir 2>&1 | ForEach-Object { Write-Host "  $_" }
+    if (-not (Test-Path $ps)) { Write-Err "patch-cli.js 未找到"; return $false }
+    $ccDir = Get-CcInstallDir
+    $output = @(& node $ps $ccDir 2>&1)
+    $output | ForEach-Object { Write-Host "  $_" }
+    $ok = ($LASTEXITCODE -eq 0)
+    Reset-PatchCache
+    return $ok
+}
+
+function Save-CcBinaryManifest {
+    $status = Get-CcIntegrityStatus
+    if (-not $status.VersionOk -or -not $status.MarkersOk -or [string]::IsNullOrWhiteSpace($status.Sha256)) { return $false }
+    $manifest = [ordered]@{
+        schema        = 1
+        cacVersion    = $CAC_VERSION
+        claudeVersion = $status.Version
+        executable    = $status.Exe
+        sha256        = $status.Sha256
+        markersOk     = $status.MarkersOk
+        markers       = $status.Markers
+        createdUtc    = [DateTime]::UtcNow.ToString("o")
+    }
+    Set-Content -LiteralPath (Join-Path $CAC_DIR "claude-binary-manifest.json") -Value ($manifest | ConvertTo-Json -Depth 5) -Encoding UTF8
+    Reset-PatchCache
+    return (Get-CcIntegrityStatus).ManifestMatch
+}
+
+function Ensure-CcIntegrity {
+    $status = Get-CcIntegrityStatus
+    if ($status.VersionOk -and -not $status.MarkersOk -and (Get-ClaudeProcesses).Count -eq 0) {
+        Write-Host "  检测到补丁不完整，正在重新应用..." -ForegroundColor Cyan
+        [void](Do-Patch)
+        $status = Get-CcIntegrityStatus
+    }
+    if ($status.VersionOk -and $status.MarkersOk -and -not $status.ManifestPresent) {
+        if (Save-CcBinaryManifest) { $status = Get-CcIntegrityStatus }
+    }
+    if (-not $status.Ok) { Write-Warn "Claude 完整性: $($status.Reason)" }
+    return $status
 }
 
 # ── auto init ──────────────────────────────────────────────
@@ -47,21 +131,11 @@ function Do-Init {
         # 且 npm allowScripts 可能拦掉了我们的 postinstall）
         $w = Write-Wrapper
         $p = Ensure-CacInPath
-        $patched = $false
-        if ((Get-CcVersion) -eq $SUPPORTED_CC -and -not (Test-Patched)) {
-            if (@(Get-Process -Name claude -ErrorAction SilentlyContinue).Count -eq 0) {
-                Write-Host "  检测到补丁未应用，正在补丁..." -ForegroundColor Cyan
-                Do-Patch
-                Reset-PatchCache
-                $patched = Test-Patched
-            } else {
-                Write-Host "  补丁未应用，但有 claude 在运行，退出后再打开 cac 会自动补丁" -ForegroundColor Yellow
-            }
-        }
+        $integrity = Ensure-CcIntegrity
         if ($w) { Write-Host "  wrapper 已更新" -ForegroundColor DarkGray }
         if ($p) { Write-Host "  PATH 已更新（重开终端后生效）" -ForegroundColor Yellow }
-        if ($patched) { Write-Host "  补丁已应用" -ForegroundColor Green }
-        if ($w -or $p -or $patched) { Start-Sleep -Milliseconds 1200 }
+        if ($integrity.Ok) { Write-Host "  版本/哈希/补丁校验已通过" -ForegroundColor Green }
+        if ($w -or $p -or $integrity.Ok) { Start-Sleep -Milliseconds 1200 }
         return $true
     }
     Write-Host ""
@@ -98,10 +172,9 @@ function Do-Init {
     if (@(Get-Process -Name claude -ErrorAction SilentlyContinue).Count -gt 0) {
         Write-Warn "补丁: 跳过 — 有 Claude Code 在运行，二进制被锁定。退出所有 claude 后再打开 cac 会自动补丁"
     } else {
-        Do-Patch
-        Reset-PatchCache
-        if (Test-Patched) { Write-OK "补丁: 已应用" }
-        else { Write-Warn "补丁: 未应用（见上方输出；版本 $(Get-CcVersion) 是否为 $SUPPORTED_CC？）" }
+        [void](Do-Patch)
+        if (Save-CcBinaryManifest) { Write-OK "补丁与 SHA-256 清单: 已登记" }
+        else { Write-Warn "补丁/版本/哈希校验未通过，启动将被拒绝" }
     }
     Write-Host ""
     Wait-AnyKey
@@ -114,32 +187,37 @@ function Action-Launch {
     $envName = Get-CurrentEnv
     if (-not $envName) { Write-Err "未激活环境"; Wait-AnyKey; return }
     $ed = Get-EnvDir $envName
-    # 清理旧环境变量
-    foreach ($v in @("HTTPS_PROXY","HTTP_PROXY","ALL_PROXY","NO_PROXY","TZ")) {
-        Remove-Item "env:$v" -ErrorAction SilentlyContinue
+    $paths = Ensure-ProfileLayout $envName
+    $integrity = Get-CcIntegrityStatus
+    if (-not $integrity.Ok) {
+        Write-Err "拒绝启动: Claude 完整性检查失败: $($integrity.Reason)"
+        Write-Host "  运行“版本更新并应用补丁”重新安装并登记 SHA-256" -ForegroundColor White
+        Wait-AnyKey
+        return
     }
-    $proxy = Read-FileValue (Join-Path $ed "proxy")
-    if ($proxy) {
-        $env:HTTPS_PROXY=$proxy; $env:HTTP_PROXY=$proxy
-        $env:ALL_PROXY=$proxy; $env:NO_PROXY="localhost,127.0.0.1"
+    if ((Get-ClaudeProcesses).Count -gt 0) {
+        Write-Err "已有 Claude 会话运行，先切换/重启 Profile 后再启动"
+        Wait-AnyKey
+        return
     }
-    $tz = Read-FileValue (Join-Path $ed "tz")
-    if ($tz) { $env:TZ = $tz }
-    $env:LANG = Read-FileValue (Join-Path $ed "lang") "en_US.UTF-8"
-    # claude.exe ships precompiled JSC bytecode; without this the patched JS source is never executed
-    $env:BUN_JSC_useCodeCache = "false"
-    $sid = Read-FileValue (Join-Path $ed "stable_id")
-    if ($sid) { Update-Statsig $sid }
-    $uid = Read-FileValue (Join-Path $ed "user_id")
-    if ($uid) { Update-ClaudeJsonUserId $uid }
     $real = (Get-Content (Join-Path $CAC_DIR "real_claude") -Raw).Trim()
     if (-not (Test-Path $real)) {
         Write-Err "claude 路径无效: $real"
         Write-Host "  请运行 '版本更新并应用补丁' 重新安装" -ForegroundColor White
         Wait-AnyKey; return
     }
+    $values = Get-ProfileEnvironment $paths
+    $names = @($values.Keys) + @("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "TZ")
+    $snapshot = Save-ProcessEnvironment $names
     Clear-Host
-    if ($real -like "*.js") { & node $real } else { & $real }
+    try {
+        Set-ProcessEnvironment $values $names
+        Update-Statsig -ConfigDir $paths.ConfigDir -StableId (Read-FileValue (Join-Path $paths.Root "stable_id"))
+        Update-ClaudeJsonUserId -ConfigDir $paths.ConfigDir -HomeDir $paths.HomeDir -UserId (Read-FileValue (Join-Path $paths.Root "user_id"))
+        if ($real -like "*.js") { & node $real } else { & $real }
+    } finally {
+        Restore-ProcessEnvironment $snapshot
+    }
 }
 
 function Action-InstallAndPatch {
@@ -170,31 +248,46 @@ function Action-InstallAndPatch {
     if (-not $claude) { Write-Err "安装后未找到 claude.exe"; Wait-AnyKey; return }
     Set-Content (Join-Path $CAC_DIR "real_claude") $claude
     Write-Wrapper | Out-Null
-    Do-Patch
-    Reset-PatchCache
-    if (Test-Patched) { Write-OK "完成，补丁已应用" } else { Write-Warn "安装完成但补丁未应用（签名不匹配？）" }
+    [void](Do-Patch)
+    if (Save-CcBinaryManifest) { Write-OK "完成，版本/补丁/ SHA-256 已登记" }
+    else { Write-Warn "安装完成但完整性校验未通过，启动将被拒绝" }
     Wait-AnyKey
 }
 
 function Action-Cleanup {
     Write-Host ""
+    $envName = Get-CurrentEnv
+    if (-not $envName) { Write-Err "未激活环境"; Wait-AnyKey; return }
+    if ((Get-ClaudeProcesses).Count -gt 0) {
+        Write-Err "请先退出 Claude 会话，再清理当前 Profile"
+        Wait-AnyKey
+        return
+    }
     $confirm = Read-Input "  确认清理追踪数据? (y/N)"
     if ($confirm -ne "y") { return }
     $cs = Join-Path $scriptDir "scripts\cleanup.ps1"
-    if (Test-Path $cs) { & $cs } else { Write-Err "cleanup.ps1 未找到" }
+    $paths = Ensure-ProfileLayout $envName
+    if (Test-Path $cs) {
+        & $cs -ConfigDir $paths.ConfigDir -HomeDir $paths.HomeDir
+    } else { Write-Err "cleanup.ps1 未找到" }
     Wait-AnyKey
 }
 
 function Action-Status {
     $envName = Get-CurrentEnv
     if (-not $envName) { Write-Warn "未激活环境"; Wait-AnyKey; return }
-    $ed = Get-EnvDir $envName
+    $paths = Ensure-ProfileLayout $envName
+    $integrity = Get-CcIntegrityStatus
     Write-Host ""
     Write-Host "  环境:      $envName" -ForegroundColor White
-    Write-Host "  时区:      $(Read-FileValue (Join-Path $ed 'tz'))"
-    Write-Host "  语言:      $(Read-FileValue (Join-Path $ed 'lang'))"
-    Write-Host "  代理:      $(Read-FileValue (Join-Path $ed 'proxy') '(无)')"
-    Write-Host "  主机名:    $(Read-FileValue (Join-Path $ed 'hostname'))"
+    Write-Host "  时区:      $(Read-FileValue (Join-Path $paths.Root 'tz'))"
+    Write-Host "  语言:      $(Read-FileValue (Join-Path $paths.Root 'lang'))"
+    Write-Host "  代理:      $(Read-FileValue (Join-Path $paths.Root 'proxy') '(无)')"
+    Write-Host "  主机名:    $(Read-FileValue (Join-Path $paths.Root 'hostname'))"
+    Write-Host "  配置目录:  $($paths.ConfigDir)"
+    Write-Host "  临时目录:  $($paths.TempDir)"
+    Write-Host "  完整性:    $($integrity.Reason)"
+    Write-Host "  SHA-256:   $($integrity.Sha256)"
     Write-Host "  Claude:    $(Read-FileValue (Join-Path $CAC_DIR 'real_claude'))"
     Wait-AnyKey
 }
@@ -212,27 +305,38 @@ function Action-EnvSwitch {
     if ($idx -lt 0) { return }
     $name = $envs[$idx]
     if ($name -eq $cur) { Write-Warn "已经是当前环境"; Wait-AnyKey; return }
-    # Switching env = switching identity. A running claude already holds the old identity.
-    $running = @(Get-Process -Name claude -ErrorAction SilentlyContinue)
-    if ($running.Count -gt 0) {
-        Write-Warn "有 $($running.Count) 个 Claude Code 会话正在运行，它们仍使用旧身份"
-        Write-Host "  切换后请重启这些会话，新身份才会生效" -ForegroundColor White
+    # Switching profiles while Claude is alive would mix config and identity.
+    if (-not (Stop-ClaudeProcesses)) {
+        Write-Err "Profile 切换已取消：Claude 会话未能全部结束"
+        Wait-AnyKey
+        return
     }
     Set-Content (Join-Path $CAC_DIR "current") $name
-    $sid = Read-FileValue (Join-Path (Get-EnvDir $name) "stable_id")
-    if ($sid) { Update-Statsig $sid }
-    $uid = Read-FileValue (Join-Path (Get-EnvDir $name) "user_id")
-    if ($uid) { Update-ClaudeJsonUserId $uid }
+    $paths = Ensure-ProfileLayout $name
     Write-OK "已切换到 $name"
+    Write-Host "  配置目录: $($paths.ConfigDir)" -ForegroundColor DarkGray
     Wait-AnyKey
 }
 
 function Action-EnvCreate {
     Write-Host ""
-    $name = Read-Input "  环境名称"
+    $name = (Read-Input "  环境名称").Trim()
     if (-not $name) { return }
+    if (-not (Test-ProfileName $name)) {
+        Write-Err "环境名只能包含字母、数字、点、下划线和短横线，长度 1-64"
+        Wait-AnyKey
+        return
+    }
     $ed = Get-EnvDir $name
     if (Test-Path $ed) { Write-Err "环境 '$name' 已存在"; Wait-AnyKey; return }
+    $current = Get-CurrentEnv
+    if ($current -and $current -ne $name -and (Get-ClaudeProcesses).Count -gt 0) {
+        if (-not (Stop-ClaudeProcesses)) {
+            Write-Err "Profile 创建/激活已取消：Claude 会话未能全部结束"
+            Wait-AnyKey
+            return
+        }
+    }
     $rawProxy = Read-Input "  代理地址 (回车跳过)"
     # Timezone is the whole point of this tool. Enter = explicit default, never a silent UTC.
     Write-Host "  时区应与你的代理出口地区一致。其他常用: America/Los_Angeles  Asia/Tokyo  Asia/Taipei" -ForegroundColor DarkGray
@@ -247,12 +351,7 @@ function Action-EnvCreate {
         }
     }
     New-Item -ItemType Directory -Path $ed -Force | Out-Null
-    Set-Content (Join-Path $ed "uuid")       (New-Uuid)
-    Set-Content (Join-Path $ed "stable_id")  (New-Sid)
-    Set-Content (Join-Path $ed "user_id")    (New-UserId)
-    Set-Content (Join-Path $ed "machine_id") (New-MachineId)
-    Set-Content (Join-Path $ed "hostname")   (New-FakeHostname)
-    Set-Content (Join-Path $ed "mac_address")(New-FakeMac)
+    $paths = Ensure-ProfileLayout $name
     Set-Content (Join-Path $ed "tz")         $tzInput
     Set-Content (Join-Path $ed "lang")       "en_US.UTF-8"
     $proxyNote = "(无)"
@@ -262,14 +361,13 @@ function Action-EnvCreate {
         else { Write-Warn "代理格式无效，已跳过" }
     }
     Set-Content (Join-Path $CAC_DIR "current") $name
-    $sid = Read-FileValue (Join-Path $ed "stable_id")
-    Update-Statsig $sid
-    Update-ClaudeJsonUserId (Read-FileValue (Join-Path $ed "user_id"))
+    [void](Ensure-ProfileLayout $name)
     Write-Host ""
     Write-OK "已创建并激活 '$name'"
     Write-Host "     时区: $tzInput" -ForegroundColor White
     Write-Host "     代理: $proxyNote" -ForegroundColor White
     Write-Host "     语言: en_US.UTF-8" -ForegroundColor White
+    Write-Host "     配置: $($paths.ConfigDir)" -ForegroundColor White
     Wait-AnyKey
 }
 
@@ -385,6 +483,30 @@ function Menu-EnvManage {
     }
 }
 
+function Action-NetworkCheck {
+    $envName = Get-CurrentEnv
+    if (-not $envName) { Write-Err "未激活环境"; Wait-AnyKey; return }
+    $script = Join-Path $scriptDir "scripts\network-check.ps1"
+    if (-not (Test-Path $script)) { Write-Err "network-check.ps1 未找到"; Wait-AnyKey; return }
+    & $script -EnvName $envName
+    Wait-AnyKey
+}
+
+function Action-ProfileCheck {
+    $script = Join-Path $scriptDir "scripts\profile-check.ps1"
+    if (-not (Test-Path $script)) { Write-Err "profile-check.ps1 未找到"; Wait-AnyKey; return }
+    & $script
+    Wait-AnyKey
+}
+
+function Action-NativeBoundaryCheck {
+    $script = Join-Path $scriptDir "scripts\native-boundary-check.ps1"
+    if (-not (Test-Path $script)) { Write-Err "native-boundary-check.ps1 未找到"; Wait-AnyKey; return }
+    $envName = Get-CurrentEnv
+    if ($envName) { & $script -EnvName $envName } else { & $script }
+    Wait-AnyKey
+}
+
 # ── main loop ──────────────────────────────────────────────
 
 if (-not (Do-Init)) { exit 1 }
@@ -403,6 +525,9 @@ while ($true) {
         "3. 版本更新并应用补丁"
         "4. 清理追踪数据"
         "5. 查看状态"
+        "6. 网络隔离检查"
+        "7. Profile A/B 隔离测试"
+        "8. Native/硬件边界证据"
         "0. 退出"
     )
     $sel = Show-Menu $opts
@@ -412,6 +537,9 @@ while ($true) {
         2 { Action-InstallAndPatch }
         3 { Action-Cleanup }
         4 { Action-Status }
-        { $_ -eq 5 -or $_ -eq -1 } { exit 0 }
+        5 { Action-NetworkCheck }
+        6 { Action-ProfileCheck }
+        7 { Action-NativeBoundaryCheck }
+        { $_ -eq 8 -or $_ -eq -1 } { exit 0 }
     }
 }

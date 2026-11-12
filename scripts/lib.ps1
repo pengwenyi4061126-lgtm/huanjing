@@ -1,4 +1,4 @@
-# cac-windows — shared utility functions
+﻿# cac-windows — shared utility functions
 $ErrorActionPreference = "Stop"
 
 $CAC_DIR = Join-Path $env:USERPROFILE ".cac"
@@ -14,6 +14,15 @@ function Read-FileValue {
     return $Default
 }
 
+function Test-ProfileName {
+    param([string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) { return $false }
+    if ($Name -in @('.', '..')) { return $false }
+    if ($Name -match '[. ]$') { return $false }
+    if ($Name -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$') { return $false }
+    return $Name -match '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+}
+
 function New-Uuid    { return [guid]::NewGuid().ToString().ToUpper() }
 function New-Sid     { return [guid]::NewGuid().ToString().ToLower() }
 function New-UserId  { return -join ((1..32) | ForEach-Object { "{0:x2}" -f (Get-Random -Maximum 256) }) }
@@ -26,7 +35,7 @@ function New-FakeMac {
 
 function Parse-Proxy {
     param([string]$Raw)
-    if ($Raw -match "^(http|https|socks5)://") { return $Raw }
+    if ($Raw -match "^(http|https|socks5h?)://") { return $Raw }
     $parts = $Raw -split ":"
     if ($parts.Count -ge 4) {
         return "http://$($parts[2]):$($parts[3])@$($parts[0]):$($parts[1])"
@@ -62,7 +71,164 @@ function Get-CurrentEnv { return Read-FileValue (Join-Path $CAC_DIR "current") }
 
 function Get-EnvDir {
     param([string]$Name)
-    return Join-Path $ENVS_DIR $Name
+    if (-not (Test-ProfileName $Name)) { throw "无效环境名: $Name" }
+    return [System.IO.Path]::GetFullPath((Join-Path $ENVS_DIR $Name))
+}
+
+function Get-ProfilePaths {
+    param([string]$Name)
+    $root = Get-EnvDir $Name
+    return [pscustomobject]@{
+        Name          = $Name
+        Root          = $root
+        ConfigDir     = Join-Path $root ".claude"
+        HomeDir       = Join-Path $root "home"
+        CacheDir      = Join-Path $root "cache"
+        TempDir       = Join-Path $root "temp"
+        AppData       = Join-Path $root "AppData\Roaming"
+        LocalAppData  = Join-Path $root "AppData\Local"
+        XdgConfigHome = Join-Path $root "xdg\config"
+        XdgCacheHome  = Join-Path $root "xdg\cache"
+        AuditDir      = Join-Path $root "audit"
+        IdentityPath  = Join-Path $root "identity.json"
+    }
+}
+
+function Ensure-ProfileLayout {
+    param([string]$Name)
+    $paths = Get-ProfilePaths $Name
+    foreach ($dir in @(
+        $paths.Root, $paths.ConfigDir, $paths.HomeDir, $paths.CacheDir, $paths.TempDir,
+        $paths.AppData, $paths.LocalAppData, $paths.XdgConfigHome, $paths.XdgCacheHome,
+        $paths.AuditDir, (Join-Path $paths.ConfigDir "statsig")
+    )) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    $identityFiles = [ordered]@{
+        uuid        = @{ Path = Join-Path $paths.Root "uuid";        Value = { New-Uuid } }
+        stable_id   = @{ Path = Join-Path $paths.Root "stable_id";   Value = { New-Sid } }
+        user_id     = @{ Path = Join-Path $paths.Root "user_id";     Value = { New-UserId } }
+        machine_id  = @{ Path = Join-Path $paths.Root "machine_id";  Value = { New-MachineId } }
+        hostname    = @{ Path = Join-Path $paths.Root "hostname";    Value = { New-FakeHostname } }
+        mac_address = @{ Path = Join-Path $paths.Root "mac_address"; Value = { New-FakeMac } }
+    }
+    foreach ($entry in $identityFiles.GetEnumerator()) {
+        if (-not (Test-Path $entry.Value.Path)) {
+            Set-Content -LiteralPath $entry.Value.Path -Value (& $entry.Value.Value) -Encoding ASCII
+        }
+    }
+    if (-not (Test-Path (Join-Path $paths.Root "lang"))) {
+        Set-Content -LiteralPath (Join-Path $paths.Root "lang") -Value "en_US.UTF-8" -Encoding ASCII
+    }
+
+    $identity = [ordered]@{
+        schema      = 1
+        name        = $paths.Name
+        uuid        = Read-FileValue (Join-Path $paths.Root "uuid")
+        stable_id   = Read-FileValue (Join-Path $paths.Root "stable_id")
+        user_id     = Read-FileValue (Join-Path $paths.Root "user_id")
+        machine_id  = Read-FileValue (Join-Path $paths.Root "machine_id")
+        hostname    = Read-FileValue (Join-Path $paths.Root "hostname")
+        mac_address = Read-FileValue (Join-Path $paths.Root "mac_address")
+        updated_utc = [DateTime]::UtcNow.ToString("o")
+    }
+    Set-Content -LiteralPath $paths.IdentityPath -Value ($identity | ConvertTo-Json) -Encoding UTF8
+    return $paths
+}
+
+function Get-ProfileEnvironment {
+    param([psobject]$Paths)
+    $proxy = Read-FileValue (Join-Path $Paths.Root "proxy")
+    $tz = Read-FileValue (Join-Path $Paths.Root "tz")
+    $lang = Read-FileValue (Join-Path $Paths.Root "lang") "en_US.UTF-8"
+    $hostname = Read-FileValue (Join-Path $Paths.Root "hostname")
+    $mac = Read-FileValue (Join-Path $Paths.Root "mac_address")
+    $machineId = Read-FileValue (Join-Path $Paths.Root "machine_id")
+    $stableId = Read-FileValue (Join-Path $Paths.Root "stable_id")
+    $userId = Read-FileValue (Join-Path $Paths.Root "user_id")
+    $values = [ordered]@{
+        CLAUDE_CONFIG_DIR = $Paths.ConfigDir
+        HOME              = $Paths.HomeDir
+        USERPROFILE       = $Paths.HomeDir
+        APPDATA           = $Paths.AppData
+        LOCALAPPDATA      = $Paths.LocalAppData
+        TEMP              = $Paths.TempDir
+        TMP               = $Paths.TempDir
+        XDG_CONFIG_HOME   = $Paths.XdgConfigHome
+        XDG_CACHE_HOME    = $Paths.XdgCacheHome
+        CAC_PROFILE_DIR   = $Paths.Root
+        CAC_PROFILE_NAME  = $Paths.Name
+        CAC_USERNAME      = "user-$($Paths.Name)"
+        CAC_HOSTNAME      = $hostname
+        CAC_MAC           = $mac
+        CAC_MACHINE_ID    = $machineId
+        STABLE_ID         = $stableId
+        USER_ID           = $userId
+        LANG              = $lang
+        BUN_JSC_useCodeCache = "false"
+        NO_PROXY          = "localhost,127.0.0.1"
+    }
+    if ($tz) { $values.TZ = $tz }
+    if ($proxy) {
+        $values.HTTPS_PROXY = $proxy
+        $values.HTTP_PROXY = $proxy
+        $values.ALL_PROXY = $proxy
+    }
+    return $values
+}
+
+function Save-ProcessEnvironment {
+    param([string[]]$Names)
+    $snapshot = @{}
+    foreach ($name in $Names) {
+        $snapshot[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    }
+    return $snapshot
+}
+
+function Set-ProcessEnvironment {
+    param([System.Collections.IDictionary]$Values, [string[]]$Names)
+    foreach ($name in $Names) {
+        $value = $null
+        if ($Values.Keys -contains $name) { $value = $Values[$name] }
+        [Environment]::SetEnvironmentVariable($name, $value, "Process")
+    }
+}
+
+function Restore-ProcessEnvironment {
+    param([hashtable]$Snapshot)
+    foreach ($name in $Snapshot.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $Snapshot[$name], "Process")
+    }
+}
+
+function Get-ClaudeProcesses {
+    return @(Get-Process -Name "claude" -ErrorAction SilentlyContinue)
+}
+
+function Stop-ClaudeProcesses {
+    param([int]$TimeoutSeconds = 10)
+    $running = @(Get-ClaudeProcesses)
+    if ($running.Count -eq 0) { return $true }
+    foreach ($process in $running) {
+        try {
+            Stop-Process -Id $process.Id -Force -ErrorAction Stop
+        } catch {
+            Write-Err "无法结束 Claude 进程 PID $($process.Id): $($_.Exception.Message)"
+            return $false
+        }
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        Start-Sleep -Milliseconds 200
+        $remaining = @(Get-ClaudeProcesses)
+    } while ($remaining.Count -gt 0 -and [DateTime]::UtcNow -lt $deadline)
+    if ($remaining.Count -gt 0) {
+        Write-Err "仍有 $($remaining.Count) 个 Claude 进程未退出"
+        return $false
+    }
+    return $true
 }
 
 # Ensure ~/.cac/bin sits BEFORE npm's dir in the user PATH so `claude` resolves
@@ -112,110 +278,172 @@ function Test-ClaudeResolution {
 }
 
 function Update-Statsig {
-    param([string]$StableId)
-    $d = Join-Path $env:USERPROFILE ".claude\statsig"
-    if (-not (Test-Path $d)) { return }
-    Get-ChildItem (Join-Path $d "statsig.stable_id.*") -ErrorAction SilentlyContinue | ForEach-Object {
+    param([string]$ConfigDir, [string]$StableId)
+    if ([string]::IsNullOrWhiteSpace($ConfigDir) -or [string]::IsNullOrWhiteSpace($StableId)) { return }
+    $d = Join-Path $ConfigDir "statsig"
+    if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+    $files = @(Get-ChildItem (Join-Path $d "statsig.stable_id.*") -ErrorAction SilentlyContinue)
+    if ($files.Count -eq 0) {
+        Set-Content -LiteralPath (Join-Path $d "statsig.stable_id.cac") -Value "`"$StableId`"" -Encoding ASCII
+        return
+    }
+    $files | ForEach-Object {
         if ((Get-Content $_.FullName -Raw).Trim() -ne "`"$StableId`"") { Set-Content $_.FullName "`"$StableId`"" }
     }
 }
 
 function Update-ClaudeJsonUserId {
-    param([string]$UserId)
-    $p = Join-Path $env:USERPROFILE ".claude.json"
-    if (-not (Test-Path $p)) { return }
+    param([string]$ConfigDir, [string]$UserId, [string]$HomeDir)
+    if ([string]::IsNullOrWhiteSpace($ConfigDir) -or [string]::IsNullOrWhiteSpace($UserId)) { return }
     # node instead of ConvertFrom-Json: PS is case-insensitive on keys and
     # chokes on .claude.json "projects" paths that differ only by case.
     # Script goes via a temp file — PS mangles quotes when passing -e inline.
-    $js = Join-Path $env:TEMP "cac-set-userid.js"
-    Set-Content $js @'
+    $js = Join-Path $ConfigDir ".cac-set-userid.js"
+    $source = @'
 const fs=require("fs"),p=process.argv[2],w=process.argv[3];
-const j=JSON.parse(fs.readFileSync(p,"utf8"));
+const j=JSON.parse(fs.readFileSync(p,"utf8").replace(/^\uFEFF/,""));
 if(j.userID!==w){j.userID=w;fs.writeFileSync(p,JSON.stringify(j,null,2));}
-'@ -Encoding ASCII
-    & node $js $p $UserId 2>$null
+'@
+    Set-Content $js $source -Encoding ASCII
+    $targets = @((Join-Path $ConfigDir ".claude.json"))
+    if (-not [string]::IsNullOrWhiteSpace($HomeDir)) { $targets += Join-Path $HomeDir ".claude.json" }
+    try {
+        foreach ($target in ($targets | Select-Object -Unique)) {
+            if (Test-Path $target) { & node $js $target $UserId 2>$null }
+        }
+    } finally { Remove-Item -LiteralPath $js -Force -ErrorAction SilentlyContinue }
 }
 
 function Write-Wrapper {
     $binDir = Join-Path $CAC_DIR "bin"
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
 
-    # CMD wrapper
+    # CMD wrapper delegates to the single PowerShell implementation so both
+    # entry points enforce identical profile and integrity rules.
     $cmd = @'
 @echo off
-setlocal enabledelayedexpansion
-set "CAC_DIR=%USERPROFILE%\.cac"
-set "ENVS_DIR=!CAC_DIR!\envs"
-if not exist "!CAC_DIR!\current" (
-    echo [cac] no active env >&2 & exit /b 1
+setlocal
+set "CAC_BIN=%USERPROFILE%\.cac\bin\claude.ps1"
+if not exist "%CAC_BIN%" (
+    echo [cac] wrapper not initialized >&2
+    exit /b 1
 )
-for /f "usebackq delims=" %%i in ("!CAC_DIR!\current") do set "ENV_NAME=%%i"
-set "ENV_DIR=!ENVS_DIR!\!ENV_NAME!"
-if exist "!ENV_DIR!\proxy" (
-    for /f "usebackq delims=" %%i in ("!ENV_DIR!\proxy") do set "PROXY=%%i"
-    set "HTTPS_PROXY=!PROXY!" & set "HTTP_PROXY=!PROXY!"
-    set "ALL_PROXY=!PROXY!" & set "NO_PROXY=localhost,127.0.0.1"
-)
-if exist "!ENV_DIR!\tz" (
-    for /f "usebackq delims=" %%i in ("!ENV_DIR!\tz") do set "TZ=%%i"
-)
-set "LANG=en_US.UTF-8"
-if exist "!ENV_DIR!\lang" (
-    for /f "usebackq delims=" %%i in ("!ENV_DIR!\lang") do set "LANG=%%i"
-)
-set "BUN_JSC_useCodeCache=false"
-if exist "!ENV_DIR!\stable_id" (
-    for /f "usebackq delims=" %%i in ("!ENV_DIR!\stable_id") do set "STABLE_ID=%%i"
-    for %%f in ("%USERPROFILE%\.claude\statsig\statsig.stable_id.*") do (
-        if exist "%%f" echo "!STABLE_ID!"> "%%f"
-    )
-)
-for /f "usebackq delims=" %%i in ("!CAC_DIR!\real_claude") do set "REAL_CLAUDE=%%i"
-"!REAL_CLAUDE!" %*
-exit /b !ERRORLEVEL!
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%CAC_BIN%" %*
+exit /b %ERRORLEVEL%
 '@
 
     # PowerShell wrapper
     $ps1 = @'
-$ErrorActionPreference = "SilentlyContinue"
-$d = Join-Path $env:USERPROFILE ".cac"
+$ErrorActionPreference = "Stop"
+$cacHome = $env:USERPROFILE
+$d = Join-Path $cacHome ".cac"
 $cf = Join-Path $d "current"
+$realFile = Join-Path $d "real_claude"
 if (-not (Test-Path $cf)) { Write-Error "[cac] no active env"; exit 1 }
+if (-not (Test-Path $realFile)) { Write-Error "[cac] real claude path is missing"; exit 1 }
 $en = (Get-Content $cf -Raw).Trim()
+if ($en -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') { Write-Error "[cac] invalid active env"; exit 1 }
 $ed = Join-Path $d "envs\$en"
-$pf = Join-Path $ed "proxy"
-if (Test-Path $pf) {
-    $px = (Get-Content $pf -Raw).Trim()
-    $env:HTTPS_PROXY=$px; $env:HTTP_PROXY=$px
-    $env:ALL_PROXY=$px; $env:NO_PROXY="localhost,127.0.0.1"
+$config = Join-Path $ed ".claude"
+$homeDir = Join-Path $ed "home"
+$appData = Join-Path $ed "AppData\Roaming"
+$localAppData = Join-Path $ed "AppData\Local"
+$cache = Join-Path $ed "cache"
+$temp = Join-Path $ed "temp"
+$xdgConfig = Join-Path $ed "xdg\config"
+$xdgCache = Join-Path $ed "xdg\cache"
+foreach ($dir in @($ed,$config,$homeDir,$appData,$localAppData,$cache,$temp,$xdgConfig,$xdgCache)) {
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
-$tf = Join-Path $ed "tz"
-if (Test-Path $tf) { $env:TZ = (Get-Content $tf -Raw).Trim() }
-$lf = Join-Path $ed "lang"
-if (Test-Path $lf) { $env:LANG = (Get-Content $lf -Raw).Trim() } else { $env:LANG = "en_US.UTF-8" }
-# claude.exe ships precompiled JSC bytecode; without this the patched JS source is never executed
+
+$running = @(Get-Process -Name "claude" -ErrorAction SilentlyContinue)
+if ($running.Count -gt 0) {
+    Write-Error "[cac] another Claude session is running; switch profiles only after it exits"
+    exit 1
+}
+
+$real = (Get-Content $realFile -Raw).Trim()
+if (-not (Test-Path $real)) { Write-Error "[cac] claude not found: $real"; exit 1 }
+$ccDir = Split-Path (Split-Path $real -Parent) -Parent
+$pkg = Join-Path $ccDir "package.json"
+$manifest = Join-Path $d "claude-binary-manifest.json"
+if (-not (Test-Path $pkg)) { Write-Error "[cac] Claude Code package.json is missing"; exit 1 }
+if (-not (Test-Path $manifest)) { Write-Error "[cac] binary integrity manifest is missing; run cac to repair"; exit 1 }
+$cc = Get-Content $pkg -Raw | ConvertFrom-Json
+if ($cc.version -ne "2.1.294") { Write-Error "[cac] unsupported Claude Code version: $($cc.version)"; exit 1 }
+$manifestData = Get-Content $manifest -Raw | ConvertFrom-Json
+if ($manifestData.claudeVersion -ne "2.1.294" -or -not $manifestData.markersOk) {
+    Write-Error "[cac] binary manifest is incomplete; run cac to repair"
+    exit 1
+}
+$actualHash = (Get-FileHash -LiteralPath $real -Algorithm SHA256).Hash.ToUpperInvariant()
+if ($actualHash -ne ([string]$manifestData.sha256).ToUpperInvariant()) {
+    Write-Error "[cac] claude.exe SHA-256 mismatch; launch refused"
+    exit 1
+}
+
+$proxy = Join-Path $ed "proxy"
+if (Test-Path $proxy) {
+    $px = (Get-Content $proxy -Raw).Trim()
+    if ($px) {
+        $env:HTTPS_PROXY=$px; $env:HTTP_PROXY=$px; $env:ALL_PROXY=$px
+    } else { Remove-Item Env:HTTPS_PROXY,Env:HTTP_PROXY,Env:ALL_PROXY -ErrorAction SilentlyContinue }
+} else {
+    Remove-Item Env:HTTPS_PROXY,Env:HTTP_PROXY,Env:ALL_PROXY -ErrorAction SilentlyContinue
+}
+$env:NO_PROXY = "localhost,127.0.0.1"
+$tz = Join-Path $ed "tz"
+if (Test-Path $tz) { $env:TZ = (Get-Content $tz -Raw).Trim() } else { Remove-Item Env:TZ -ErrorAction SilentlyContinue }
+$lang = Join-Path $ed "lang"
+if (Test-Path $lang) { $env:LANG = (Get-Content $lang -Raw).Trim() } else { $env:LANG = "en_US.UTF-8" }
+
+# Bind all home/config/cache/temp surfaces to this profile before starting Claude.
+$env:CLAUDE_CONFIG_DIR = $config
+$env:HOME = $homeDir
+$env:USERPROFILE = $homeDir
+$env:APPDATA = $appData
+$env:LOCALAPPDATA = $localAppData
+$env:TEMP = $temp
+$env:TMP = $temp
+$env:XDG_CONFIG_HOME = $xdgConfig
+$env:XDG_CACHE_HOME = $xdgCache
+$env:CAC_PROFILE_DIR = $ed
+$env:CAC_PROFILE_NAME = $en
+$env:CAC_USERNAME = "user-$en"
+$hostnamePath = Join-Path $ed "hostname"
+$macPath = Join-Path $ed "mac_address"
+$machineIdPath = Join-Path $ed "machine_id"
+if (Test-Path $hostnamePath) { $env:CAC_HOSTNAME = (Get-Content $hostnamePath -Raw).Trim() } else { $env:CAC_HOSTNAME = "" }
+if (Test-Path $macPath) { $env:CAC_MAC = (Get-Content $macPath -Raw).Trim() } else { $env:CAC_MAC = "" }
+if (Test-Path $machineIdPath) { $env:CAC_MACHINE_ID = (Get-Content $machineIdPath -Raw).Trim() } else { $env:CAC_MACHINE_ID = "" }
 $env:BUN_JSC_useCodeCache = "false"
-$sf = Join-Path $ed "stable_id"
-if (Test-Path $sf) {
-    $sid = (Get-Content $sf -Raw).Trim()
-    $sd = Join-Path $env:USERPROFILE ".claude\statsig"
-    if (Test-Path $sd) {
-        Get-ChildItem (Join-Path $sd "statsig.stable_id.*") -ErrorAction SilentlyContinue | ForEach-Object {
-            if ((Get-Content $_.FullName -Raw).Trim() -ne "`"$sid`"") { Set-Content $_.FullName "`"$sid`"" }
+
+$sid = Join-Path $ed "stable_id"
+if (Test-Path $sid) {
+    $stable = (Get-Content $sid -Raw).Trim()
+    $sd = Join-Path $config "statsig"
+    New-Item -ItemType Directory -Path $sd -Force | Out-Null
+    $statsigFiles = @(Get-ChildItem (Join-Path $sd "statsig.stable_id.*") -ErrorAction SilentlyContinue)
+    if ($statsigFiles.Count -eq 0) {
+        Set-Content -LiteralPath (Join-Path $sd "statsig.stable_id.cac") -Value "`"$stable`"" -Encoding ASCII
+    } else {
+        $statsigFiles | ForEach-Object {
+            Set-Content $_.FullName "`"$stable`"" -Encoding ASCII
         }
     }
 }
-$uf = Join-Path $ed "user_id"
-if (Test-Path $uf) {
-    $cj = Join-Path $env:USERPROFILE ".claude.json"
-    if (Test-Path $cj) {
-        $js = Join-Path $env:TEMP "cac-set-userid.js"
-        Set-Content $js 'const fs=require("fs"),p=process.argv[2],w=process.argv[3];const j=JSON.parse(fs.readFileSync(p,"utf8"));if(j.userID!==w){j.userID=w;fs.writeFileSync(p,JSON.stringify(j,null,2));}' -Encoding ASCII
-        & node $js $cj (Get-Content $uf -Raw).Trim() 2>$null
-    }
+$uid = Join-Path $ed "user_id"
+$cjTargets = @((Join-Path $config ".claude.json"), (Join-Path $homeDir ".claude.json"))
+if (Test-Path $uid) {
+    $js = Join-Path $config ".cac-set-userid.js"
+    Set-Content $js 'const fs=require("fs"),p=process.argv[2],w=process.argv[3];const j=JSON.parse(fs.readFileSync(p,"utf8").replace(/^\uFEFF/,""));if(j.userID!==w){j.userID=w;fs.writeFileSync(p,JSON.stringify(j,null,2));}' -Encoding ASCII
+    try {
+        foreach ($cj in ($cjTargets | Select-Object -Unique)) {
+            if (Test-Path $cj) { & node $js $cj (Get-Content $uid -Raw).Trim() 2>$null }
+        }
+    } finally { Remove-Item -LiteralPath $js -Force -ErrorAction SilentlyContinue }
 }
-$real = (Get-Content (Join-Path $d "real_claude") -Raw).Trim()
-if (-not (Test-Path $real)) { Write-Error "[cac] claude not found"; exit 1 }
+
 & $real @args
 exit $LASTEXITCODE
 '@
