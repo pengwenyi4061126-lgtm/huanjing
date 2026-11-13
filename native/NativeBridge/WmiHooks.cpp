@@ -320,6 +320,7 @@ class WmiSink : public IWbemObjectSink, public RefCounted {
 public:
     explicit WmiSink(IWbemObjectSink* inner) : inner_(inner) {
         if (inner_) inner_->AddRef();
+        AuditEventRateLimited("wmi.sink", "wrapped");
     }
     ~WmiSink() override { if (inner_) inner_->Release(); }
 
@@ -337,6 +338,8 @@ public:
 
     HRESULT STDMETHODCALLTYPE Indicate(LONG count, IWbemClassObject** objects) override {
         if (!inner_ || count <= 0 || !objects) return inner_ ? inner_->Indicate(count, objects) : E_POINTER;
+        AuditEventRateLimited("wmi.sink", "indicate", nullptr,
+                              static_cast<unsigned long long>(count), true);
         std::vector<IWbemClassObject*> forwarded;
         std::vector<WmiObject*> wrappers;
         forwarded.reserve(static_cast<size_t>(count));
@@ -438,6 +441,8 @@ public:
         if (sink && !wrapped) return E_OUTOFMEMORY;
         HRESULT hr = inner_->NextAsync(count, wrapped ? static_cast<IWbemObjectSink*>(wrapped) : sink);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "NextAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
     HRESULT STDMETHODCALLTYPE Clone(IEnumWbemClassObject** enumerator) override {
@@ -505,6 +510,8 @@ public:
         HRESULT hr = inner_->GetObjectAsync(path, flags, context,
                                             wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "GetObjectAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
     HRESULT STDMETHODCALLTYPE PutClass(IWbemClassObject* object, long flags, IWbemContext* context,
@@ -518,6 +525,8 @@ public:
         HRESULT hr = inner_->PutClassAsync(object, flags, context,
                                            wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "PutClassAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
     HRESULT STDMETHODCALLTYPE DeleteClass(const BSTR name, long flags, IWbemContext* context,
@@ -531,6 +540,8 @@ public:
         HRESULT hr = inner_->DeleteClassAsync(name, flags, context,
                                               wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "DeleteClassAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
     HRESULT STDMETHODCALLTYPE CreateClassEnum(const BSTR superclass, long flags, IWbemContext* context,
@@ -548,6 +559,8 @@ public:
         HRESULT hr = inner_->CreateClassEnumAsync(superclass, flags, context,
                                                   wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "CreateClassEnumAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
     HRESULT STDMETHODCALLTYPE PutInstance(IWbemClassObject* instance, long flags, IWbemContext* context,
@@ -561,6 +574,8 @@ public:
         HRESULT hr = inner_->PutInstanceAsync(instance, flags, context,
                                               wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "PutInstanceAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
     HRESULT STDMETHODCALLTYPE DeleteInstance(const BSTR path, long flags, IWbemContext* context,
@@ -574,6 +589,8 @@ public:
         HRESULT hr = inner_->DeleteInstanceAsync(path, flags, context,
                                                  wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "DeleteInstanceAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
     HRESULT STDMETHODCALLTYPE CreateInstanceEnum(const BSTR filter, long flags, IWbemContext* context,
@@ -591,6 +608,8 @@ public:
         HRESULT hr = inner_->CreateInstanceEnumAsync(filter, flags, context,
                                                      wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "CreateInstanceEnumAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
     HRESULT STDMETHODCALLTYPE ExecQuery(const BSTR language, const BSTR query, long flags,
@@ -608,6 +627,8 @@ public:
         HRESULT hr = inner_->ExecQueryAsync(language, query, flags, context,
                                             wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "ExecQueryAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
     HRESULT STDMETHODCALLTYPE ExecNotificationQuery(const BSTR language, const BSTR query, long flags,
@@ -627,6 +648,8 @@ public:
         HRESULT hr = inner_->ExecNotificationQueryAsync(language, query, flags, context,
                                                         wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "ExecNotificationQueryAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
     HRESULT STDMETHODCALLTYPE ExecMethod(const BSTR path, const BSTR method, long flags,
@@ -646,6 +669,8 @@ public:
         HRESULT hr = inner_->ExecMethodAsync(path, method, flags, context, inParams,
                                              wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
         if (wrapped) wrapped->Release();
+        AuditEventRateLimited("wmi.async", "ExecMethodAsync", nullptr,
+                              static_cast<unsigned long long>(static_cast<unsigned long>(hr)), true);
         return hr;
     }
 

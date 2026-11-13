@@ -81,6 +81,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "cpu_probe build failed" }
     & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT (Join-Path $tests "device_probe.cpp") /Fe:device_probe.exe /link iphlpapi.lib setupapi.lib psapi.lib advapi32.lib | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "device_probe build failed" }
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT (Join-Path $tests "overlapped_probe.cpp") /Fe:overlapped_probe.exe /link | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "overlapped_probe build failed" }
     & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT (Join-Path $tests "child_probe.cpp") /Fe:child_probe.exe /link iphlpapi.lib | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "child_probe build failed" }
     & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT (Join-Path $tests "wmi_probe.cpp") /Fe:wmi_probe.exe /link wbemuuid.lib ole32.lib oleaut32.lib | Out-Null
@@ -145,6 +147,11 @@ Assert-True (@($auditLines | Where-Object { $_ -match '"surface":"api.getvolumei
 Assert-True (@($auditLines | Where-Object { $_ -match '"surface":"smbios.patch"' }).Count -gt 0) "SMBIOS patch recorded"
 Assert-True (@($auditLines | Where-Object { $_ -match '"surface":"api.reggetvalue"' }).Count -gt 0) "RegGetValueW hook recorded"
 Assert-True (@($auditLines | Where-Object { $_ -match '"surface":"api.hid.serial"' }).Count -gt 0) "HID serial hook recorded"
+foreach ($setupDiFunction in @('SetupDiGetDevicePropertyW', 'SetupDiGetDeviceRegistryPropertyW', 'SetupDiGetDeviceInstanceIdW')) {
+    Assert-True (@($auditLines | Where-Object {
+            $_ -match ('"surface":"api.install","action":"inline-primary","detail":"setupapi\.dll!' + $setupDiFunction + '"')
+        }).Count -gt 0) "$setupDiFunction has inline-primary fallback"
+}
 
 Write-Host "Device / driver / registry surfaces" -ForegroundColor Cyan
 $deviceBaseline = Parse-ProbeOutput @(& (Join-Path $bin "device_probe.exe") 2>&1)
@@ -159,6 +166,19 @@ Assert-True ($deviceProfile.disk_setupdi -eq "ok") "SetupDi disk enumeration rem
 Assert-True ($deviceProfile.enum_machine_guid -eq $identity.machine_id) "RegEnumValueW MachineGuid matches profile"
 if ($deviceBaseline.nt_disk_serial -notin @("empty", "ioctl-error", "open-denied", "missing")) {
     Assert-True ($deviceProfile.nt_disk_serial -like "WD-*") "NtDeviceIoControlFile rewrites disk serial"
+}
+$overlapBaseline = Parse-ProbeOutput @(& (Join-Path $bin "overlapped_probe.exe") 2>&1)
+$overlapProfile = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "overlapped_probe.exe") 2>&1)
+Assert-True ($overlapProfile.overlap_state -in @("immediate", "pending", "open-denied", "open-error", "io-error")) "OVERLAPPED probe produced a classified result"
+if ($overlapBaseline.overlap_state -in @("immediate", "pending") -and
+    $overlapProfile.overlap_state -in @("immediate", "pending")) {
+    Assert-True ($overlapProfile.overlap_serial -like "WD-*") "OVERLAPPED storage serial is profile-scoped"
+}
+if ($overlapProfile.overlap_state -eq "pending") {
+    Assert-True (@(Get-Content -LiteralPath $env:CAC_NATIVE_AUDIT -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match '"surface":"api.deviceiocontrol.pending","action":"tracked"' }).Count -gt 0) "pending DeviceIoControl was tracked"
+    Assert-True (@(Get-Content -LiteralPath $env:CAC_NATIVE_AUDIT -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match '"surface":"api.deviceiocontrol.pending","action":"sanitized"' }).Count -gt 0) "pending DeviceIoControl completion was sanitized"
 }
 
 Write-Host "Renderer / utility child injection" -ForegroundColor Cyan
@@ -181,6 +201,14 @@ if ($wmiBaseline.wmi_state -eq "ok") {
     Assert-True ($wmiProfile.wmi_mac -eq $identity.mac_address) "WMI MAC matches profile"
     Assert-True ($wmiProfile.wmi_processor_id -eq $identity.processor_id) "WMI ProcessorId matches profile"
     Assert-True ($wmiProfile.wmi_volume_serial -eq $identity.volume_serial) "WMI volume serial matches profile"
+    if ($wmiBaseline.wmi_async_state -eq "ok") {
+        Assert-True ($wmiProfile.wmi_async_state -eq "ok") "WMI async query completes through wrapper"
+        Assert-True ([int]$wmiProfile.wmi_async_indicated -ge 0) "WMI async sink returned evidence"
+        Assert-True (@(Get-Content -LiteralPath $env:CAC_NATIVE_AUDIT -ErrorAction SilentlyContinue |
+                Where-Object { $_ -match '"surface":"wmi.async","action":"ExecQueryAsync"' }).Count -gt 0) "WMI async invocation recorded"
+        Assert-True (@(Get-Content -LiteralPath $env:CAC_NATIVE_AUDIT -ErrorAction SilentlyContinue |
+                Where-Object { $_ -match '"surface":"wmi.sink","action":"wrapped"' }).Count -gt 0) "WMI sink wrapping recorded"
+    }
 } else {
     Write-Host "  [INFO] WMI baseline unavailable: $($wmiBaseline.wmi_state)" -ForegroundColor Yellow
 }
@@ -293,6 +321,15 @@ Assert-True ($deviceEmpty.nt_disk_serial -eq "open-denied") "empty policy denies
 Assert-True ($deviceEmpty.driver_count -eq "0") "empty policy hides kernel driver list"
 Assert-True ($deviceEmpty.disk_setupdi -eq "empty") "empty policy hides SetupDi disk enumeration"
 Assert-True ($deviceEmpty.enum_machine_guid -eq "") "empty policy clears RegEnumValueW MachineGuid"
+Assert-True ($deviceEmpty.setupdi_dynamic_property -eq "empty") "empty policy blocks dynamically resolved SetupDi property"
+Assert-True ($deviceEmpty.setupdi_dynamic_registry -eq "empty") "empty policy blocks dynamically resolved SetupDi registry property"
+Assert-True ($deviceEmpty.setupdi_dynamic_instance -eq "empty") "empty policy blocks dynamically resolved SetupDi instance ID"
+Assert-True ($deviceEmpty.raw_createfile_a -eq "denied") "empty policy blocks CreateFileA raw device access"
+Assert-True ($deviceEmpty.raw_createfile2 -eq "denied") "empty policy blocks CreateFile2 raw device access"
+Assert-True ($deviceEmpty.raw_ntcreatefile -eq "denied") "empty policy blocks NtCreateFile raw device access"
+
+$overlapEmpty = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "overlapped_probe.exe") 2>&1)
+Assert-True ($overlapEmpty.overlap_state -eq "open-denied") "empty policy blocks OVERLAPPED raw device open"
 
 $childEmpty = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "child_probe.exe") 2>&1)
 Assert-True ($childEmpty.child_mac -eq "none") "empty policy propagates to child process"

@@ -11,6 +11,7 @@
 #include <setupapi.h>
 #include <initguid.h>
 #include <devguid.h>
+#include <devpkey.h>
 
 #include <cstdio>
 #include <string>
@@ -25,6 +26,15 @@ namespace {
 typedef NTSTATUS (NTAPI* PFN_NtQueryVolumeInformationFile)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, ULONG);
 typedef NTSTATUS (NTAPI* PFN_NtDeviceIoControlFile)(HANDLE, HANDLE, PIO_APC_ROUTINE, PVOID,
                                                     PIO_STATUS_BLOCK, ULONG, PVOID, ULONG, PVOID, ULONG);
+typedef HANDLE (WINAPI* PFN_CreateFile2)(LPCWSTR, DWORD, DWORD, DWORD, LPCREATEFILE2_EXTENDED_PARAMETERS);
+typedef NTSTATUS (NTAPI* PFN_NtCreateFile)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK,
+                                           PLARGE_INTEGER, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG);
+typedef HDEVINFO (WINAPI* PFN_SetupDiGetClassDevsW)(const GUID*, PCWSTR, HWND, DWORD);
+typedef BOOL (WINAPI* PFN_SetupDiGetDevicePropertyW)(HDEVINFO, PSP_DEVINFO_DATA, const DEVPROPKEY*, DEVPROPTYPE*,
+                                                     PBYTE, DWORD, PDWORD, DWORD);
+typedef BOOL (WINAPI* PFN_SetupDiGetDeviceRegistryPropertyW)(HDEVINFO, PSP_DEVINFO_DATA, DWORD, PDWORD,
+                                                              PBYTE, DWORD, PDWORD);
+typedef BOOL (WINAPI* PFN_SetupDiGetDeviceInstanceIdW)(HDEVINFO, PSP_DEVINFO_DATA, PWSTR, DWORD, PDWORD);
 
 struct FsVolumeInformation {
     LARGE_INTEGER CreationTime;
@@ -164,6 +174,109 @@ void ProbeSetupDi() {
     SetupDiDestroyDeviceInfoList(set);
 }
 
+void ProbeSetupDiDynamic() {
+    HMODULE setupapi = LoadLibraryW(L"setupapi.dll");
+    if (!setupapi) {
+        std::printf("setupdi_dynamic=missing\n");
+        return;
+    }
+    auto getClassDevs = reinterpret_cast<PFN_SetupDiGetClassDevsW>(
+        GetProcAddress(setupapi, "SetupDiGetClassDevsW"));
+    auto getProperty = reinterpret_cast<PFN_SetupDiGetDevicePropertyW>(
+        GetProcAddress(setupapi, "SetupDiGetDevicePropertyW"));
+    auto getRegistryProperty = reinterpret_cast<PFN_SetupDiGetDeviceRegistryPropertyW>(
+        GetProcAddress(setupapi, "SetupDiGetDeviceRegistryPropertyW"));
+    auto getInstanceId = reinterpret_cast<PFN_SetupDiGetDeviceInstanceIdW>(
+        GetProcAddress(setupapi, "SetupDiGetDeviceInstanceIdW"));
+    if (!getClassDevs || !getProperty || !getRegistryProperty || !getInstanceId) {
+        std::printf("setupdi_dynamic=missing\n");
+        FreeLibrary(setupapi);
+        return;
+    }
+
+    HDEVINFO set = getClassDevs(&GUID_DEVCLASS_DISKDRIVE, nullptr, nullptr, DIGCF_PRESENT);
+    if (set == INVALID_HANDLE_VALUE) {
+        std::printf("setupdi_dynamic=empty\n");
+        FreeLibrary(setupapi);
+        return;
+    }
+    SP_DEVINFO_DATA info = {};
+    info.cbSize = sizeof(info);
+    if (!SetupDiEnumDeviceInfo(set, 0, &info)) {
+        std::printf("setupdi_dynamic=enum-empty\n");
+        SetupDiDestroyDeviceInfoList(set);
+        FreeLibrary(setupapi);
+        return;
+    }
+
+    BYTE propertyBuffer[512] = {};
+    DEVPROPTYPE propertyType = 0;
+    DWORD required = 0;
+    const BOOL propertyOk = getProperty(set, &info, &DEVPKEY_Device_InstanceId, &propertyType,
+                                        propertyBuffer, sizeof(propertyBuffer), &required, 0);
+    BYTE registryBuffer[512] = {};
+    DWORD registryType = 0;
+    DWORD registryRequired = 0;
+    const BOOL registryOk = getRegistryProperty(set, &info, SPDRP_HARDWAREID, &registryType,
+                                                registryBuffer, sizeof(registryBuffer), &registryRequired);
+    wchar_t instanceId[512] = {};
+    DWORD instanceRequired = 0;
+    const BOOL instanceOk = getInstanceId(set, &info, instanceId, _countof(instanceId), &instanceRequired);
+    std::printf("setupdi_dynamic_property=%s\n", propertyOk ? "ok" : "empty");
+    std::printf("setupdi_dynamic_registry=%s\n", registryOk ? "ok" : "empty");
+    std::printf("setupdi_dynamic_instance=%s\n", instanceOk ? "ok" : "empty");
+    SetupDiDestroyDeviceInfoList(set);
+    FreeLibrary(setupapi);
+}
+
+void ProbeRawCreateAlternates() {
+    const char* rawAnsi = "\\\\.\\PhysicalDrive0";
+    HANDLE ansi = CreateFileA(rawAnsi, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                              nullptr, OPEN_EXISTING, 0, nullptr);
+    const DWORD ansiError = ansi == INVALID_HANDLE_VALUE ? GetLastError() : ERROR_SUCCESS;
+    std::printf("raw_createfile_a=%s\n",
+                ansi == INVALID_HANDLE_VALUE ? (ansiError == ERROR_ACCESS_DENIED ? "denied" : "error") : "opened");
+    if (ansi != INVALID_HANDLE_VALUE) CloseHandle(ansi);
+
+    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    auto createFile2 = reinterpret_cast<PFN_CreateFile2>(
+        kernel32 ? GetProcAddress(kernel32, "CreateFile2") : nullptr);
+    HANDLE file2 = createFile2
+        ? createFile2(L"\\\\.\\PhysicalDrive0", GENERIC_READ,
+                      FILE_SHARE_READ | FILE_SHARE_WRITE, OPEN_EXISTING, nullptr)
+        : INVALID_HANDLE_VALUE;
+    const DWORD file2Error = file2 == INVALID_HANDLE_VALUE ? GetLastError() : ERROR_SUCCESS;
+    std::printf("raw_createfile2=%s\n",
+                !createFile2 ? "missing" :
+                (file2 == INVALID_HANDLE_VALUE ? (file2Error == ERROR_ACCESS_DENIED ? "denied" : "error") : "opened"));
+    if (file2 != INVALID_HANDLE_VALUE) CloseHandle(file2);
+
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    auto ntCreateFile = reinterpret_cast<PFN_NtCreateFile>(
+        ntdll ? GetProcAddress(ntdll, "NtCreateFile") : nullptr);
+    std::wstring rawNtPath = L"\\??\\PhysicalDrive0";
+    UNICODE_STRING name = {};
+    name.Length = static_cast<USHORT>(rawNtPath.size() * sizeof(wchar_t));
+    name.MaximumLength = name.Length;
+    name.Buffer = rawNtPath.data();
+    OBJECT_ATTRIBUTES attributes = {};
+    attributes.Length = sizeof(attributes);
+    attributes.Attributes = OBJ_CASE_INSENSITIVE;
+    attributes.ObjectName = &name;
+    IO_STATUS_BLOCK ioStatus = {};
+    HANDLE ntFile = nullptr;
+    const NTSTATUS ntStatus = ntCreateFile
+        ? ntCreateFile(&ntFile, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &attributes, &ioStatus, nullptr,
+                       FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN,
+                       FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, nullptr, 0)
+        : static_cast<NTSTATUS>(0xC0000002L);
+    std::printf("raw_ntcreatefile=%s\n",
+                !ntCreateFile ? "missing" :
+                (ntStatus == static_cast<NTSTATUS>(0xC0000022L) ? "denied" :
+                 (ntStatus >= 0 ? "opened" : "error")));
+    if (ntFile) CloseHandle(ntFile);
+}
+
 void ProbeRegistryEnum() {
     HKEY key = nullptr;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Cryptography", 0, KEY_READ, &key) !=
@@ -197,6 +310,7 @@ void ProbeRegistryEnum() {
 }  // namespace
 
 int wmain() {
+    setvbuf(stdout, nullptr, _IONBF, 0);
     HANDLE root = CreateFileW(L"C:\\", FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
                               nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if (root != INVALID_HANDLE_VALUE) {
@@ -209,6 +323,8 @@ int wmain() {
     ProbeDiskSerial();
     ProbeDrivers();
     ProbeSetupDi();
+    ProbeSetupDiDynamic();
+    ProbeRawCreateAlternates();
     ProbeRegistryEnum();
     return 0;
 }

@@ -10,21 +10,23 @@
 | `GetVolumeInformationW` | IAT patch | on |
 | `GetSystemFirmwareTable('RSMB')` | IAT patch + in-place SMBIOS rewrite | on |
 | `NtQuerySystemInformation` class 76 | IAT patch + SMBIOS rewrite | on |
-| `DeviceIoControl` `IOCTL_STORAGE_QUERY_PROPERTY` | IAT patch + serial rewrite | on |
-| `NtDeviceIoControlFile` | inline + IAT; storage serial rewrite, SMART/firmware cleared | on |
+| `DeviceIoControl` `IOCTL_STORAGE_QUERY_PROPERTY` | IAT/inline; immediate serial rewrite; pending requests tracked for completion | on |
+| `NtDeviceIoControlFile` | inline + IAT; storage serial rewrite, SMART/firmware cleared; `STATUS_PENDING` is audited as unhandled | on |
 | `GetVolumeInformationByHandleW` / `GetFileInformationByHandle` / `NtQueryVolumeInformationFile` | IAT/inline + volume serial rewrite | on |
 | `GetComputerNameW` / `GetComputerNameExW` | IAT patch | on |
 | `GetUserNameW` | IAT/delay patch | on |
 | `RegGetValueW` / `RegQueryValueExW` (MachineGuid/BIOS/CPU values) | IAT/delay patch | on |
 | `HidD_GetSerialNumberString` | IAT/delay patch | on |
-| `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | IAT/delay patch; audit or empty policy | audit |
+| `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | inline-primary with IAT/delay fallback; profile pass-through, empty policy clears output | profile |
 | `GetIfTable2` / `GetIfEntry2` / `GetIfTable` | IAT patch + MAC rewrite | on |
 | `RegEnumValueW` | IAT/delay patch + value rewrite | on |
 | `EnumDeviceDrivers` / `K32EnumDeviceDrivers` | IAT/delay patch; empty policy hides the list | on |
 | `SetupDiGetClassDevsW` | IAT/delay patch; empty policy hides disk/display/net/system classes | on |
-| `CreateFileW` raw device paths | IAT patch; empty policy denies `\\.\PhysicalDrive*` and friends | on |
+| `CreateFileW` / `CreateFileA` / `CreateFile2` raw device paths | IAT/inline fallback; empty policy denies `\\.\PhysicalDrive*` and related native paths | on |
+| `NtCreateFile` raw native paths | inline + IAT; empty policy denies physical-disk, volume and firmware device paths | on |
+| `GetOverlappedResult*` / `GetQueuedCompletionStatus*` | completion evidence and tracked storage-buffer sanitization | on |
 | `CreateProcessW` / `CreateProcessInternalW` / `NtCreateUserProcess` | inline + IAT; inject same-image children at creation | on |
-| WMI COM (`CLSID_WbemLocator`) | in-process `IWbemLocator`/`IWbemServices`/`IWbemClassObject` wrappers | on |
+| WMI COM (`CLSID_WbemLocator`) | in-process `IWbemLocator`/`IWbemServices`/`IWbemClassObject` wrappers; async sink and callback evidence | on |
 | `GetAdaptersAddresses` / `GetAdaptersInfo` / `GetIfTable2` / `GetIfEntry2` / `GetIfTable` / `GetInterfaceInfo` | virtual-adapter filtering in clean mode | clean |
 | `ConvertInterfaceLuidToNameW/ToAlias` / `ConvertInterfaceNameToLuidW` | virtual-adapter name lookup refused in clean mode | clean |
 | `WinHttpGetIEProxyConfigForCurrentUser` / `WinHttpGetProxyForUrl` / `WinHttpGetDefaultProxyConfiguration` / `WinHttpOpen` | forced DIRECT in clean mode | clean |
@@ -34,13 +36,13 @@
 | `CPUID` / `XGETBV` | inline hook at verified function entry | manifest required |
 | Kernel, NDIS, WFP, driver objects, physical hardware | not implemented | — |
 
-Delay imports are resolved by loading the target DLL, resolving the real export, and replacing the delay IAT slot with the hook. `LoadLibraryA`/`GetProcAddress` are called from the bridge init thread, not from DllMain. SMBIOS string replacement keeps the original byte length and pads with spaces, so structure offsets and the string-set layout stay valid. UUID and processor ID are fixed-size fields.
+Delay imports are resolved by loading the target DLL, resolving the real export, and replacing the delay IAT slot with the hook. `LoadLibraryA`/`GetProcAddress` are called from the bridge init thread, not from DllMain. Export forwarders such as the x64 `kernel32!CreateFile2` form are followed to the real implementation before an inline hook is attempted. If a prologue cannot be decoded safely, the audit records `inline-refused` or `not-imported`; that event is partial evidence, never a successful install. SMBIOS string replacement keeps the original byte length and pads with spaces, so structure offsets and the string-set layout stay valid. UUID and processor ID are fixed-size fields.
 
 ## Read policy
 
 The wrapper passes `CAC_NATIVE_READ_POLICY=profile` by default. Set the current Profile's `native_read_policy` file to `empty` to make covered identity reads return empty strings, zero serials, no SMBIOS table, no storage serial, empty SetupDi properties, and zeroed CPUID/XGETBV output. `CAC_NATIVE_CPUID_MODE` accepts `neutral`, `empty`, or `passthrough`; `empty` is selected automatically when the read policy is `empty` unless a Profile-specific `cpuid_mode` file overrides it.
 
-The `profile` mode is the compatibility default. The `empty` mode is intentionally strict and may make applications disable hardware-dependent features. WMI/COM and renderer/utility processes are covered by this build; kernel APIs, NDIS/WFP filters, kernel driver objects and physical firmware still require a signed kernel driver.
+The `profile` mode is the compatibility default. The `empty` mode is intentionally strict and may make applications disable hardware-dependent features. WMI/COM wrappers and same-image child-process injection are implemented in userland, but each process and each WMI path must be confirmed by audit evidence. Kernel APIs, NDIS/WFP filters, kernel driver objects and physical firmware are outside this DLL's boundary.
 
 `CAC_NETWORK_MODE=clean` (or `network_mode` file set to `clean`) hides virtual adapters from enumeration, refuses virtual LUID/name resolution, forces WinHTTP/IE/registry proxy queries to DIRECT, and filters virtual WMI network rows. `empty` read policy implies `clean`. This is a process-local view: actual routing and the server-visible exit IP are unchanged, and `GetBestRoute2` can still expose a tunnel interface index.
 
@@ -122,17 +124,22 @@ xgetbv   unsigned __int64(unsigned int index)
 
 ```text
 native.bridge         attach / ready
-api.install           iat / inline / refused
+  api.install           iat / inline / inline-refused / not-imported / refused
 api.getadapters*      patched
 api.getvolumeinfo*    patched
 smbios.patch          patched, field count
-api.deviceiocontrol   observed IOCTL code and serial patch
+  api.deviceiocontrol   observed IOCTL code and serial patch
+  api.deviceiocontrol.pending  tracked / sanitized / failed
+  api.ntdeviceiocontrol.pending  unhandled for `STATUS_PENDING`
 api.getcomputername*  patched
 api.getusername       patched
 api.reggetvalue       patched
 api.regqueryvalue     patched
 api.hid.serial        patched
-api.setupdi.*         observed (audit only)
+  api.setupdi.*         observed / cleared / refused
+  api.createfile*       observed / denied for raw device paths
+  wmi.async             async method invocation evidence
+  wmi.sink              sink wrapping / indication evidence
 cpu.install           installed / refused
 cpu.cpuid             filtered leaf
 cpu.xgetbv            observed index
@@ -140,13 +147,16 @@ cpu.xgetbv            observed index
 
 ## Boundaries
 
-- Userland only. No driver, no NDIS/WFP filter, no kernel callback.
+- Userland only. No driver, no NDIS/WFP filter, no kernel callback, and no physical-device virtualization.
 - Physical disk, firmware and NIC state are unchanged on the host.
-- `DeviceIoControl` rewrite only handles storage serial queries; other IOCTLs are observed and passed through.
+- `DeviceIoControl` rewrite only handles the supported storage serial queries; other IOCTLs are observed and passed through.
+- An overlapped `DeviceIoControl` request is sanitized only when the bridge tracks the request and later observes completion through `GetOverlappedResult*` or IOCP. A `NtDeviceIoControlFile` request that returns `STATUS_PENDING` has no safe completion context in this bridge and is recorded as `unhandled`/PARTIAL.
 - `GetSystemFirmwareTable` patches the returned buffer, not the firmware.
 - A process that resolves APIs dynamically and bypasses the IAT is covered only by the inline fallback when its prologue is recognized.
 - CPU hooks are opt-in and hash-bound; no unsigned heuristic patch is applied by default.
-- SetupDi properties are observed, not rewritten. Rewriting device instance IDs/hardware IDs can break driver matching; no verified device-ID sink was found in Claude Desktop 5.1231.2.
+- SetupDi calls use the inline path first and the IAT/delay path as fallback. The empty policy clears the supported output buffers, but it does not create a coherent synthetic PnP device graph or change kernel PnP state. Any refused or missing install is recorded as FAIL/PARTIAL by the audit scripts.
+- Same-image renderer/utility injection is a process-lifecycle feature, not proof that every child, COM server, broker, GPU process, or native helper was intercepted. Missing child evidence remains NOT_OBSERVED/PARTIAL.
+- The bridge does not isolate or rewrite CPUID/SMBIOS/NDIS/WFP/driver-object/physical-hardware reads that bypass the covered userland APIs. The audit never treats a Node or Native userland hook as hardware isolation.
 
 ## Claude Desktop 5.1231.2
 

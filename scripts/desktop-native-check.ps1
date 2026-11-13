@@ -6,7 +6,8 @@ param(
     [string]$Profile,
     [switch]$RequireChild,
     [switch]$RequireCpuManifest,
-    [switch]$RequireRendererUtility
+    [switch]$RequireRendererUtility,
+    [switch]$Strict
 )
 
 $ErrorActionPreference = 'Stop'
@@ -69,6 +70,19 @@ $unwrappedWmi = @($session | Where-Object {
     $_.surface -in @('wmi.enum', 'wmi.services') -and $_.action -match 'unwrapped'
 })
 $filteredWmi = @($session | Where-Object { $_.surface -eq 'wmi.sink' -and $_.action -eq 'async-filtered' })
+$wmiInstall = @($session | Where-Object { $_.surface -eq 'wmi.install' })
+$wmiAsync = @($session | Where-Object { $_.surface -eq 'wmi.async' })
+$wmiSink = @($session | Where-Object { $_.surface -eq 'wmi.sink' })
+$wmiObserved = @($session | Where-Object {
+    $_.surface -in @('wmi.get', 'wmi.enum', 'wmi.services', 'wmi.async', 'wmi.sink')
+})
+$pendingEvents = @($session | Where-Object {
+    $_.surface -in @('api.deviceiocontrol.pending', 'api.ntdeviceiocontrol.pending')
+})
+$pendingSanitized = @($pendingEvents | Where-Object { $_.action -in @('sanitized', 'replaced') })
+$pendingUnverified = @($pendingEvents | Where-Object {
+    $_.action -in @('unhandled', 'unverified', 'failed')
+})
 $cpuManifest = @($session | Where-Object { $_.surface -eq 'cpu.manifest' } | Select-Object -Last 1)
 $cpuInstalled = @($session | Where-Object {
     $_.surface -eq 'cpu.install' -and $_.action -eq 'installed'
@@ -98,6 +112,9 @@ $result = [ordered]@{
             [ordered]@{ action = $_.action; detail = $_.detail; pid = $_.pid }
         })
         apiInstallNotImported = $notImported.Count
+        apiInstallNotImportedDetails = @($notImported | ForEach-Object {
+            [ordered]@{ detail = $_.detail; pid = $_.pid }
+        })
         childInjected = $childInjected.Count
         childInjectionFailures = $childFailed.Count
         childDetails = @($children | ForEach-Object {
@@ -105,6 +122,13 @@ $result = [ordered]@{
         })
         wmiAsyncUnwrapped = $unwrappedWmi.Count
         wmiAsyncFiltered = $filteredWmi.Count
+        wmiWrapped = $wmiInstall.Count -gt 0
+        wmiObserved = $wmiObserved.Count -gt 0
+        wmiAsyncObserved = $wmiAsync.Count -gt 0
+        wmiSinkObserved = $wmiSink.Count -gt 0
+        deviceIoPendingObserved = $pendingEvents.Count -gt 0
+        deviceIoPendingSanitized = $pendingSanitized.Count
+        deviceIoPendingUnverified = $pendingUnverified.Count
         cpuManifest = if ($cpuManifest.Count -gt 0) { [string]$cpuManifest[0].action } else { 'NOT_OBSERVED' }
         cpuHooksInstalled = $cpuInstalled.Count
         networkCleanEvents = @($session | Where-Object {
@@ -113,17 +137,50 @@ $result = [ordered]@{
     }
 }
 
-$pass = $ready -and $failures.Count -eq 0 -and $childFailed.Count -eq 0
+$partialReasons = New-Object System.Collections.Generic.List[string]
+if ($notImported.Count -gt 0) { $partialReasons.Add("api-not-imported:$($notImported.Count)") }
+if ($wmiInstall.Count -eq 0) { $partialReasons.Add('wmi-wrapper-not-observed') }
+if ($wmiObserved.Count -eq 0) { $partialReasons.Add('wmi-call-not-observed') }
+if ($wmiAsync.Count -eq 0) { $partialReasons.Add('wmi-async-not-observed') }
+if ($pendingEvents.Count -eq 0) { $partialReasons.Add('deviceio-pending-not-observed') }
+if ($pendingUnverified.Count -gt 0) {
+    $partialReasons.Add("deviceio-pending-unverified:$($pendingUnverified.Count)")
+}
+if ($cpuManifest.Count -eq 0 -or [string]$cpuManifest[0].action -eq 'not-configured') {
+    $partialReasons.Add('cpu-manifest-not-configured')
+}
+
+$failureReasons = New-Object System.Collections.Generic.List[string]
+if (-not $ready) { $failureReasons.Add('native-bridge-not-ready') }
+if ($failures.Count -gt 0) { $failureReasons.Add("api-install-failures:$($failures.Count)") }
+if ($childFailed.Count -gt 0) { $failureReasons.Add("child-injection-failures:$($childFailed.Count)") }
+if ($unwrappedWmi.Count -gt 0) { $failureReasons.Add("wmi-unwrapped:$($unwrappedWmi.Count)") }
+$pass = $failureReasons.Count -eq 0
 if ($RequireChild -and $childInjected.Count -eq 0) { $pass = $false }
 if ($RequireCpuManifest -and $cpuInstalled.Count -eq 0) { $pass = $false }
 if ($RequireRendererUtility -and
     (-not $processTypes.Contains('renderer') -or -not $processTypes.Contains('utility'))) { $pass = $false }
-$result.result = if ($pass) { 'PASS' } else { 'FAIL' }
+if (-not $pass -and $failureReasons.Count -eq 0) { $failureReasons.Add('required-evidence-missing') }
+if ($Strict) {
+    foreach ($reason in $partialReasons) { $failureReasons.Add("strict:$reason") }
+}
+$result.status = if ($failureReasons.Count -gt 0) { 'FAIL' } elseif ($partialReasons.Count -gt 0) { 'PARTIAL' } else { 'PASS' }
+$result.result = $result.status
+$result.strict = [bool]$Strict
+$result.partialReasons = @($partialReasons)
+$result.failureReasons = @($failureReasons)
 $result.note = 'This is current-session userland evidence. It does not prove kernel, NDIS/WFP, DPAPI, or physical hardware isolation.'
 
 New-Item -ItemType Directory -Path (Split-Path -Parent $outputPath) -Force | Out-Null
 $result | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $outputPath -Encoding UTF8
 $result | ConvertTo-Json -Depth 10
 Write-Host "Evidence: $outputPath" -ForegroundColor DarkGray
-if (-not $pass) { exit 1 }
-Write-Host "[PASS] Desktop NativeBridge session is healthy for $Profile" -ForegroundColor Green
+if ($result.status -eq 'FAIL') {
+    Write-Host ("[FAIL] Desktop NativeBridge session failed: {0}" -f ($failureReasons -join ', ')) -ForegroundColor Red
+    exit 1
+}
+if ($result.status -eq 'PARTIAL') {
+    Write-Host ("[PARTIAL] Desktop NativeBridge evidence is incomplete: {0}" -f ($partialReasons -join ', ')) -ForegroundColor Yellow
+    exit 0
+}
+Write-Host "[PASS] Desktop NativeBridge session is complete for $Profile" -ForegroundColor Green
