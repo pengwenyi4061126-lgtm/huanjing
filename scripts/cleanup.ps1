@@ -5,7 +5,16 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ConfigDir,
     [Parameter(Mandatory = $true)]
-    [string]$HomeDir
+    [string]$HomeDir,
+    [string]$ProfileRoot,
+    [string]$CacheDir,
+    [string]$TempDir,
+    [string]$AppData,
+    [string]$LocalAppData,
+    [string]$XdgConfigHome,
+    [string]$XdgCacheHome,
+    [string]$CredentialsDir,
+    [string]$LogsDir
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,6 +22,12 @@ $ErrorActionPreference = "Stop"
 function Write-OK($t) { Write-Host "  [OK] $t" -ForegroundColor Green }
 function Write-Skip($t) { Write-Host "  [SKIP] $t" -ForegroundColor Yellow }
 function Write-Del($t) { Write-Host "  [DEL] $t" -ForegroundColor Red }
+function Clear-DirectoryContents([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return }
+    Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Del $Path
+}
 
 foreach ($dir in @($ConfigDir, $HomeDir)) {
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
@@ -22,6 +37,7 @@ Write-Host ""
 Write-Host "Claude Code Cleanup — current Profile only" -ForegroundColor Cyan
 Write-Host "  Config: $ConfigDir" -ForegroundColor DarkGray
 Write-Host "  Home:   $HomeDir" -ForegroundColor DarkGray
+if ($ProfileRoot) { Write-Host "  Root:   $ProfileRoot" -ForegroundColor DarkGray }
 Write-Host ""
 
 Write-Host "Resetting profile identity and account linkage..." -ForegroundColor White
@@ -63,6 +79,11 @@ Write-Host "Clearing profile telemetry and caches..." -ForegroundColor White
 foreach ($name in @("telemetry", "statsig", "stats-cache.json", "debug", "Crashpad")) {
     $path = Join-Path $ConfigDir $name
     if (Test-Path $path) { Remove-Item -LiteralPath $path -Recurse -Force; Write-Del $path }
+}
+
+Write-Host "Clearing profile-only caches, temp files and file credentials..." -ForegroundColor White
+foreach ($dir in @($CacheDir, $TempDir, $AppData, $LocalAppData, $XdgConfigHome, $XdgCacheHome, $CredentialsDir, $LogsDir)) {
+    Clear-DirectoryContents $dir
 }
 
 Write-Host "Credential Manager: unchanged" -ForegroundColor White

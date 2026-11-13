@@ -17,6 +17,16 @@ function Invoke-ProfileProbe([System.Collections.IDictionary]$Environment, [stri
 const fs = require("fs"), os = require("os"), path = require("path");
 const configMarker = process.env.CAC_PROBE_CONFIG_FILE || "";
 const homeMarker = process.env.CAC_PROBE_HOME_FILE || "";
+let username = "";
+try { username = os.userInfo().username || ""; } catch (_) {}
+const macs = [];
+try {
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of (entries || [])) {
+      if (entry && entry.mac && entry.mac !== "00:00:00:00:00:00") macs.push(entry.mac);
+    }
+  }
+} catch (_) {}
 console.log(JSON.stringify({
   homedir: os.homedir(),
   userprofile: process.env.USERPROFILE || "",
@@ -25,6 +35,12 @@ console.log(JSON.stringify({
   localappdata: process.env.LOCALAPPDATA || "",
   temp: process.env.TEMP || "",
   tmp: process.env.TMP || "",
+  hostname: os.hostname(),
+  username,
+  macSeed: process.env.CAC_MAC || "",
+  macs,
+  machineId: process.env.CAC_MACHINE_ID || "",
+  hookMode: process.env.CAC_HOOK_MODE || "",
   configMarker: !!configMarker && fs.existsSync(path.join(process.env.CLAUDE_CONFIG_DIR, configMarker)),
   homeMarker: !!homeMarker && fs.existsSync(path.join(os.homedir(), homeMarker)),
 }));
@@ -106,6 +122,7 @@ foreach ($path in $globalPaths) { $globalBefore[$path] = Get-PathState $path }
 $profiles = @{}
 foreach ($name in $EnvNames) {
     $profiles[$name] = Ensure-ProfileLayout $name
+    Remove-Item -LiteralPath $profiles[$name].HookAuditPath -Force -ErrorAction SilentlyContinue
 }
 
 $results = @()
@@ -120,6 +137,21 @@ foreach ($sourceName in $EnvNames) {
             $targetPaths = $profiles[$targetName]
             $values = Get-ProfileEnvironment $targetPaths
             $probe = Invoke-ProfileProbe $values $markerName $homeMarkerName
+            $targetIdentity = Read-ProfileIdentity $targetPaths
+            $expectedUser = "user-$targetName"
+            $hookEvents = @()
+            if (Test-Path -LiteralPath $targetPaths.HookAuditPath) {
+                $hookEvents = @(Get-Content -LiteralPath $targetPaths.HookAuditPath -ErrorAction SilentlyContinue |
+                    ForEach-Object { try { $_ | ConvertFrom-Json } catch { $null } } |
+                    Where-Object { $null -ne $_ })
+            }
+            $hookUsed = @($hookEvents | Where-Object { $_.surface -in @("os.hostname", "os.networkInterfaces", "os.userInfo") }).Count -gt 0
+            $identityOk = ($probe.hostname -eq [string]$targetIdentity.hostname -and
+                $probe.username -eq $expectedUser -and
+                $probe.machineId -eq [string]$targetIdentity.machine_id -and
+                $probe.macSeed -eq [string]$targetIdentity.mac_address -and
+                @($probe.macs).Count -gt 0 -and
+                $probe.hookMode -eq "node-userland-only" -and $hookUsed)
             $expectedSource = ($targetName -eq $sourceName)
             $pathOk = ($probe.homedir -eq $targetPaths.HomeDir -and
                 $probe.userprofile -eq $targetPaths.HomeDir -and
@@ -134,20 +166,26 @@ foreach ($sourceName in $EnvNames) {
             } else {
                 $crossReadOk = (-not [bool]$probe.configMarker -and -not [bool]$probe.homeMarker)
             }
-            $ok = $pathOk -and $crossReadOk
+            $ok = $pathOk -and $crossReadOk -and $identityOk
             $status = "FAIL"
             $color = "Red"
             if ($ok) { $status = "PASS"; $color = "Green" }
-            Write-Host ("  [{0}] {1} -> {2}: paths={3}, cross-read={4}" -f $status, $sourceName, $targetName, $pathOk, $crossReadOk) -ForegroundColor $color
+            Write-Host ("  [{0}] {1} -> {2}: paths={3}, identity={4}, hook={5}, cross-read={6}" -f $status, $sourceName, $targetName, $pathOk, $identityOk, $hookUsed, $crossReadOk) -ForegroundColor $color
             $results += [ordered]@{
                 sourceProfile = $sourceName
                 targetProfile = $targetName
                 status = $status
                 pathIsolation = $pathOk
                 crossReadIsolation = $crossReadOk
+                identityIsolation = $identityOk
+                nodeHookUsed = $hookUsed
                 homedir = $probe.homedir
                 config = $probe.config
                 temp = $probe.temp
+                runtimeHostname = $probe.hostname
+                runtimeUsername = $probe.username
+                runtimeMacSeed = $probe.macSeed
+                runtimeMacs = $probe.macs
             }
         }
     } finally {
@@ -179,7 +217,7 @@ $evidence = [ordered]@{
     globalPathsBefore = $globalBefore
     globalPathsAfter = $globalAfter
     globalPathsModified = (-not $globalUnchanged)
-    note = "本测试验证 Profile 环境变量与默认 home/config 路径不交叉，不代表 Native/硬件层隔离。"
+    note = "本测试验证 Profile 路径、Node 用户态身份 Hook 与默认 home/config 路径不交叉；不代表 Native API、驱动或物理硬件隔离。"
 }
 $auditDir = Join-Path $CAC_DIR "audit"
 New-Item -ItemType Directory -Path $auditDir -Force | Out-Null

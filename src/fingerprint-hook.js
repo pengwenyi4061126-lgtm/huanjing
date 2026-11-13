@@ -7,10 +7,29 @@ const os = require('os');
 const fs = require('fs');
 const child_process = require('child_process');
 
+const hookAuditPath = process.env.CAC_HOOK_AUDIT;
+const auditedSurfaces = new Set();
+function auditOnce(surface) {
+  if (!hookAuditPath || auditedSurfaces.has(surface)) return;
+  auditedSurfaces.add(surface);
+  try {
+    fs.appendFileSync(hookAuditPath, JSON.stringify({
+      utc: new Date().toISOString(),
+      pid: process.pid,
+      surface,
+      mode: 'node-userland-only'
+    }) + '\n', { encoding: 'utf8' });
+  } catch (_) { /* evidence must never break the target process */ }
+}
+auditOnce('hook-loaded');
+
 // --- os.hostname() ---
 const fakeHostname = process.env.CAC_HOSTNAME;
 if (fakeHostname) {
-  os.hostname = () => fakeHostname;
+  os.hostname = () => {
+    auditOnce('os.hostname');
+    return fakeHostname;
+  };
 }
 
 // --- os.networkInterfaces() ---
@@ -18,19 +37,17 @@ const fakeMac = process.env.CAC_MAC;
 if (fakeMac) {
   const _origNetworkInterfaces = os.networkInterfaces.bind(os);
   os.networkInterfaces = () => {
+    auditOnce('os.networkInterfaces');
     const ifaces = _origNetworkInterfaces();
     const macParts = fakeMac.split(':').map(h => parseInt(h, 16));
-    let ifIdx = 0;
     for (const name of Object.keys(ifaces)) {
       for (const info of ifaces[name]) {
         if (info.mac && info.mac !== '00:00:00:00:00:00') {
-          // Derive per-interface MAC: XOR last octet with interface index
-          const derived = macParts.slice();
-          derived[5] = (derived[5] ^ ifIdx) & 0xff;
-          info.mac = derived.map(b => b.toString(16).padStart(2, '0')).join(':');
+          // Keep every userland/native view on the same profile MAC. A
+          // per-interface XOR made Node and NativeBridge disagree.
+          info.mac = macParts.map(b => b.toString(16).padStart(2, '0')).join(':');
         }
       }
-      ifIdx++;
     }
     return ifaces;
   };
@@ -41,7 +58,19 @@ const fakeUsername = process.env.CAC_USERNAME;
 if (fakeUsername) {
   const _origUserInfo = os.userInfo.bind(os);
   os.userInfo = (opts) => {
-    const info = _origUserInfo(opts);
+    auditOnce('os.userInfo');
+    let info;
+    try {
+      info = _origUserInfo(opts);
+    } catch (_) {
+      info = {
+        uid: -1,
+        gid: -1,
+        username: fakeUsername,
+        homedir: process.env.USERPROFILE || process.env.HOME || '',
+        shell: null
+      };
+    }
     info.username = fakeUsername;
     return info;
   };
@@ -65,7 +94,10 @@ if (fakeMachineId) {
 
   const _origReadFileSync = fs.readFileSync.bind(fs);
   fs.readFileSync = (path, options) => {
-    if (isMachineIdPath(path)) return fakeResult(options, fakeData);
+    if (isMachineIdPath(path)) {
+      auditOnce('fs.machine-id.readFileSync');
+      return fakeResult(options, fakeData);
+    }
     return _origReadFileSync(path, options);
   };
 
@@ -75,6 +107,7 @@ if (fakeMachineId) {
       const cb = typeof args[args.length - 1] === 'function' ? args[args.length - 1] : null;
       if (cb) {
         const opts = args.length > 1 ? args[0] : null;
+        auditOnce('fs.machine-id.readFile');
         process.nextTick(cb, null, fakeResult(opts, fakeData));
         return;
       }
@@ -89,6 +122,7 @@ if (fakeMachineId) {
       const _origPromiseReadFile = fsp.readFile.bind(fsp);
       fsp.readFile = (path, options) => {
         if (isMachineIdPath(path)) {
+          auditOnce('fs.machine-id.promises.readFile');
           return Promise.resolve(fakeResult(options, fakeData));
         }
         return _origPromiseReadFile(path, options);
@@ -255,9 +289,11 @@ if (process.platform === 'win32' && fakeMachineId) {
   child_process.execSync = (cmd, options) => {
     const cmdStr = typeof cmd === 'string' ? cmd : cmd.toString();
     if (/wmic\s+csproduct\s+get\s+uuid/i.test(cmdStr)) {
+      auditOnce('child_process.wmic.uuid');
       return fakeResult(options, `UUID\n${fakeMachineId}\n`);
     }
     if (/reg\s+query.*MachineGuid/i.test(cmdStr)) {
+      auditOnce('child_process.registry.machineGuid');
       return fakeResult(options, `    MachineGuid    REG_SZ    ${fakeMachineId}\n`);
     }
     return _origExecSync(cmd, options);
@@ -268,10 +304,12 @@ if (process.platform === 'win32' && fakeMachineId) {
     const cmdStr = typeof cmd === 'string' ? cmd : cmd.toString();
     const cb = typeof args[args.length - 1] === 'function' ? args[args.length - 1] : null;
     if (/wmic\s+csproduct\s+get\s+uuid/i.test(cmdStr)) {
+      auditOnce('child_process.wmic.uuid.async');
       if (cb) process.nextTick(cb, null, `UUID\n${fakeMachineId}\n`, '');
       return makeFakeChildProcess();
     }
     if (/reg\s+query.*MachineGuid/i.test(cmdStr)) {
+      auditOnce('child_process.registry.machineGuid.async');
       if (cb) process.nextTick(cb, null, `    MachineGuid    REG_SZ    ${fakeMachineId}\n`, '');
       return makeFakeChildProcess();
     }
@@ -291,6 +329,7 @@ if (process.platform === 'win32' && fakeMachineId) {
     const argsStr = Array.isArray(args) ? args.join(' ') : '';
     if ((fileStr.includes('wmic') && /csproduct.*uuid/i.test(argsStr)) ||
         (fileStr.includes('reg') && /MachineGuid/i.test(argsStr))) {
+      auditOnce(fileStr.includes('wmic') ? 'child_process.wmic.uuid.file' : 'child_process.registry.machineGuid.file');
       return fakeResult(opts, fakeMachineId + '\n');
     }
     return _origExecFileSync(file, argsOrOpts, options);

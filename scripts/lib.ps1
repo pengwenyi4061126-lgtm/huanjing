@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $CAC_DIR = Join-Path $env:USERPROFILE ".cac"
 $ENVS_DIR = Join-Path $CAC_DIR "envs"
+$CAC_PACKAGE_ROOT = Split-Path $PSScriptRoot -Parent
 
 function Write-OK($t) { Write-Host "  [OK] $t" -ForegroundColor Green }
 function Write-Err($t) { Write-Host "  [!!] $t" -ForegroundColor Red }
@@ -31,6 +32,68 @@ function New-FakeHostname { return "host-$([guid]::NewGuid().ToString().Split('-
 function New-FakeMac {
     $bytes = @(0x02) + (1..5 | ForEach-Object { Get-Random -Maximum 256 })
     return ($bytes | ForEach-Object { "{0:x2}" -f $_ }) -join ":"
+}
+
+function Get-DerivedHex {
+    param([string]$Seed, [int]$Length)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Seed))
+        $hex = ([System.BitConverter]::ToString($bytes)).Replace("-", "").ToLowerInvariant()
+        if ($hex.Length -lt $Length) { return $hex }
+        return $hex.Substring(0, $Length)
+    } finally {
+        $sha.Dispose()
+    }
+}
+
+function Sync-NativeLayer {
+    $source = Join-Path $CAC_PACKAGE_ROOT "native\dist"
+    $target = Join-Path $CAC_DIR "native"
+    if (-not (Test-Path -LiteralPath $source)) { return $false }
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+    $changed = $false
+    foreach ($name in @("NativeBridge.dll", "cac-native-launch.exe")) {
+        $from = Join-Path $source $name
+        if (-not (Test-Path -LiteralPath $from)) { continue }
+        $to = Join-Path $target $name
+        if (-not (Test-Path -LiteralPath $to) -or
+            (Get-FileHash -LiteralPath $from -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $to -Algorithm SHA256).Hash) {
+            Copy-Item -LiteralPath $from -Destination $to -Force
+            $changed = $true
+        }
+    }
+    return $changed
+}
+
+function Sync-IdentityHook {
+    $source = Join-Path $CAC_PACKAGE_ROOT "fingerprint-hook.js"
+    $target = Join-Path $CAC_DIR "fingerprint-hook.js"
+    if (-not (Test-Path -LiteralPath $source)) { return $false }
+    if (-not (Test-Path -LiteralPath $target) -or
+        (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) {
+        New-Item -ItemType Directory -Path $CAC_DIR -Force | Out-Null
+        Copy-Item -LiteralPath $source -Destination $target -Force
+        return $true
+    }
+    return $false
+}
+
+function Get-NativeLayerStatus {
+    $dir = Join-Path $CAC_DIR "native"
+    $dll = Join-Path $dir "NativeBridge.dll"
+    $launcher = Join-Path $dir "cac-native-launch.exe"
+    $manifest = Join-Path $dir "native-hook-manifest.txt"
+    return [pscustomobject]@{
+        Dir        = $dir
+        Dll        = $dll
+        Launcher   = $launcher
+        Manifest   = $manifest
+        DllPresent = (Test-Path -LiteralPath $dll)
+        LauncherPresent = (Test-Path -LiteralPath $launcher)
+        ManifestPresent = (Test-Path -LiteralPath $manifest)
+        Available  = ((Test-Path -LiteralPath $dll) -and (Test-Path -LiteralPath $launcher))
+    }
 }
 
 function Parse-Proxy {
@@ -89,8 +152,11 @@ function Get-ProfilePaths {
         LocalAppData  = Join-Path $root "AppData\Local"
         XdgConfigHome = Join-Path $root "xdg\config"
         XdgCacheHome  = Join-Path $root "xdg\cache"
+        CredentialsDir = Join-Path $root "credentials"
+        LogsDir       = Join-Path $root "logs"
         AuditDir      = Join-Path $root "audit"
         IdentityPath  = Join-Path $root "identity.json"
+        HookAuditPath = Join-Path $root "audit\fingerprint-hook.jsonl"
     }
 }
 
@@ -100,7 +166,7 @@ function Ensure-ProfileLayout {
     foreach ($dir in @(
         $paths.Root, $paths.ConfigDir, $paths.HomeDir, $paths.CacheDir, $paths.TempDir,
         $paths.AppData, $paths.LocalAppData, $paths.XdgConfigHome, $paths.XdgCacheHome,
-        $paths.AuditDir, (Join-Path $paths.ConfigDir "statsig")
+        $paths.CredentialsDir, $paths.LogsDir, $paths.AuditDir, (Join-Path $paths.ConfigDir "statsig")
     )) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
@@ -121,32 +187,121 @@ function Ensure-ProfileLayout {
     if (-not (Test-Path (Join-Path $paths.Root "lang"))) {
         Set-Content -LiteralPath (Join-Path $paths.Root "lang") -Value "en_US.UTF-8" -Encoding ASCII
     }
-
-    $identity = [ordered]@{
-        schema      = 1
-        name        = $paths.Name
-        uuid        = Read-FileValue (Join-Path $paths.Root "uuid")
-        stable_id   = Read-FileValue (Join-Path $paths.Root "stable_id")
-        user_id     = Read-FileValue (Join-Path $paths.Root "user_id")
-        machine_id  = Read-FileValue (Join-Path $paths.Root "machine_id")
-        hostname    = Read-FileValue (Join-Path $paths.Root "hostname")
-        mac_address = Read-FileValue (Join-Path $paths.Root "mac_address")
-        updated_utc = [DateTime]::UtcNow.ToString("o")
+    $nativePolicyPath = Join-Path $paths.Root "native_read_policy"
+    if (-not (Test-Path -LiteralPath $nativePolicyPath)) {
+        Set-Content -LiteralPath $nativePolicyPath -Value "profile" -Encoding ASCII
     }
-    Set-Content -LiteralPath $paths.IdentityPath -Value ($identity | ConvertTo-Json) -Encoding UTF8
+    $cpuidModePath = Join-Path $paths.Root "cpuid_mode"
+    if (-not (Test-Path -LiteralPath $cpuidModePath)) {
+        Set-Content -LiteralPath $cpuidModePath -Value "neutral" -Encoding ASCII
+    }
+
+    $existingIdentity = $null
+    if (Test-Path -LiteralPath $paths.IdentityPath) {
+        try { $existingIdentity = Get-Content -LiteralPath $paths.IdentityPath -Raw | ConvertFrom-Json } catch { $existingIdentity = $null }
+    }
+    $requiredIdentityFields = @("uuid", "stable_id", "user_id", "machine_id", "hostname", "mac_address")
+    $identityValid = ($null -ne $existingIdentity)
+    if ($identityValid) {
+        foreach ($field in $requiredIdentityFields) {
+            $prop = $existingIdentity.PSObject.Properties[$field]
+            if ($null -eq $prop -or [string]::IsNullOrWhiteSpace([string]$prop.Value)) { $identityValid = $false }
+        }
+    }
+    $identity = $existingIdentity
+    if (-not $identityValid) {
+        $identity = [pscustomobject][ordered]@{
+            schema      = 1
+            name        = $paths.Name
+            uuid        = Read-FileValue (Join-Path $paths.Root "uuid")
+            stable_id   = Read-FileValue (Join-Path $paths.Root "stable_id")
+            user_id     = Read-FileValue (Join-Path $paths.Root "user_id")
+            machine_id  = Read-FileValue (Join-Path $paths.Root "machine_id")
+            hostname    = Read-FileValue (Join-Path $paths.Root "hostname")
+            mac_address = Read-FileValue (Join-Path $paths.Root "mac_address")
+            created_utc = [DateTime]::UtcNow.ToString("o")
+        }
+    }
+
+    # Native-layer fields are deterministic from machine_id so both layers see
+    # the same device identity across restarts. Existing values are preserved.
+    $uuidValue = [string]$identity.uuid
+    $machineValue = [string]$identity.machine_id
+    $derived = [ordered]@{
+        system_uuid   = ($uuidValue -replace '-', '').ToUpperInvariant()
+        disk_serial   = "WD-" + (Get-DerivedHex "$machineValue|disk" 12)
+        bios_serial   = "PF" + (Get-DerivedHex "$machineValue|bios" 10)
+        board_serial  = "MB" + (Get-DerivedHex "$machineValue|board" 10)
+        system_serial = "SYS" + (Get-DerivedHex "$machineValue|system" 10)
+        processor_id  = (Get-DerivedHex "$machineValue|cpu" 16).ToUpperInvariant()
+        hid_serial    = "HID" + (Get-DerivedHex "$machineValue|hid" 10).ToUpperInvariant()
+        volume_serial = (Get-DerivedHex "$machineValue|volume" 8).ToUpperInvariant()
+    }
+    $identityChanged = (-not $identityValid)
+    foreach ($key in $derived.Keys) {
+        $existing = $identity.PSObject.Properties[$key]
+        if ($null -eq $existing -or [string]::IsNullOrWhiteSpace([string]$existing.Value)) {
+            Add-Member -InputObject $identity -NotePropertyName $key -NotePropertyValue $derived[$key] -Force
+            $identityChanged = $true
+        }
+    }
+    if ($identityChanged) {
+        Set-Content -LiteralPath $paths.IdentityPath -Value ($identity | ConvertTo-Json -Depth 5) -Encoding UTF8
+    }
     return $paths
+}
+
+function Read-ProfileIdentity {
+    param([psobject]$Paths)
+    if (Test-Path -LiteralPath $Paths.IdentityPath) {
+        try {
+            $identity = Get-Content -LiteralPath $Paths.IdentityPath -Raw | ConvertFrom-Json
+            if ($null -ne $identity -and -not [string]::IsNullOrWhiteSpace([string]$identity.machine_id)) {
+                return $identity
+            }
+        } catch { }
+    }
+    return [pscustomobject]@{
+        uuid        = Read-FileValue (Join-Path $Paths.Root "uuid")
+        stable_id   = Read-FileValue (Join-Path $Paths.Root "stable_id")
+        user_id     = Read-FileValue (Join-Path $Paths.Root "user_id")
+        machine_id  = Read-FileValue (Join-Path $Paths.Root "machine_id")
+        hostname    = Read-FileValue (Join-Path $Paths.Root "hostname")
+        mac_address = Read-FileValue (Join-Path $Paths.Root "mac_address")
+        system_uuid   = ""
+        disk_serial   = ""
+        bios_serial   = ""
+        board_serial  = ""
+        system_serial = ""
+        processor_id  = ""
+        hid_serial    = ""
+        volume_serial = ""
+    }
 }
 
 function Get-ProfileEnvironment {
     param([psobject]$Paths)
+    [void](Sync-IdentityHook)
+    $identity = Read-ProfileIdentity $Paths
     $proxy = Read-FileValue (Join-Path $Paths.Root "proxy")
     $tz = Read-FileValue (Join-Path $Paths.Root "tz")
     $lang = Read-FileValue (Join-Path $Paths.Root "lang") "en_US.UTF-8"
-    $hostname = Read-FileValue (Join-Path $Paths.Root "hostname")
-    $mac = Read-FileValue (Join-Path $Paths.Root "mac_address")
-    $machineId = Read-FileValue (Join-Path $Paths.Root "machine_id")
-    $stableId = Read-FileValue (Join-Path $Paths.Root "stable_id")
-    $userId = Read-FileValue (Join-Path $Paths.Root "user_id")
+    $nativeReadPolicy = Read-FileValue (Join-Path $Paths.Root "native_read_policy") "profile"
+    if ($nativeReadPolicy -notin @("profile", "empty")) { $nativeReadPolicy = "profile" }
+    $cpuidMode = Read-FileValue (Join-Path $Paths.Root "cpuid_mode") ""
+    if ([string]::IsNullOrWhiteSpace($cpuidMode)) {
+        $cpuidMode = if ($nativeReadPolicy -eq "empty") { "empty" } else { "neutral" }
+    }
+    if ($cpuidMode -notin @("neutral", "empty", "passthrough")) { $cpuidMode = "neutral" }
+    $hostname = [string]$identity.hostname
+    $mac = [string]$identity.mac_address
+    $machineId = [string]$identity.machine_id
+    $stableId = [string]$identity.stable_id
+    $userId = [string]$identity.user_id
+    $profileUser = "user-$($Paths.Name)"
+    $hookPath = Join-Path $CAC_DIR "fingerprint-hook.js"
+    $hookPathForNode = $hookPath -replace '\\', '/'
+    $hookAuditPath = $Paths.HookAuditPath
     $values = [ordered]@{
         CLAUDE_CONFIG_DIR = $Paths.ConfigDir
         HOME              = $Paths.HomeDir
@@ -159,15 +314,35 @@ function Get-ProfileEnvironment {
         XDG_CACHE_HOME    = $Paths.XdgCacheHome
         CAC_PROFILE_DIR   = $Paths.Root
         CAC_PROFILE_NAME  = $Paths.Name
-        CAC_USERNAME      = "user-$($Paths.Name)"
+        CAC_PROFILE_IDENTITY = $Paths.IdentityPath
+        CAC_HOOK_AUDIT     = $hookAuditPath
+        CAC_HOOK_MODE      = "node-userland-only"
+        CAC_USERNAME      = $profileUser
         CAC_HOSTNAME      = $hostname
         CAC_MAC           = $mac
         CAC_MACHINE_ID    = $machineId
+        CAC_NATIVE_READ_POLICY = $nativeReadPolicy
+        CAC_NATIVE_CPUID_MODE  = $cpuidMode
+        USER              = $profileUser
+        USERNAME          = $profileUser
+        COMPUTERNAME      = $hostname
+        HOSTNAME          = $hostname
         STABLE_ID         = $stableId
         USER_ID           = $userId
         LANG              = $lang
         BUN_JSC_useCodeCache = "false"
         NO_PROXY          = "localhost,127.0.0.1"
+    }
+    if (Test-Path -LiteralPath $hookPath) {
+        $hookOption = '--require "' + $hookPathForNode + '"'
+        $preloadOption = '--preload "' + $hookPathForNode + '"'
+        # Do not inherit another Profile's preload. Extra runtime options must
+        # be added deliberately inside the Profile, never through the parent shell.
+        $values.NODE_OPTIONS = $hookOption
+        $values.BUN_OPTIONS = $preloadOption
+    } else {
+        $values.NODE_OPTIONS = ""
+        $values.BUN_OPTIONS = ""
     }
     if ($tz) { $values.TZ = $tz }
     if ($proxy) {
@@ -207,26 +382,54 @@ function Get-ClaudeProcesses {
     return @(Get-Process -Name "claude" -ErrorAction SilentlyContinue)
 }
 
+function Get-ClaudeProcessTreeIds {
+    $rows = @()
+    try {
+        $rows = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop |
+            Select-Object ProcessId, ParentProcessId, Name)
+    } catch {
+        return @((Get-ClaudeProcesses | ForEach-Object Id))
+    }
+
+    $roots = @($rows | Where-Object { $_.Name -ieq "claude.exe" } |
+        ForEach-Object { [int]$_.ProcessId })
+    if ($roots.Count -eq 0) { return @() }
+
+    $seen = New-Object 'System.Collections.Generic.HashSet[int]'
+    foreach ($root in $roots) { [void]$seen.Add($root) }
+    do {
+        $changed = $false
+        foreach ($row in $rows) {
+            if ($seen.Contains([int]$row.ParentProcessId) -and $seen.Add([int]$row.ProcessId)) {
+                $changed = $true
+            }
+        }
+    } while ($changed)
+    return @($seen | ForEach-Object { [int]$_ })
+}
+
 function Stop-ClaudeProcesses {
     param([int]$TimeoutSeconds = 10)
-    $running = @(Get-ClaudeProcesses)
-    if ($running.Count -eq 0) { return $true }
-    foreach ($process in $running) {
+    $processIds = @(Get-ClaudeProcessTreeIds)
+    if ($processIds.Count -eq 0) { return $true }
+    foreach ($processId in ($processIds | Sort-Object -Descending)) {
         try {
-            Stop-Process -Id $process.Id -Force -ErrorAction Stop
+            Stop-Process -Id ([int]$processId) -Force -ErrorAction Stop
         } catch {
-            Write-Err "无法结束 Claude 进程 PID $($process.Id): $($_.Exception.Message)"
-            return $false
+            if (Get-Process -Id ([int]$processId) -ErrorAction SilentlyContinue) {
+                Write-Err "无法结束 Claude 进程树 PID $processId`: $($_.Exception.Message)"
+                return $false
+            }
         }
     }
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         Start-Sleep -Milliseconds 200
-        $remaining = @(Get-ClaudeProcesses)
+        $remaining = @(Get-ClaudeProcessTreeIds)
     } while ($remaining.Count -gt 0 -and [DateTime]::UtcNow -lt $deadline)
     if ($remaining.Count -gt 0) {
-        Write-Err "仍有 $($remaining.Count) 个 Claude 进程未退出"
-        return $false
+        Write-Err "仍有 $($remaining.Count) 个 Claude 进程树节点未退出"
+            return $false
     }
     return $true
 }
@@ -317,6 +520,11 @@ if(j.userID!==w){j.userID=w;fs.writeFileSync(p,JSON.stringify(j,null,2));}
 function Write-Wrapper {
     $binDir = Join-Path $CAC_DIR "bin"
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+    $hookSource = Join-Path $CAC_PACKAGE_ROOT "fingerprint-hook.js"
+    $hookTarget = Join-Path $CAC_DIR "fingerprint-hook.js"
+    if (Test-Path -LiteralPath $hookSource) {
+        Copy-Item -LiteralPath $hookSource -Destination $hookTarget -Force
+    }
 
     # CMD wrapper delegates to the single PowerShell implementation so both
     # entry points enforce identical profile and integrity rules.
@@ -337,6 +545,8 @@ exit /b %ERRORLEVEL%
 $ErrorActionPreference = "Stop"
 $cacHome = $env:USERPROFILE
 $d = Join-Path $cacHome ".cac"
+$hook = Join-Path $d "fingerprint-hook.js"
+if (-not (Test-Path -LiteralPath $hook)) { Write-Error "[cac] Profile identity hook is missing; reinitialize cac-windows"; exit 1 }
 $cf = Join-Path $d "current"
 $realFile = Join-Path $d "real_claude"
 if (-not (Test-Path $cf)) { Write-Error "[cac] no active env"; exit 1 }
@@ -352,7 +562,10 @@ $cache = Join-Path $ed "cache"
 $temp = Join-Path $ed "temp"
 $xdgConfig = Join-Path $ed "xdg\config"
 $xdgCache = Join-Path $ed "xdg\cache"
-foreach ($dir in @($ed,$config,$homeDir,$appData,$localAppData,$cache,$temp,$xdgConfig,$xdgCache)) {
+$credentials = Join-Path $ed "credentials"
+$logs = Join-Path $ed "logs"
+$audit = Join-Path $ed "audit"
+foreach ($dir in @($ed,$config,$homeDir,$appData,$localAppData,$cache,$temp,$xdgConfig,$xdgCache,$credentials,$logs,$audit)) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
 
@@ -409,14 +622,52 @@ $env:XDG_CONFIG_HOME = $xdgConfig
 $env:XDG_CACHE_HOME = $xdgCache
 $env:CAC_PROFILE_DIR = $ed
 $env:CAC_PROFILE_NAME = $en
-$env:CAC_USERNAME = "user-$en"
-$hostnamePath = Join-Path $ed "hostname"
-$macPath = Join-Path $ed "mac_address"
-$machineIdPath = Join-Path $ed "machine_id"
-if (Test-Path $hostnamePath) { $env:CAC_HOSTNAME = (Get-Content $hostnamePath -Raw).Trim() } else { $env:CAC_HOSTNAME = "" }
-if (Test-Path $macPath) { $env:CAC_MAC = (Get-Content $macPath -Raw).Trim() } else { $env:CAC_MAC = "" }
-if (Test-Path $machineIdPath) { $env:CAC_MACHINE_ID = (Get-Content $machineIdPath -Raw).Trim() } else { $env:CAC_MACHINE_ID = "" }
+$identityPath = Join-Path $ed "identity.json"
+$identity = $null
+if (Test-Path -LiteralPath $identityPath) {
+    try { $identity = Get-Content -LiteralPath $identityPath -Raw | ConvertFrom-Json } catch { $identity = $null }
+}
+if ($null -eq $identity) {
+    $identity = [pscustomobject]@{
+        machine_id = (Get-Content (Join-Path $ed "machine_id") -Raw).Trim()
+        hostname = (Get-Content (Join-Path $ed "hostname") -Raw).Trim()
+        mac_address = (Get-Content (Join-Path $ed "mac_address") -Raw).Trim()
+    }
+}
+$profileUser = "user-$en"
+$env:CAC_PROFILE_IDENTITY = $identityPath
+$env:CAC_HOOK_AUDIT = Join-Path $audit "fingerprint-hook.jsonl"
+$env:CAC_HOOK_MODE = "node-userland-only"
+$env:CAC_USERNAME = $profileUser
+$env:USER = $profileUser
+$env:USERNAME = $profileUser
+$env:CAC_HOSTNAME = [string]$identity.hostname
+$env:HOSTNAME = [string]$identity.hostname
+$env:COMPUTERNAME = [string]$identity.hostname
+$env:CAC_MAC = [string]$identity.mac_address
+$env:CAC_MACHINE_ID = [string]$identity.machine_id
+$nativeReadPolicy = if (Test-Path (Join-Path $ed "native_read_policy")) {
+    (Get-Content (Join-Path $ed "native_read_policy") -Raw).Trim()
+} else { "profile" }
+if ($nativeReadPolicy -notin @("profile", "empty")) { $nativeReadPolicy = "profile" }
+$cpuidMode = if (Test-Path (Join-Path $ed "cpuid_mode")) {
+    (Get-Content (Join-Path $ed "cpuid_mode") -Raw).Trim()
+} else { "" }
+if ([string]::IsNullOrWhiteSpace($cpuidMode)) {
+    $cpuidMode = if ($nativeReadPolicy -eq "empty") { "empty" } else { "neutral" }
+}
+if ($cpuidMode -notin @("neutral", "empty", "passthrough")) { $cpuidMode = "neutral" }
+$env:CAC_NATIVE_READ_POLICY = $nativeReadPolicy
+$env:CAC_NATIVE_CPUID_MODE = $cpuidMode
 $env:BUN_JSC_useCodeCache = "false"
+
+if (Test-Path -LiteralPath $hook) {
+    $hookForNode = $hook -replace '\\', '/'
+    $nodeHook = '--require "' + $hookForNode + '"'
+    $env:NODE_OPTIONS = $nodeHook
+    $bunHook = '--preload "' + $hookForNode + '"'
+    $env:BUN_OPTIONS = $bunHook
+}
 
 $sid = Join-Path $ed "stable_id"
 if (Test-Path $sid) {
@@ -444,7 +695,17 @@ if (Test-Path $uid) {
     } finally { Remove-Item -LiteralPath $js -Force -ErrorAction SilentlyContinue }
 }
 
-& $real @args
+$nativeLauncher = Join-Path $d "native\cac-native-launch.exe"
+$nativeDll = Join-Path $d "native\NativeBridge.dll"
+$nativeManifest = Join-Path $d "native\native-hook-manifest.txt"
+$env:CAC_NATIVE_AUDIT = Join-Path $audit "native-hook.jsonl"
+if ((Test-Path -LiteralPath $nativeLauncher) -and (Test-Path -LiteralPath $nativeDll) -and ($real -like "*.exe")) {
+    $env:CAC_NATIVE_DLL = $nativeDll
+    if (Test-Path -LiteralPath $nativeManifest) { $env:CAC_NATIVE_MANIFEST = $nativeManifest }
+    & $nativeLauncher $real @args
+} else {
+    & $real @args
+}
 exit $LASTEXITCODE
 '@
     $ps1Path = Join-Path $binDir "claude.ps1"

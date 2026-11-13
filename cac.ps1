@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$CAC_VERSION = "1.0.28"
+$CAC_VERSION = "1.0.31"
 $SUPPORTED_CC = "2.1.294"
 
 $scriptDir = Split-Path $MyInvocation.MyCommand.Definition -Parent
@@ -131,9 +131,11 @@ function Do-Init {
         # 且 npm allowScripts 可能拦掉了我们的 postinstall）
         $w = Write-Wrapper
         $p = Ensure-CacInPath
+        $n = Sync-NativeLayer
         $integrity = Ensure-CcIntegrity
         if ($w) { Write-Host "  wrapper 已更新" -ForegroundColor DarkGray }
         if ($p) { Write-Host "  PATH 已更新（重开终端后生效）" -ForegroundColor Yellow }
+        if ($n) { Write-Host "  Native 层已同步" -ForegroundColor DarkGray }
         if ($integrity.Ok) { Write-Host "  版本/哈希/补丁校验已通过" -ForegroundColor Green }
         if ($w -or $p -or $integrity.Ok) { Start-Sleep -Milliseconds 1200 }
         return $true
@@ -166,6 +168,7 @@ function Do-Init {
     Set-Content $realFile $claude
     Write-OK "Claude Code: $claude"
     Write-Wrapper | Out-Null
+    [void](Sync-NativeLayer)
     Write-OK "Wrapper: $(Join-Path $CAC_DIR 'bin\claude.ps1')"
     if (Ensure-CacInPath) { Write-OK "PATH: 已把 $(Join-Path $CAC_DIR 'bin') 加到 npm 目录之前（重开终端后生效）" }
     else { Write-OK "PATH: 已包含 $(Join-Path $CAC_DIR 'bin')" }
@@ -192,6 +195,12 @@ function Action-Launch {
     if (-not $integrity.Ok) {
         Write-Err "拒绝启动: Claude 完整性检查失败: $($integrity.Reason)"
         Write-Host "  运行“版本更新并应用补丁”重新安装并登记 SHA-256" -ForegroundColor White
+        Wait-AnyKey
+        return
+    }
+    $hookPath = Join-Path $CAC_DIR "fingerprint-hook.js"
+    if (-not (Test-Path -LiteralPath $hookPath)) {
+        Write-Err "拒绝启动: Profile identity hook 缺失，请重新初始化 cac-windows"
         Wait-AnyKey
         return
     }
@@ -268,7 +277,10 @@ function Action-Cleanup {
     $cs = Join-Path $scriptDir "scripts\cleanup.ps1"
     $paths = Ensure-ProfileLayout $envName
     if (Test-Path $cs) {
-        & $cs -ConfigDir $paths.ConfigDir -HomeDir $paths.HomeDir
+        & $cs -ConfigDir $paths.ConfigDir -HomeDir $paths.HomeDir -ProfileRoot $paths.Root `
+            -CacheDir $paths.CacheDir -TempDir $paths.TempDir -AppData $paths.AppData `
+            -LocalAppData $paths.LocalAppData -XdgConfigHome $paths.XdgConfigHome `
+            -XdgCacheHome $paths.XdgCacheHome -CredentialsDir $paths.CredentialsDir -LogsDir $paths.LogsDir
     } else { Write-Err "cleanup.ps1 未找到" }
     Wait-AnyKey
 }
@@ -286,6 +298,13 @@ function Action-Status {
     Write-Host "  主机名:    $(Read-FileValue (Join-Path $paths.Root 'hostname'))"
     Write-Host "  配置目录:  $($paths.ConfigDir)"
     Write-Host "  临时目录:  $($paths.TempDir)"
+    $native = Get-NativeLayerStatus
+    $nativeState = if ($native.Available) { "可用（用户态 NativeBridge）" } else { "未安装" }
+    Write-Host "  Native层:  $nativeState"
+    if ($native.Available) {
+        Write-Host "  Native证据:$($paths.AuditDir)\native-hook.jsonl"
+        Write-Host "  CPU清单:   $(if ($native.ManifestPresent) { '已配置' } else { '未配置（仅 API Hook）' })"
+    }
     Write-Host "  完整性:    $($integrity.Reason)"
     Write-Host "  SHA-256:   $($integrity.Sha256)"
     Write-Host "  Claude:    $(Read-FileValue (Join-Path $CAC_DIR 'real_claude'))"
@@ -488,7 +507,9 @@ function Action-NetworkCheck {
     if (-not $envName) { Write-Err "未激活环境"; Wait-AnyKey; return }
     $script = Join-Path $scriptDir "scripts\network-check.ps1"
     if (-not (Test-Path $script)) { Write-Err "network-check.ps1 未找到"; Wait-AnyKey; return }
-    & $script -EnvName $envName
+    $proxy = Read-FileValue (Join-Path (Get-EnvDir $envName) "proxy")
+    if ($proxy) { & $script -EnvName $envName -RequireProxy }
+    else { & $script -EnvName $envName }
     Wait-AnyKey
 }
 
@@ -504,6 +525,65 @@ function Action-NativeBoundaryCheck {
     if (-not (Test-Path $script)) { Write-Err "native-boundary-check.ps1 未找到"; Wait-AnyKey; return }
     $envName = Get-CurrentEnv
     if ($envName) { & $script -EnvName $envName } else { & $script }
+    Wait-AnyKey
+}
+
+function Action-NativeCandidates {
+    $envName = Get-CurrentEnv
+    if (-not $envName) { Write-Err "未激活环境"; Wait-AnyKey; return }
+    $scanner = Join-Path $scriptDir "native\scan-native-target.ps1"
+    if (-not (Test-Path -LiteralPath $scanner)) { Write-Err "scan-native-target.ps1 未找到"; Wait-AnyKey; return }
+    $real = Read-FileValue (Join-Path $CAC_DIR "real_claude")
+    if (-not (Test-Path -LiteralPath $real)) { Write-Err "未找到真实 claude 路径"; Wait-AnyKey; return }
+    $nativeDir = Join-Path $CAC_DIR "native"
+    New-Item -ItemType Directory -Path $nativeDir -Force | Out-Null
+    $output = Join-Path $nativeDir "native-hook-candidates.txt"
+    & $scanner -Target $real -Output $output
+    Write-Host ""
+    Write-Host "  候选文件: $output" -ForegroundColor Yellow
+    Write-Host "  仅把人工确认过的函数入口复制到 native-hook-manifest.txt；未确认条目不要启用。" -ForegroundColor Yellow
+    Wait-AnyKey
+}
+
+function Action-DesktopProfiles {
+    $desktopScript = Join-Path $scriptDir "scripts\desktop-profile.ps1"
+    if (-not (Test-Path -LiteralPath $desktopScript)) {
+        Write-Err "desktop-profile.ps1 未找到"
+        Wait-AnyKey
+        return
+    }
+    Write-Host ""
+    Write-Host "  [ Claude Desktop Profile ]" -ForegroundColor White
+    Write-Host ""
+    $choices = @(
+        "1. 列出 Profile"
+        "2. 创建 Profile"
+        "3. 启动 Profile"
+        "4. 启动并注入 NativeBridge"
+        "5. Desktop A/B 隔离测试"
+        "6. 查看 Profile 状态"
+        "7. 清理 Profile"
+        "0. 返回"
+    )
+    $index = Show-Menu $choices
+    if ($index -lt 0 -or $index -eq 7) { return }
+    $action = switch ($index) {
+        0 { "list" }
+        1 { "create" }
+        2 { "launch" }
+        3 { "launch" }
+        4 { "ab" }
+        5 { "status" }
+        6 { "cleanup" }
+    }
+    $profile = ""
+    if ($action -ne "list" -and $action -ne "ab") {
+        $profile = (Read-Input "  Profile 名称 (回车=default)").Trim()
+    }
+    $params = @("-Action", $action)
+    if ($profile) { $params += @("-Profile", $profile) }
+    if ($index -eq 3) { $params += "-Inject" }
+    & $desktopScript @params
     Wait-AnyKey
 }
 
@@ -528,6 +608,8 @@ while ($true) {
         "6. 网络隔离检查"
         "7. Profile A/B 隔离测试"
         "8. Native/硬件边界证据"
+        "9. 生成 CPUID Hook 候选"
+        "10. Desktop Profile 管理"
         "0. 退出"
     )
     $sel = Show-Menu $opts
@@ -540,6 +622,8 @@ while ($true) {
         5 { Action-NetworkCheck }
         6 { Action-ProfileCheck }
         7 { Action-NativeBoundaryCheck }
-        { $_ -eq 8 -or $_ -eq -1 } { exit 0 }
+        8 { Action-NativeCandidates }
+        9 { Action-DesktopProfiles }
+        { $_ -eq 10 -or $_ -eq -1 } { exit 0 }
     }
 }

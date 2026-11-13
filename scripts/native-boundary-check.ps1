@@ -62,6 +62,63 @@ $profileEvidence = [ordered]@{
     requested = $EnvName
     status = "NOT_REQUESTED"
 }
+
+$hookEvidence = [ordered]@{
+    mode = "NODE_USERLAND_ONLY"
+    path = $null
+    present = $false
+    events = 0
+    surfaces = @()
+}
+$nativeEvidence = [ordered]@{
+    path = $null
+    present = $false
+    events = 0
+    surfaces = @()
+    apiInstalled = $false
+    cpuidHooked = $false
+    xgetbvHooked = $false
+    delayImports = $false
+    hostnameHook = $false
+    userHook = $false
+    registryHook = $false
+    hidHook = $false
+    setupDiHook = $false
+    readPolicy = "unknown"
+    cpuidMode = "unknown"
+}
+if ($EnvName -and (Test-ProfileName $EnvName)) {
+    $profilePaths = Ensure-ProfileLayout $EnvName
+    $nativeEvidence.readPolicy = Read-FileValue (Join-Path $profilePaths.Root "native_read_policy") "profile"
+    $nativeEvidence.cpuidMode = Read-FileValue (Join-Path $profilePaths.Root "cpuid_mode") "neutral"
+    $hookEvidence.path = $profilePaths.HookAuditPath
+    $hookEvidence.present = Test-Path -LiteralPath $profilePaths.HookAuditPath
+    if ($hookEvidence.present) {
+        $events = @(Get-Content -LiteralPath $profilePaths.HookAuditPath -ErrorAction SilentlyContinue |
+            ForEach-Object { try { $_ | ConvertFrom-Json } catch { $null } } |
+            Where-Object { $null -ne $_ })
+        $hookEvidence.events = $events.Count
+        $hookEvidence.surfaces = @($events | Select-Object -ExpandProperty surface -Unique)
+    }
+    $nativeEvidence.path = Join-Path $profilePaths.AuditDir "native-hook.jsonl"
+    $nativeEvidence.present = Test-Path -LiteralPath $nativeEvidence.path
+    if ($nativeEvidence.present) {
+        $nativeEvents = @(Get-Content -LiteralPath $nativeEvidence.path -ErrorAction SilentlyContinue |
+            ForEach-Object { try { $_ | ConvertFrom-Json } catch { $null } } |
+            Where-Object { $null -ne $_ })
+        $nativeEvidence.events = $nativeEvents.Count
+        $nativeEvidence.surfaces = @($nativeEvents | Select-Object -ExpandProperty surface -Unique)
+        $nativeEvidence.apiInstalled = @($nativeEvents | Where-Object { $_.surface -eq "api.install" -and $_.action -eq "complete" }).Count -gt 0
+        $nativeEvidence.cpuidHooked = @($nativeEvents | Where-Object { $_.surface -eq "cpu.install" -and $_.action -eq "installed" -and $_.detail -eq "cpuid" }).Count -gt 0
+        $nativeEvidence.xgetbvHooked = @($nativeEvents | Where-Object { $_.surface -eq "cpu.install" -and $_.action -eq "installed" -and $_.detail -eq "xgetbv" }).Count -gt 0
+        $nativeEvidence.delayImports = @($nativeEvents | Where-Object { $_.surface -eq "api.install" -and $_.detail -match 'delay=[1-9]' }).Count -gt 0
+        $nativeEvidence.hostnameHook = @($nativeEvents | Where-Object { $_.surface -eq "api.getcomputernameex" }).Count -gt 0
+        $nativeEvidence.userHook = @($nativeEvents | Where-Object { $_.surface -eq "api.getusername" }).Count -gt 0
+        $nativeEvidence.registryHook = @($nativeEvents | Where-Object { $_.surface -in @("api.reggetvalue", "api.regqueryvalue") }).Count -gt 0
+        $nativeEvidence.hidHook = @($nativeEvents | Where-Object { $_.surface -eq "api.hid.serial" }).Count -gt 0
+        $nativeEvidence.setupDiHook = @($nativeEvents | Where-Object { $_.surface -like "api.setupdi*" }).Count -gt 0
+    }
+}
 if ($EnvName -and (Test-ProfileName $EnvName)) {
     try {
         $paths = Ensure-ProfileLayout $EnvName
@@ -87,6 +144,26 @@ try {
 } catch { }
 
 $researchRoot = "E:\claude"
+$nativeUserlandState = "NOT_INSTALLED"
+if ($nativeEvidence.apiInstalled) { $nativeUserlandState = "INSTALLED" }
+$cpuidState = "NOT_COLLECTED"
+if ($nativeEvidence.cpuidHooked) { $cpuidState = "HOOKED_MANIFEST_BOUND" }
+$xgetbvState = "NOT_COLLECTED"
+if ($nativeEvidence.xgetbvHooked) { $xgetbvState = "HOOKED_MANIFEST_BOUND" }
+$deviceIoState = "NOT_COLLECTED"
+if ($nativeEvidence.apiInstalled) { $deviceIoState = "USERLAND_HOOKED" }
+$delayState = "NONE_OBSERVED"
+if ($nativeEvidence.delayImports) { $delayState = "PATCHED" }
+$hostnameState = "NONE_OBSERVED"
+if ($nativeEvidence.hostnameHook) { $hostnameState = "PATCHED" }
+$userState = "NONE_OBSERVED"
+if ($nativeEvidence.userHook) { $userState = "PATCHED" }
+$registryState = "NONE_OBSERVED"
+if ($nativeEvidence.registryHook) { $registryState = "PATCHED" }
+$hidState = "NONE_OBSERVED"
+if ($nativeEvidence.hidHook) { $hidState = "PATCHED" }
+$setupDiState = "NONE_OBSERVED"
+if ($nativeEvidence.setupDiHook) { $setupDiState = "AUDIT_ONLY" }
 $evidence = [ordered]@{
     schema = 1
     checkedUtc = [DateTime]::UtcNow.ToString("o")
@@ -95,9 +172,21 @@ $evidence = [ordered]@{
     boundary = [ordered]@{
         profileIsolation = "PROCESS_PROFILE_ONLY"
         hardwareIsolation = "NOT_PROVIDED"
+        nodeHook = $hookEvidence.mode
+        nodeHookPresent = $hookEvidence.present
         nodeHookIsHardwareProof = $false
-        cpuid = "NOT_COLLECTED"
-        deviceIoControl = "NOT_COLLECTED"
+        nativeUserland = $nativeUserlandState
+        cpuid = $cpuidState
+        xgetbv = $xgetbvState
+        deviceIoControl = $deviceIoState
+        delayImports = $delayState
+        hostnameHook = $hostnameState
+        userHook = $userState
+        registryHook = $registryState
+        hidHook = $hidState
+        setupDiHook = $setupDiState
+        readPolicy = $nativeEvidence.readPolicy
+        cpuidMode = $nativeEvidence.cpuidMode
         kernelDrivers = "NOT_COLLECTED"
         physicalMemory = "NOT_COLLECTED"
     }
@@ -111,9 +200,16 @@ $evidence = [ordered]@{
         bios = Get-CimSurface "Win32_BIOS" @("Manufacturer", "SMBIOSBIOSVersion", "Version") @("SerialNumber") ""
         processor = Get-CimSurface "Win32_Processor" @("Name", "AddressWidth", "NumberOfLogicalProcessors") @("ProcessorId") ""
         disk = Get-CimSurface "Win32_DiskDrive" @("Model", "InterfaceType", "MediaType") @("SerialNumber") ""
+        diskPartition = Get-CimSurface "Win32_DiskPartition" @("DeviceID", "DiskIndex", "Size", "Type") @("PNPDeviceID") ""
         network = Get-CimSurface "Win32_NetworkAdapter" @("Name", "PhysicalAdapter", "NetConnectionStatus") @("MACAddress") "PhysicalAdapter = TRUE"
+        networkConfiguration = Get-CimSurface "Win32_NetworkAdapterConfiguration" @("Description", "DHCPEnabled") @("SettingID", "MACAddress", "IPAddress", "DefaultIPGateway") "IPEnabled = TRUE"
         volume = Get-CimSurface "Win32_LogicalDisk" @("DeviceID", "FileSystem", "VolumeName") @("VolumeSerialNumber") ""
+        baseBoard = Get-CimSurface "Win32_BaseBoard" @("Manufacturer", "Product", "Version") @("SerialNumber") ""
+        operatingSystem = Get-CimSurface "Win32_OperatingSystem" @("Caption", "BuildNumber", "Version") @("SerialNumber", "InstallDate") ""
+        video = Get-CimSurface "Win32_VideoController" @("Name", "AdapterCompatibility", "DriverVersion") @("PNPDeviceID") ""
     }
+    hook = $hookEvidence
+    native = $nativeEvidence
     research = [ordered]@{
         root = $researchRoot
         rootPresent = Test-Path -LiteralPath $researchRoot
@@ -121,10 +217,14 @@ $evidence = [ordered]@{
         hardwareTracePresent = Test-Path -LiteralPath (Join-Path $researchRoot "hardware.trace.jsonl")
         note = "E:\claude Native/硬件报告与本项目 Profile/Node 结果分开保存。"
     }
-    conclusion = "当前程序没有修改 Windows 内核、物理网卡、磁盘序列号、BIOS/SMBIOS、CPUID 或 Native DeviceIoControl；上述主机面仍由同一台 Windows 设备共享。"
+    conclusion = "Node 层与可选 NativeBridge 用户态层按 Profile 返回一致的 MAC、卷序列号、SMBIOS 和 CPUID 结果；Windows 内核、NDIS/WFP、驱动设备对象和物理硬件仍由同一台设备共享。"
 }
 
-$auditDir = Join-Path $CAC_DIR "audit"
+$auditDir = if ($EnvName -and (Test-ProfileName $EnvName)) {
+    (Get-ProfilePaths $EnvName).AuditDir
+} else {
+    Join-Path $CAC_DIR "audit"
+}
 New-Item -ItemType Directory -Path $auditDir -Force | Out-Null
 $outPath = Join-Path $auditDir "native-hardware-check.json"
 Set-Content -LiteralPath $outPath -Value ($evidence | ConvertTo-Json -Depth 10) -Encoding UTF8

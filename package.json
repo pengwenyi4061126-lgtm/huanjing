@@ -1,6 +1,6 @@
 {
   "name": "cac-windows",
-  "version": "1.0.28",
+  "version": "1.0.31",
   "description": "Claude Code Windows privacy tool — binary patches to remove Chinese identity markers.",
   "bin": {
     "cac": "cac"
@@ -17,7 +17,19 @@
     "scripts/network-check.ps1",
     "scripts/profile-check.ps1",
     "scripts/native-boundary-check.ps1",
+    "scripts/desktop-profile.ps1",
     "scripts/cleanup.ps1",
+    "fingerprint-hook.js",
+    "native/README.md",
+    "native/CMakeLists.txt",
+    "native/toolchain.ps1",
+    "native/build.ps1",
+    "native/scan-native-target.ps1",
+    "native/NativeBridge/*.cpp",
+    "native/NativeBridge/*.h",
+    "native/Launcher/main.cpp",
+    "native/dist/NativeBridge.dll",
+    "native/dist/cac-native-launch.exe",
     "README.md",
     "LICENSE"
   ],

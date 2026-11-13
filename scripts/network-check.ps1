@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$EnvName,
-    [string]$ProbeUrl = "https://example.com"
+    [string]$ProbeUrl = "https://example.com",
+    [switch]$RequireProxy
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,14 +36,45 @@ function Test-TcpEndpoint([string]$HostName, [int]$Port) {
     } catch { return $false }
 }
 
-function Invoke-NodeEnvProbe([System.Collections.IDictionary]$Environment) {
+function Invoke-NodeEnvProbe([System.Collections.IDictionary]$Environment, [string]$HostName) {
     $node = (Get-Command node -ErrorAction SilentlyContinue).Source
     if (-not $node) { return $null }
     $probeDir = [string]$Environment["TEMP"]
     if ([string]::IsNullOrWhiteSpace($probeDir)) { $probeDir = $env:TEMP }
     New-Item -ItemType Directory -Path $probeDir -Force | Out-Null
     $probe = Join-Path $probeDir "cac-network-env-probe-$([guid]::NewGuid().ToString('N')).js"
-    Set-Content -LiteralPath $probe -Value 'console.log(JSON.stringify({http:process.env.HTTP_PROXY||"",https:process.env.HTTPS_PROXY||"",all:process.env.ALL_PROXY||"",noProxy:process.env.NO_PROXY||"",config:process.env.CLAUDE_CONFIG_DIR||"",temp:process.env.TEMP||""}));' -Encoding ASCII
+    $source = @'
+const dns = require("dns").promises;
+const net = require("net");
+const host = process.env.CAC_PROBE_HOST || "example.com";
+async function directSocket() {
+  return await new Promise(resolve => {
+    const socket = net.createConnection({ host, port: 443 });
+    let done = false;
+    const finish = value => { if (done) return; done = true; try { socket.destroy(); } catch (_) {} resolve(value); };
+    socket.setTimeout(5000);
+    socket.once("connect", () => finish({ status: "CONNECTED" }));
+    socket.once("timeout", () => finish({ status: "TIMEOUT" }));
+    socket.once("error", error => finish({ status: "ERROR", code: error.code || "ERR", message: error.message }));
+  });
+}
+(async () => {
+  let dnsResult;
+  try { dnsResult = { status: "RESOLVED", address: (await dns.lookup(host)).address }; }
+  catch (error) { dnsResult = { status: "ERROR", code: error.code || "ERR", message: error.message }; }
+  console.log(JSON.stringify({
+    http: process.env.HTTP_PROXY || "",
+    https: process.env.HTTPS_PROXY || "",
+    all: process.env.ALL_PROXY || "",
+    noProxy: process.env.NO_PROXY || "",
+    config: process.env.CLAUDE_CONFIG_DIR || "",
+    temp: process.env.TEMP || "",
+    dns: dnsResult,
+    directSocket: await directSocket()
+  }));
+})().catch(error => { console.log(JSON.stringify({ error: error.message })); process.exit(1); });
+'@
+    Set-Content -LiteralPath $probe -Value $source -Encoding ASCII
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $node
@@ -53,6 +85,7 @@ function Invoke-NodeEnvProbe([System.Collections.IDictionary]$Environment) {
             [void]$psi.EnvironmentVariables.Remove($key)
         }
         foreach ($key in $Environment.Keys) { $psi.EnvironmentVariables[$key] = [string]$Environment[$key] }
+        $psi.EnvironmentVariables["CAC_PROBE_HOST"] = $HostName
         $proc = New-Object System.Diagnostics.Process
         $proc.StartInfo = $psi
         [void]$proc.Start()
@@ -137,7 +170,9 @@ if ([string]::IsNullOrWhiteSpace($proxy)) {
 }
 
 $envValues = Get-ProfileEnvironment $paths
-$probe = Invoke-NodeEnvProbe $envValues
+$probeHost = "example.com"
+try { $probeHost = ([Uri]$ProbeUrl).Host } catch { }
+$probe = Invoke-NodeEnvProbe $envValues $probeHost
 if ($null -eq $probe) {
     Write-Result "FAIL" "child-env" "无法启动 Node 环境探针"
     $audit.checks.childEnv = "PROBE_FAILED"
@@ -159,6 +194,45 @@ if ($null -eq $probe) {
         Write-Result "FAIL" "child-env" "Node 子进程环境与 Profile 预期不一致"
         $audit.checks.childEnv = "MISMATCH"
         $failed = $true
+    }
+    $audit.checks.dnsRuntime = $probe.dns
+    $audit.checks.directSocket = $probe.directSocket
+    if ($probe.directSocket.status -eq "CONNECTED") {
+        $message = "Node 可直接建立 TCP/443 连接；环境变量本身没有阻断直连"
+        if ($RequireProxy) {
+            Write-Result "FAIL" "direct-socket" $message
+            $failed = $true
+        } else {
+            Write-Result "INFO" "direct-socket" $message
+        }
+        $audit.checks.directSocketPolicy = "DIRECT_PATH_AVAILABLE"
+    } else {
+        Write-Result "PASS" "direct-socket" "Node 未建立直连 TCP/443：$($probe.directSocket.status)"
+        $audit.checks.directSocketPolicy = "NO_DIRECT_SOCKET_OBSERVED"
+    }
+}
+
+if ($proxy) {
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        $oldProgress = $ProgressPreference
+        $oldErrorAction = $ErrorActionPreference
+        $ProgressPreference = "SilentlyContinue"
+        $ErrorActionPreference = "Continue"
+        try {
+            $directOutput = @(& $curl.Source --noproxy '*' --connect-timeout 8 --max-time 15 --silent --show-error --output NUL $ProbeUrl 2>&1)
+            if ($LASTEXITCODE -eq 0) {
+                if ($RequireProxy) { Write-Result "FAIL" "direct-http" "curl 在禁用代理时仍可访问探针"; $failed = $true }
+                else { Write-Result "INFO" "direct-http" "curl 在禁用代理时可访问探针；未强制阻断" }
+                $audit.checks.directHttp = "DIRECT_PATH_AVAILABLE"
+            } else {
+                Write-Result "PASS" "direct-http" "curl 禁用代理访问失败"
+                $audit.checks.directHttp = "DIRECT_PATH_NOT_OBSERVED"
+            }
+        } finally {
+            $ProgressPreference = $oldProgress
+            $ErrorActionPreference = $oldErrorAction
+        }
     }
 }
 

@@ -17,3 +17,18 @@ CLAUDE.local.md
 # internal research docs (not for public)
 docs/internal/
 claude.exe
+
+# native build artifacts (native/dist binaries are packaging inputs)
+native/obj/
+native/tests/bin/
+native/tests/profile/
+native/tests/smoke-profile/
+native/tests/*.exe
+native/tests/*.ilk
+native/tests/*.pdb
+native/tests/*.obj
+native/tests/*.txt
+native/dist/*.exp
+native/dist/*.lib
+native/dist/*.pdb
+.npm-cache-pack-test/
