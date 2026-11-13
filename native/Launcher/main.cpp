@@ -43,10 +43,15 @@ std::wstring Quote(const std::wstring& value) {
     return result;
 }
 
-std::wstring ExecutableDirectory() {
+std::wstring ExecutablePath() {
     wchar_t path[32768] = {};
     const DWORD size = GetModuleFileNameW(nullptr, path, static_cast<DWORD>(_countof(path)));
-    std::wstring result(path, size);
+    if (size == 0 || size >= _countof(path)) return L"";
+    return std::wstring(path, size);
+}
+
+std::wstring ExecutableDirectory() {
+    std::wstring result = ExecutablePath();
     const size_t slash = result.find_last_of(L"\\/");
     if (slash == std::wstring::npos) return L".";
     return result.substr(0, slash);
@@ -105,12 +110,21 @@ bool ComputeFileSha256(const std::wstring& path, std::string& hex) {
     if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) >= 0 &&
         BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0) >= 0) {
         std::vector<BYTE> buffer(64 * 1024);
+        bool readOk = true;
         DWORD read = 0;
-        while (ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr) && read > 0) {
-            if (BCryptHashData(hash, buffer.data(), read, 0) < 0) break;
+        while (true) {
+            if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr)) {
+                readOk = false;
+                break;
+            }
+            if (read == 0) break;
+            if (BCryptHashData(hash, buffer.data(), read, 0) < 0) {
+                readOk = false;
+                break;
+            }
         }
         BYTE digest[32] = {};
-        if (BCryptFinishHash(hash, digest, sizeof(digest), 0) >= 0) {
+        if (readOk && BCryptFinishHash(hash, digest, sizeof(digest), 0) >= 0) {
             char text[65] = {};
             for (int i = 0; i < 32; ++i) std::snprintf(text + i * 2, 3, "%02X", digest[i]);
             hex.assign(text, 64);
@@ -121,6 +135,86 @@ bool ComputeFileSha256(const std::wstring& path, std::string& hex) {
     if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
     CloseHandle(file);
     return ok;
+}
+
+bool IsHex(char value) {
+    return (value >= '0' && value <= '9') ||
+           (value >= 'a' && value <= 'f') ||
+           (value >= 'A' && value <= 'F');
+}
+
+bool ReadDeclaredSha256(const std::wstring& path, std::string& hash) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+
+    std::string content;
+    char buffer[512] = {};
+    bool ok = true;
+    while (true) {
+        DWORD read = 0;
+        if (!ReadFile(file, buffer, static_cast<DWORD>(sizeof(buffer)), &read, nullptr)) {
+            ok = false;
+            break;
+        }
+        if (read == 0) break;
+        content.append(buffer, read);
+        if (content.size() > 4096) {
+            ok = false;
+            break;
+        }
+    }
+    CloseHandle(file);
+    if (!ok) return false;
+
+    bool found = false;
+    for (size_t i = 0; i + 64 <= content.size(); ++i) {
+        if ((i > 0 && IsHex(content[i - 1])) ||
+            (i + 64 < content.size() && IsHex(content[i + 64]))) {
+            continue;
+        }
+        bool hex = true;
+        for (size_t j = 0; j < 64; ++j) {
+            if (!IsHex(content[i + j])) {
+                hex = false;
+                break;
+            }
+        }
+        if (!hex) continue;
+        if (found) return false;
+        hash.assign(content.data() + i, 64);
+        found = true;
+        i += 63;
+    }
+    return found;
+}
+
+bool VerifyDeclaredSha256(const std::wstring& filePath,
+                          const std::wstring& manifestPath,
+                          const char* label,
+                          std::string& error) {
+    const DWORD attributes = GetFileAttributesW(filePath.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        error = std::string(label) + " file is missing";
+        return false;
+    }
+
+    std::string expected;
+    if (!ReadDeclaredSha256(manifestPath, expected)) {
+        error = std::string(label) + " SHA-256 manifest is missing or invalid";
+        return false;
+    }
+    std::string actual;
+    if (!ComputeFileSha256(filePath, actual)) {
+        error = std::string(label) + " SHA-256 could not be computed";
+        return false;
+    }
+    if (_stricmp(actual.c_str(), expected.c_str()) != 0) {
+        error = std::string(label) + " SHA-256 mismatch";
+        return false;
+    }
+    return true;
 }
 
 bool QueryImagePath(DWORD processId, std::wstring& path) {
@@ -284,6 +378,18 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     const std::wstring target = argv[1];
+    const std::wstring launcherPath = ExecutablePath();
+    if (launcherPath.empty()) {
+        std::fwprintf(stderr, L"[cac-native] unable to resolve launcher path\n");
+        return 5;
+    }
+    std::string integrityError;
+    const std::wstring launcherManifest = ExecutableDirectory() + L"\\cac-native-launch.sha256";
+    if (!VerifyDeclaredSha256(launcherPath, launcherManifest, "native launcher", integrityError)) {
+        std::fwprintf(stderr, L"[cac-native] %hs; refusing to start\n", integrityError.c_str());
+        return 5;
+    }
+
     std::wstring dllPath;
     wchar_t configured[32768] = {};
     const DWORD configuredSize = GetEnvironmentVariableW(L"CAC_NATIVE_DLL", configured,
@@ -291,8 +397,26 @@ int wmain(int argc, wchar_t** argv) {
     if (configuredSize > 0 && configuredSize < _countof(configured)) dllPath.assign(configured, configuredSize);
     else dllPath = ExecutableDirectory() + L"\\NativeBridge.dll";
 
-    if (GetFileAttributesW(dllPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    const DWORD dllAttributes = GetFileAttributesW(dllPath.c_str());
+    if (dllAttributes == INVALID_FILE_ATTRIBUTES || (dllAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
         std::fwprintf(stderr, L"[cac-native] NativeBridge.dll missing: %s\n", dllPath.c_str());
+        return 4;
+    }
+    const size_t dllSlash = dllPath.find_last_of(L"\\/");
+    const std::wstring dllDirectory = dllSlash == std::wstring::npos ? L"." : dllPath.substr(0, dllSlash);
+    const std::wstring dllManifest = dllDirectory + L"\\NativeBridge.sha256";
+    if (!VerifyDeclaredSha256(dllPath, dllManifest, "NativeBridge.dll", integrityError)) {
+        std::fwprintf(stderr, L"[cac-native] %hs; refusing to start\n", integrityError.c_str());
+        return 4;
+    }
+    const std::string expectedDllHash = CAC_EXPECTED_DLL_SHA256;
+    if (!expectedDllHash.empty()) {
+        std::string actualDllHash;
+        if (!ComputeFileSha256(dllPath, actualDllHash) ||
+            _stricmp(actualDllHash.c_str(), expectedDllHash.c_str()) != 0) {
+            std::fwprintf(stderr, L"[cac-native] NativeBridge.dll compiled SHA-256 mismatch; refusing to start\n");
+            return 4;
+        }
     }
 
     std::wstring commandLine = Quote(target);
@@ -318,36 +442,12 @@ int wmain(int argc, wchar_t** argv) {
                   static_cast<unsigned long>(process.dwProcessId));
     HANDLE ready = CreateEventW(nullptr, TRUE, FALSE, eventName);
 
-    const std::string expectedDllHash = CAC_EXPECTED_DLL_SHA256;
-    if (GetFileAttributesW(dllPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        if (!expectedDllHash.empty()) {
-            std::string actualHash;
-            if (!ComputeFileSha256(dllPath, actualHash) ||
-                _stricmp(actualHash.c_str(), expectedDllHash.c_str()) != 0) {
-                std::fwprintf(stderr, L"[cac-native] NativeBridge.dll SHA-256 mismatch; refusing to start\n");
-                if (ready) CloseHandle(ready);
-                TerminateProcess(process.hProcess, 3);
-                WaitForSingleObject(process.hProcess, 5000);
-                CloseHandle(process.hThread);
-                CloseHandle(process.hProcess);
-                return 3;
-            }
-        }
-        SetEnvironmentVariableW(L"CAC_NATIVE_DLL", dllPath.c_str());
-        std::string error;
-        if (InjectDll(process.hProcess, dllPath, &error)) {
-            if (ready) WaitForSingleObject(ready, 20000);
-        } else {
-            std::fwprintf(stderr, L"[cac-native] injection failed: %hs\n", error.c_str());
-        }
-    } else if (!expectedDllHash.empty()) {
-        std::fwprintf(stderr, L"[cac-native] NativeBridge.dll is missing; refusing to start\n");
-        if (ready) CloseHandle(ready);
-        TerminateProcess(process.hProcess, 4);
-        WaitForSingleObject(process.hProcess, 5000);
-        CloseHandle(process.hThread);
-        CloseHandle(process.hProcess);
-        return 4;
+    SetEnvironmentVariableW(L"CAC_NATIVE_DLL", dllPath.c_str());
+    std::string error;
+    if (InjectDll(process.hProcess, dllPath, &error)) {
+        if (ready) WaitForSingleObject(ready, 20000);
+    } else {
+        std::fwprintf(stderr, L"[cac-native] injection failed: %hs\n", error.c_str());
     }
 
     if (ready) CloseHandle(ready);

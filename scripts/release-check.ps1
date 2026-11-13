@@ -1,5 +1,7 @@
 # Verify that the source tree, npm tarball, and optional installed Native layer
-# all refer to the same release artifact.
+# all refer to the same release artifact. This script intentionally uses the
+# .NET hashing API instead of Get-FileHash so it remains reliable when a
+# caller has an incomplete or reordered Windows PowerShell module path.
 [CmdletBinding()]
 param(
     [string]$PackagePath,
@@ -13,7 +15,29 @@ $packageJsonPath = Join-Path $root 'package.json'
 $distDir = Join-Path $root 'native\dist'
 
 function Get-Sha256([string]$Path) {
-    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::ReadWrite
+        )
+        return ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToUpperInvariant()
+    } finally {
+        if ($stream) { $stream.Dispose() }
+        $sha.Dispose()
+    }
+}
+
+function Get-DeclaredSha256([string]$Path, [string]$Label) {
+    $raw = Get-Content -LiteralPath $Path -Raw
+    $matches = [regex]::Matches($raw, '(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])')
+    if ($matches.Count -ne 1) {
+        throw "$Label must contain exactly one SHA-256 value"
+    }
+    return $matches[0].Value.ToUpperInvariant()
 }
 
 function Assert-File([string]$Path, [string]$Label) {
@@ -33,21 +57,28 @@ $version = [string]$package.version
 $dll = Join-Path $distDir 'NativeBridge.dll'
 $launcher = Join-Path $distDir 'cac-native-launch.exe'
 $hashFile = Join-Path $distDir 'NativeBridge.sha256'
+$launcherHashFile = Join-Path $distDir 'cac-native-launch.sha256'
 Assert-File $dll 'workspace NativeBridge.dll'
 Assert-File $launcher 'workspace native launcher'
 Assert-File $hashFile 'workspace NativeBridge.sha256'
+Assert-File $launcherHashFile 'workspace cac-native-launch.sha256'
 
 $dllHash = Get-Sha256 $dll
-$declaredHash = (Get-Content -LiteralPath $hashFile -Raw).Trim().ToUpperInvariant()
+$declaredHash = Get-DeclaredSha256 $hashFile 'workspace NativeBridge.sha256'
 Assert-Equal $dllHash $declaredHash 'workspace NativeBridge SHA-256'
+$launcherHash = Get-Sha256 $launcher
+$declaredLauncherHash = Get-DeclaredSha256 $launcherHashFile 'workspace cac-native-launch.sha256'
+Assert-Equal $launcherHash $declaredLauncherHash 'workspace native launcher SHA-256'
 
 $result = [ordered]@{
     version = $version
     workspace = [ordered]@{
         dll = $dll
         dllSha256 = $dllHash
-        launcherSha256 = Get-Sha256 $launcher
+        launcher = $launcher
+        launcherSha256 = $launcherHash
         declaredSha256 = $declaredHash
+        declaredLauncherSha256 = $declaredLauncherHash
     }
     package = $null
     installed = $null
@@ -74,21 +105,31 @@ if (-not $SkipPack) {
 
         $embeddedDll = Join-Path $extractRoot 'package\native\dist\NativeBridge.dll'
         $embeddedHashFile = Join-Path $extractRoot 'package\native\dist\NativeBridge.sha256'
+        $embeddedLauncher = Join-Path $extractRoot 'package\native\dist\cac-native-launch.exe'
+        $embeddedLauncherHashFile = Join-Path $extractRoot 'package\native\dist\cac-native-launch.sha256'
         $embeddedPackageJson = Join-Path $extractRoot 'package\package.json'
         Assert-File $embeddedDll 'package NativeBridge.dll'
         Assert-File $embeddedHashFile 'package NativeBridge.sha256'
+        Assert-File $embeddedLauncher 'package native launcher'
+        Assert-File $embeddedLauncherHashFile 'package cac-native-launch.sha256'
         Assert-File $embeddedPackageJson 'package package.json'
         $embedded = Get-Content -LiteralPath $embeddedPackageJson -Raw | ConvertFrom-Json
         Assert-Equal $version ([string]$embedded.version) 'package version'
         $embeddedDllHash = Get-Sha256 $embeddedDll
-        $embeddedDeclaredHash = (Get-Content -LiteralPath $embeddedHashFile -Raw).Trim().ToUpperInvariant()
+        $embeddedDeclaredHash = Get-DeclaredSha256 $embeddedHashFile 'package NativeBridge.sha256'
         Assert-Equal $dllHash $embeddedDllHash 'package NativeBridge SHA-256'
         Assert-Equal $dllHash $embeddedDeclaredHash 'package declared NativeBridge SHA-256'
+        $embeddedLauncherHash = Get-Sha256 $embeddedLauncher
+        $embeddedDeclaredLauncherHash = Get-DeclaredSha256 $embeddedLauncherHashFile 'package cac-native-launch.sha256'
+        Assert-Equal $launcherHash $embeddedLauncherHash 'package native launcher SHA-256'
+        Assert-Equal $launcherHash $embeddedDeclaredLauncherHash 'package declared native launcher SHA-256'
         $result.package = [ordered]@{
             path = [System.IO.Path]::GetFullPath($PackagePath)
             version = [string]$embedded.version
             dllSha256 = $embeddedDllHash
             declaredSha256 = $embeddedDeclaredHash
+            launcherSha256 = $embeddedLauncherHash
+            declaredLauncherSha256 = $embeddedDeclaredLauncherHash
         }
     } finally {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -97,17 +138,27 @@ if (-not $SkipPack) {
 
 if (Test-Path -LiteralPath $InstalledNativeDir -PathType Container) {
     $installedDll = Join-Path $InstalledNativeDir 'NativeBridge.dll'
+    $installedLauncher = Join-Path $InstalledNativeDir 'cac-native-launch.exe'
     $installedHashFile = Join-Path $InstalledNativeDir 'NativeBridge.sha256'
+    $installedLauncherHashFile = Join-Path $InstalledNativeDir 'cac-native-launch.sha256'
     Assert-File $installedDll 'installed NativeBridge.dll'
+    Assert-File $installedLauncher 'installed native launcher'
     Assert-File $installedHashFile 'installed NativeBridge.sha256'
+    Assert-File $installedLauncherHashFile 'installed cac-native-launch.sha256'
     $installedHash = Get-Sha256 $installedDll
-    $installedDeclared = (Get-Content -LiteralPath $installedHashFile -Raw).Trim().ToUpperInvariant()
+    $installedDeclared = Get-DeclaredSha256 $installedHashFile 'installed NativeBridge.sha256'
     Assert-Equal $dllHash $installedHash 'installed NativeBridge SHA-256'
     Assert-Equal $dllHash $installedDeclared 'installed declared NativeBridge SHA-256'
+    $installedLauncherHash = Get-Sha256 $installedLauncher
+    $installedDeclaredLauncher = Get-DeclaredSha256 $installedLauncherHashFile 'installed cac-native-launch.sha256'
+    Assert-Equal $launcherHash $installedLauncherHash 'installed native launcher SHA-256'
+    Assert-Equal $launcherHash $installedDeclaredLauncher 'installed declared native launcher SHA-256'
     $result.installed = [ordered]@{
         dir = [System.IO.Path]::GetFullPath($InstalledNativeDir)
         dllSha256 = $installedHash
         declaredSha256 = $installedDeclared
+        launcherSha256 = $installedLauncherHash
+        declaredLauncherSha256 = $installedDeclaredLauncher
     }
 }
 
