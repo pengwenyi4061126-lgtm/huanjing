@@ -14,5 +14,11 @@ void InstallHookInlinePrimary(const char* dllName, const char* functionName, voi
 
 // True when the current Profile uses the strict empty-read policy.
 bool NativeEmptyReadsEnabled();
+
+// True when virtual adapters and proxy configuration must be hidden.
+bool NativeCleanNetworkEnabled();
+
+// Case-insensitive match against known virtual/tunnel adapter names.
+bool NativeIsVirtualAdapterName(const wchar_t* name);
 void InstallCpuHooksFromManifest();
 void ScanCpuCandidates();

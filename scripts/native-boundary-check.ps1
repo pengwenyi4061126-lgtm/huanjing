@@ -90,11 +90,14 @@ $nativeEvidence = [ordered]@{
     wmiWrapped = $false
     readPolicy = "unknown"
     cpuidMode = "unknown"
+    networkMode = "unknown"
+    networkCleanEvents = 0
 }
 if ($EnvName -and (Test-ProfileName $EnvName)) {
     $profilePaths = Ensure-ProfileLayout $EnvName
     $nativeEvidence.readPolicy = Read-FileValue (Join-Path $profilePaths.Root "native_read_policy") "profile"
     $nativeEvidence.cpuidMode = Read-FileValue (Join-Path $profilePaths.Root "cpuid_mode") "neutral"
+    $nativeEvidence.networkMode = Read-FileValue (Join-Path $profilePaths.Root "network_mode") "profile"
     $hookEvidence.path = $profilePaths.HookAuditPath
     $hookEvidence.present = Test-Path -LiteralPath $profilePaths.HookAuditPath
     if ($hookEvidence.present) {
@@ -126,6 +129,7 @@ if ($EnvName -and (Test-ProfileName $EnvName)) {
         $nativeEvidence.childInjections = @($nativeEvents | Where-Object { $_.surface -eq "native.child" -and $_.action -in @("injected", "launcher-injected") }).Count
         $nativeEvidence.childInjectionFailures = @($nativeEvents | Where-Object { $_.surface -eq "native.child" -and $_.action -in @("failed", "launcher-failed") }).Count
         $nativeEvidence.wmiWrapped = @($nativeEvents | Where-Object { $_.surface -eq "wmi.install" }).Count -gt 0
+        $nativeEvidence.networkCleanEvents = @($nativeEvents | Where-Object { $_.action -eq "cleaned" -or $_.action -eq "clean-none" }).Count
     }
 }
 if ($EnvName -and (Test-ProfileName $EnvName)) {
@@ -199,6 +203,8 @@ $evidence = [ordered]@{
         childInjections = $nativeEvidence.childInjections
         childInjectionFailures = $nativeEvidence.childInjectionFailures
         wmiCom = if ($nativeEvidence.wmiWrapped) { "WRAPPED" } else { "NOT_OBSERVED" }
+        networkMode = $nativeEvidence.networkMode
+        networkCleanEvents = $nativeEvidence.networkCleanEvents
         readPolicy = $nativeEvidence.readPolicy
         cpuidMode = $nativeEvidence.cpuidMode
         kernelDrivers = "NOT_COLLECTED"
@@ -251,5 +257,6 @@ Write-Host ("  Renderer injection: {0} ({1} processes, {2} injections, {3} failu
     $(if ($nativeEvidence.childInjections -gt 0) { "PARENT_HOOK+MONITOR" } else { "NONE_OBSERVED" }),
     @($nativeEvidence.processes).Count, $nativeEvidence.childInjections, $nativeEvidence.childInjectionFailures) -ForegroundColor Yellow
 Write-Host ("  WMI/COM: {0}" -f $(if ($nativeEvidence.wmiWrapped) { "WRAPPED" } else { "NOT_OBSERVED" })) -ForegroundColor Yellow
+Write-Host ("  Network mode: {0} (clean events: {1})" -f $nativeEvidence.networkMode, $nativeEvidence.networkCleanEvents) -ForegroundColor Yellow
 Write-Host "  Evidence: $outPath" -ForegroundColor DarkGray
 Write-Host ""

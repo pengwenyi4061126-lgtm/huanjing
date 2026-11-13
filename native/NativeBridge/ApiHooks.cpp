@@ -57,6 +57,122 @@ bool EmptyReadsEnabled() {
     return GetNativeReadPolicy() == NativeReadPolicy::Empty;
 }
 
+bool ContainsNoCase(const wchar_t* text, const wchar_t* needle) {
+    if (!text || !needle || !*needle) return false;
+    const size_t length = wcslen(needle);
+    for (const wchar_t* cursor = text; *cursor; ++cursor) {
+        if (_wcsnicmp(cursor, needle, length) == 0) return true;
+    }
+    return false;
+}
+
+std::wstring AnsiToWide(const char* value) {
+    if (!value || !*value) return std::wstring();
+    const int length = MultiByteToWideChar(CP_ACP, 0, value, -1, nullptr, 0);
+    if (length <= 1) return std::wstring();
+    std::wstring result(static_cast<size_t>(length - 1), L'\0');
+    MultiByteToWideChar(CP_ACP, 0, value, -1, result.data(), length);
+    return result;
+}
+
+bool IsVirtualAdapter(const IP_ADAPTER_ADDRESSES* adapter) {
+    if (!adapter) return false;
+    return NativeIsVirtualAdapterName(adapter->FriendlyName) ||
+           NativeIsVirtualAdapterName(adapter->Description);
+}
+
+bool IsVirtualAdapter(const IP_ADAPTER_INFO* adapter) {
+    if (!adapter) return false;
+    return NativeIsVirtualAdapterName(AnsiToWide(adapter->Description).c_str()) ||
+           NativeIsVirtualAdapterName(AnsiToWide(adapter->AdapterName).c_str());
+}
+
+void FilterAdapterAddresses(PIP_ADAPTER_ADDRESSES head) {
+    if (!head) return;
+    const bool emptyAll = EmptyReadsEnabled();
+    PIP_ADAPTER_ADDRESSES firstKept = nullptr;
+    for (PIP_ADAPTER_ADDRESSES cursor = head; cursor; cursor = cursor->Next) {
+        if (!emptyAll && !IsVirtualAdapter(cursor)) {
+            firstKept = cursor;
+            break;
+        }
+    }
+    if (!firstKept) {
+        std::memset(head, 0, sizeof(IP_ADAPTER_ADDRESSES));
+        head->Next = nullptr;
+        head->OperStatus = IfOperStatusDown;
+        AuditEventRateLimited("api.getadaptersaddresses", "clean-none");
+        return;
+    }
+    if (firstKept != head) {
+        const IP_ADAPTER_ADDRESSES saved = *firstKept;
+        *head = saved;
+    }
+    PIP_ADAPTER_ADDRESSES* link = &head->Next;
+    while (*link) {
+        if (emptyAll || IsVirtualAdapter(*link)) {
+            *link = (*link)->Next;
+        } else {
+            link = &(*link)->Next;
+        }
+    }
+    AuditEventRateLimited("api.getadaptersaddresses", "cleaned");
+}
+
+void FilterAdapterInfo(PIP_ADAPTER_INFO head) {
+    if (!head) return;
+    const bool emptyAll = EmptyReadsEnabled();
+    PIP_ADAPTER_INFO firstKept = nullptr;
+    for (PIP_ADAPTER_INFO cursor = head; cursor; cursor = cursor->Next) {
+        if (!emptyAll && !IsVirtualAdapter(cursor)) {
+            firstKept = cursor;
+            break;
+        }
+    }
+    if (!firstKept) {
+        std::memset(head, 0, sizeof(IP_ADAPTER_INFO));
+        head->Next = nullptr;
+        AuditEventRateLimited("api.getadaptersinfo", "clean-none");
+        return;
+    }
+    if (firstKept != head) {
+        const IP_ADAPTER_INFO saved = *firstKept;
+        *head = saved;
+    }
+    PIP_ADAPTER_INFO* link = &head->Next;
+    while (*link) {
+        if (emptyAll || IsVirtualAdapter(*link)) {
+            *link = (*link)->Next;
+        } else {
+            link = &(*link)->Next;
+        }
+    }
+    AuditEventRateLimited("api.getadaptersinfo", "cleaned");
+}
+
+bool IsVirtualIfRow(const MIB_IF_ROW2& row) {
+    return NativeIsVirtualAdapterName(row.Alias) ||
+           NativeIsVirtualAdapterName(row.Description) ||
+           row.Type == IF_TYPE_TUNNEL || row.Type == IF_TYPE_PPP;
+}
+
+void FilterIfTable2(PMIB_IF_TABLE2 table) {
+    if (!table) return;
+    if (EmptyReadsEnabled()) {
+        table->NumEntries = 0;
+        AuditEventRateLimited("api.getiftable2", "clean-none");
+        return;
+    }
+    ULONG kept = 0;
+    for (ULONG index = 0; index < table->NumEntries; ++index) {
+        if (IsVirtualIfRow(table->Table[index])) continue;
+        if (kept != index) table->Table[kept] = table->Table[index];
+        ++kept;
+    }
+    table->NumEntries = kept;
+    AuditEventRateLimited("api.getiftable2", "cleaned");
+}
+
 bool CopyEmptyWideToBuffer(LPWSTR buffer, DWORD capacity, LPDWORD outSize) {
     if (outSize) *outSize = 1;
     if (!buffer || capacity < 1) {
@@ -222,6 +338,36 @@ LSTATUS ReturnRegistryString(const std::wstring& value, LPDWORD type, PVOID data
     return ERROR_SUCCESS;
 }
 
+LSTATUS ReturnRegistryDword(DWORD value, LPDWORD type, PVOID data, LPDWORD size) {
+    if (type) *type = REG_DWORD;
+    if (!size) return ERROR_INVALID_PARAMETER;
+    if (!data) {
+        *size = sizeof(DWORD);
+        return ERROR_SUCCESS;
+    }
+    if (*size < sizeof(DWORD)) {
+        *size = sizeof(DWORD);
+        return ERROR_MORE_DATA;
+    }
+    *reinterpret_cast<DWORD*>(data) = value;
+    *size = sizeof(DWORD);
+    return ERROR_SUCCESS;
+}
+
+bool IsProxyRegistryValue(const wchar_t* name, bool& dwordValue) {
+    if (!name) return false;
+    if (_wcsicmp(name, L"ProxyEnable") == 0 || _wcsicmp(name, L"AutoDetect") == 0) {
+        dwordValue = true;
+        return true;
+    }
+    if (_wcsicmp(name, L"ProxyServer") == 0 || _wcsicmp(name, L"ProxyOverride") == 0 ||
+        _wcsicmp(name, L"AutoConfigURL") == 0) {
+        dwordValue = false;
+        return true;
+    }
+    return false;
+}
+
 BOOL WINAPI HookGetComputerNameW(LPWSTR buffer, LPDWORD size) {
     const DWORD capacity = (size && *size) ? *size : 0;
     if (EmptyReadsEnabled()) {
@@ -261,6 +407,12 @@ BOOL WINAPI HookGetUserNameW(LPWSTR buffer, LPDWORD size) {
 
 LSTATUS WINAPI HookRegGetValueW(HKEY key, LPCWSTR subKey, LPCWSTR valueName, DWORD flags,
                                 LPDWORD type, PVOID data, LPDWORD size) {
+    bool proxyDword = false;
+    if (NativeCleanNetworkEnabled() && IsProxyRegistryValue(valueName, proxyDword)) {
+        AuditEventRateLimited("api.reggetvalue.proxy", "empty");
+        return proxyDword ? ReturnRegistryDword(0, type, data, size)
+                          : ReturnRegistryString(L"", type, data, size);
+    }
     std::wstring spoof;
     if (valueName && GetRegistrySpoofValue(valueName, spoof)) {
         if (EmptyReadsEnabled()) spoof.clear();
@@ -273,6 +425,12 @@ LSTATUS WINAPI HookRegGetValueW(HKEY key, LPCWSTR subKey, LPCWSTR valueName, DWO
 
 LSTATUS WINAPI HookRegQueryValueExW(HKEY key, LPCWSTR valueName, LPDWORD reserved,
                                     LPDWORD type, LPBYTE data, LPDWORD size) {
+    bool proxyDword = false;
+    if (NativeCleanNetworkEnabled() && IsProxyRegistryValue(valueName, proxyDword)) {
+        AuditEventRateLimited("api.regqueryvalue.proxy", "empty");
+        return proxyDword ? ReturnRegistryDword(0, type, data, size)
+                          : ReturnRegistryString(L"", type, data, size);
+    }
     std::wstring spoof;
     if (valueName && GetRegistrySpoofValue(valueName, spoof)) {
         if (EmptyReadsEnabled()) spoof.clear();
@@ -372,6 +530,7 @@ ULONG WINAPI HookGetAdaptersAddresses(ULONG family, ULONG flags, PVOID reserved,
             }
             AuditEventRateLimited("api.getadaptersaddresses", "patched");
         }
+        if (NativeCleanNetworkEnabled()) FilterAdapterAddresses(addresses);
     }
     return result;
 }
@@ -394,6 +553,7 @@ DWORD WINAPI HookGetAdaptersInfo(PIP_ADAPTER_INFO info, PULONG size) {
             }
             AuditEventRateLimited("api.getadaptersinfo", "patched");
         }
+        if (NativeCleanNetworkEnabled()) FilterAdapterInfo(info);
     }
     return result;
 }
@@ -620,6 +780,7 @@ void ApplyPhysicalAddress(BYTE* address, ULONG* length, ULONG capacity) {
 NETIO_STATUS WINAPI HookGetIfTable2(PMIB_IF_TABLE2* table) {
     const NETIO_STATUS status = g_origGetIfTable2 ? g_origGetIfTable2(table) : ERROR_NOT_SUPPORTED;
     if (status == NO_ERROR && table && *table) {
+        if (NativeCleanNetworkEnabled()) FilterIfTable2(*table);
         for (ULONG i = 0; i < (*table)->NumEntries; ++i) {
             MIB_IF_ROW2& row = (*table)->Table[i];
             ApplyPhysicalAddress(row.PhysicalAddress, &row.PhysicalAddressLength, IF_MAX_PHYS_ADDRESS_LENGTH);
@@ -634,6 +795,10 @@ NETIO_STATUS WINAPI HookGetIfTable2(PMIB_IF_TABLE2* table) {
 NETIO_STATUS WINAPI HookGetIfEntry2(PMIB_IF_ROW2 row) {
     const NETIO_STATUS status = g_origGetIfEntry2 ? g_origGetIfEntry2(row) : ERROR_NOT_SUPPORTED;
     if (status == NO_ERROR && row) {
+        if (NativeCleanNetworkEnabled() && (EmptyReadsEnabled() || IsVirtualIfRow(*row))) {
+            AuditEventRateLimited("api.getifentry2", "clean-none");
+            return ERROR_NOT_FOUND;
+        }
         ApplyPhysicalAddress(row->PhysicalAddress, &row->PhysicalAddressLength, IF_MAX_PHYS_ADDRESS_LENGTH);
         ULONG permanentLength = row->PhysicalAddressLength;
         ApplyPhysicalAddress(row->PermanentPhysicalAddress, &permanentLength, IF_MAX_PHYS_ADDRESS_LENGTH);
@@ -645,6 +810,26 @@ NETIO_STATUS WINAPI HookGetIfEntry2(PMIB_IF_ROW2 row) {
 DWORD WINAPI HookGetIfTable(PMIB_IFTABLE table, PULONG size, BOOL order) {
     const DWORD status = g_origGetIfTable ? g_origGetIfTable(table, size, order) : ERROR_NOT_SUPPORTED;
     if (status == NO_ERROR && table) {
+        if (NativeCleanNetworkEnabled()) {
+            if (EmptyReadsEnabled()) {
+                table->dwNumEntries = 0;
+                AuditEventRateLimited("api.getiftable", "clean-none");
+            } else {
+                DWORD kept = 0;
+                for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+                    const MIB_IFROW& candidate = table->table[i];
+                    if (NativeIsVirtualAdapterName(candidate.wszName) ||
+                        NativeIsVirtualAdapterName(AnsiToWide(reinterpret_cast<const char*>(candidate.bDescr)).c_str()) ||
+                        candidate.dwType == IF_TYPE_TUNNEL || candidate.dwType == IF_TYPE_PPP) {
+                        continue;
+                    }
+                    if (kept != i) table->table[kept] = candidate;
+                    ++kept;
+                }
+                table->dwNumEntries = kept;
+                AuditEventRateLimited("api.getiftable", "cleaned");
+            }
+        }
         for (DWORD i = 0; i < table->dwNumEntries; ++i) {
             MIB_IFROW& row = table->table[i];
             ApplyPhysicalAddress(row.bPhysAddr, &row.dwPhysAddrLen, sizeof(row.bPhysAddr));
@@ -660,6 +845,23 @@ LSTATUS WINAPI HookRegEnumValueW(HKEY key, DWORD index, LPWSTR valueName, LPDWOR
         ? g_origRegEnumValue(key, index, valueName, valueNameLength, reserved, type, data, dataSize)
         : ERROR_PROC_NOT_FOUND;
     if (status == ERROR_SUCCESS && valueName && type && data && dataSize) {
+        bool proxyDword = false;
+        if (NativeCleanNetworkEnabled() && IsProxyRegistryValue(valueName, proxyDword)) {
+            if (proxyDword) {
+                if (*dataSize >= sizeof(DWORD)) {
+                    *reinterpret_cast<DWORD*>(data) = 0;
+                    *dataSize = sizeof(DWORD);
+                    *type = REG_DWORD;
+                    AuditEventRateLimited("api.regenumvalue.proxy", "empty");
+                }
+            } else if (*dataSize >= sizeof(wchar_t)) {
+                *reinterpret_cast<wchar_t*>(data) = L'\0';
+                *dataSize = sizeof(wchar_t);
+                *type = REG_SZ;
+                AuditEventRateLimited("api.regenumvalue.proxy", "empty");
+            }
+            return status;
+        }
         std::wstring spoof;
         if (GetRegistrySpoofValue(valueName, spoof)) {
             if (EmptyReadsEnabled()) spoof.clear();
@@ -1210,6 +1412,34 @@ void InstallHookInlinePrimary(const char* dllName, const char* functionName, voi
 
 bool NativeEmptyReadsEnabled() {
     return EmptyReadsEnabled();
+}
+
+bool NativeIsVirtualAdapterName(const wchar_t* name) {
+    if (!name || !*name) return false;
+    static const wchar_t* const markers[] = {
+        L"vmware", L"virtualbox", L"hyper-v", L"vethernet", L"virtual",
+        L"tap-windows", L"tap0901", L"wintun", L"wireguard", L"tailscale",
+        L"zerotier", L"openvpn", L"clash", L"mihomo", L"meta tunnel", L"meta",
+        L"tunnel", L"vpn", L"ppp", L"sstp", L"l2tp", L"ipsec", L"teredo",
+        L"6to4", L"ip-https", L"isatap", L"npcap", L"docker", L"wsl",
+        L"veth", L"hamachi", L"radmin", L"softether",
+    };
+    for (const wchar_t* marker : markers) {
+        if (ContainsNoCase(name, marker)) return true;
+    }
+    return false;
+}
+
+bool NativeCleanNetworkEnabled() {
+    if (EmptyReadsEnabled()) return true;
+    static int cached = -1;
+    if (cached < 0) {
+        char value[16] = {};
+        const DWORD size = GetEnvironmentVariableA("CAC_NETWORK_MODE", value,
+                                                   static_cast<DWORD>(sizeof(value)));
+        cached = (size > 0 && size < sizeof(value) && _stricmp(value, "clean") == 0) ? 1 : 0;
+    }
+    return cached == 1;
 }
 
 bool InstallApiHooks() {

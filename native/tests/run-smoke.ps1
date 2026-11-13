@@ -85,6 +85,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "child_probe build failed" }
     & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT (Join-Path $tests "wmi_probe.cpp") /Fe:wmi_probe.exe /link wbemuuid.lib ole32.lib oleaut32.lib | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "wmi_probe build failed" }
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT (Join-Path $tests "network_probe.cpp") /Fe:network_probe.exe /link iphlpapi.lib winhttp.lib wininet.lib advapi32.lib ws2_32.lib | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "network_probe build failed" }
 } finally {
     Pop-Location
 }
@@ -183,6 +185,58 @@ if ($wmiBaseline.wmi_state -eq "ok") {
     Write-Host "  [INFO] WMI baseline unavailable: $($wmiBaseline.wmi_state)" -ForegroundColor Yellow
 }
 
+Write-Host "Virtual adapters / proxy surfaces" -ForegroundColor Cyan
+$proxyKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+$savedEnable = $null
+$savedServer = $null
+try { $savedEnable = Get-ItemPropertyValue -LiteralPath $proxyKey -Name ProxyEnable -ErrorAction Stop } catch { $savedEnable = $null }
+try { $savedServer = Get-ItemPropertyValue -LiteralPath $proxyKey -Name ProxyServer -ErrorAction Stop } catch { $savedServer = $null }
+$hadEnable = $null -ne $savedEnable
+$hadServer = $null -ne $savedServer
+try {
+    New-ItemProperty -LiteralPath $proxyKey -Name ProxyEnable -Value 1 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -LiteralPath $proxyKey -Name ProxyServer -Value '127.0.0.1:7890' -PropertyType String -Force | Out-Null
+    $netBaseline = Parse-ProbeOutput @(& (Join-Path $bin "network_probe.exe") 2>&1)
+    $env:CAC_NETWORK_MODE = "clean"
+    $netClean = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "network_probe.exe") 2>&1)
+    $wmiClean = $null
+    if ($wmiBaseline.wmi_state -eq "ok") {
+        $wmiClean = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "wmi_probe.exe") 2>&1)
+    }
+    Remove-Item Env:CAC_NETWORK_MODE -ErrorAction SilentlyContinue
+
+    Assert-True ($netBaseline.reg_proxy_enable -eq "1") "baseline registry ProxyEnable visible"
+    Assert-True ($netBaseline.reg_proxy_server -eq "127.0.0.1:7890") "baseline registry ProxyServer visible"
+    Assert-True ($netClean.reg_proxy_enable -eq "0") "clean network hides ProxyEnable"
+    Assert-True ($netClean.reg_proxy_server -in @("", "missing")) "clean network hides ProxyServer"
+    Assert-True ($netClean.winhttp_access -eq "1") "clean network forces WinHTTP direct"
+    Assert-True ($netClean.winhttp_proxy -eq "") "clean network hides WinHTTP proxy"
+    if ($netBaseline.adapters -match 'VMware|Meta|Teredo|6to4') {
+        Assert-True ($netClean.adapters -notmatch 'VMware|Meta|Teredo|6to4') "clean network hides virtual adapters"
+    }
+    if ($netBaseline.if2_names -match 'VMware|Meta|Teredo|6to4') {
+        Assert-True ($netClean.if2_names -notmatch 'VMware|Meta|Teredo|6to4') "clean network hides virtual GetIfTable2 rows"
+    }
+    if ($netBaseline.ifinfo_names -match 'VMware|Meta|Teredo|6to4') {
+        Assert-True ($netClean.ifinfo_names -notmatch 'VMware|Meta|Teredo|6to4') "clean network hides virtual GetInterfaceInfo rows"
+    }
+    if ($null -ne $wmiClean -and $wmiBaseline.wmi_adapter_name -match 'VMware|Meta|Teredo|6to4') {
+        Assert-True ($wmiClean.wmi_adapter_name -notmatch 'VMware|Meta|Teredo|6to4') "clean network hides virtual WMI rows"
+    }
+} finally {
+    if ($hadEnable) {
+        New-ItemProperty -LiteralPath $proxyKey -Name ProxyEnable -Value $savedEnable -PropertyType DWord -Force | Out-Null
+    } else {
+        Remove-ItemProperty -LiteralPath $proxyKey -Name ProxyEnable -ErrorAction SilentlyContinue
+    }
+    if ($hadServer) {
+        New-ItemProperty -LiteralPath $proxyKey -Name ProxyServer -Value $savedServer -PropertyType String -Force | Out-Null
+    } else {
+        Remove-ItemProperty -LiteralPath $proxyKey -Name ProxyServer -ErrorAction SilentlyContinue
+    }
+    Remove-Item Env:CAC_NETWORK_MODE -ErrorAction SilentlyContinue
+}
+
 Write-Host "CPUID/XGETBV manifest hook" -ForegroundColor Cyan
 $cpuProbe = Join-Path $bin "cpu_probe.exe"
 $cpuIdRva = Get-SymbolRva $cpuProbe "TestCpuId"
@@ -252,6 +306,12 @@ if ($wmiBaseline.wmi_state -eq "ok") {
     Assert-True ($wmiEmpty.wmi_processor_id -eq "") "empty policy clears WMI ProcessorId"
     Assert-True ($wmiEmpty.wmi_volume_serial -eq "") "empty policy clears WMI volume serial"
 }
+
+$netEmpty = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "network_probe.exe") 2>&1)
+Assert-True ($netEmpty.if2_count -eq "0") "empty policy hides all GetIfTable2 rows"
+Assert-True ($netEmpty.ifinfo_count -eq "0") "empty policy hides all GetInterfaceInfo rows"
+Assert-True ($netEmpty.winhttp_access -eq "1") "empty policy forces WinHTTP direct"
+Assert-True ($netEmpty.reg_proxy_enable -eq "0") "empty policy hides registry proxy flag"
 
 $emptyCpu = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "cpu_probe.exe") 2>&1)
 Assert-True ($emptyCpu.test_leaf -eq "00000000") "empty policy clears arbitrary CPUID leaf"

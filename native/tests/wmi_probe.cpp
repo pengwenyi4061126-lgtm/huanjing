@@ -92,6 +92,8 @@ int wmain() {
                 WideToUtf8(QueryFirst(service,
                                       L"SELECT MACAddress FROM Win32_NetworkAdapter WHERE PhysicalAdapter = TRUE",
                                       L"MACAddress")).c_str());
+    std::printf("wmi_adapter_name=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT Name FROM Win32_NetworkAdapter", L"Name")).c_str());
     std::printf("wmi_processor_id=%s\n",
                 WideToUtf8(QueryFirst(service, L"SELECT ProcessorId FROM Win32_Processor", L"ProcessorId")).c_str());
     std::printf("wmi_volume_serial=%s\n",

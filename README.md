@@ -2,7 +2,7 @@
 
 Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征，遥测正常流转。
 
-当前版本：`1.0.32`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+当前版本：`1.0.33`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
 ## 功能
 
@@ -18,6 +18,7 @@ Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征
 - **NativeBridge 用户态层** — 可选 DLL 注入，覆盖网卡、卷序列号、SMBIOS、磁盘/固件、主机名、用户名、注册表、HID、SetupDi、驱动列表、原始设备打开以及哈希绑定的 `CPUID/XGETBV`
 - **WMI/COM 隔离** — 在进程内包装 `CLSID_WbemLocator`，对 `Win32_BIOS`、`Win32_ComputerSystemProduct`、`Win32_DiskDrive`、`Win32_Processor`、`Win32_NetworkAdapter`、`Win32_LogicalDisk` 等结果按 Profile 改写或清空
 - **renderer/utility 注入** — 对 Claude Desktop 的 browser/GPU/renderer/utility/crashpad 子进程做创建时注入，并带启动器后代补偿
+- **干净网络视图** — `network_mode=clean` 时隐藏 VMware/Meta/Teredo/TAP/WireGuard/Tailscale 等虚拟网卡，清零 WinHTTP/IE/注册表代理配置，WMI 网络行同步过滤
 - **Desktop Profile** — `scripts/desktop-profile.ps1` 为 Claude Desktop 重定向 `APPDATA`/`LOCALAPPDATA`/`USERPROFILE`/`TEMP`，隔离 `Claude`、`Claude-3p`、`ant-did`、sessions 和 Crashpad
 - **Native/硬件证据** — 单独记录 Windows CIM、注册表、磁盘、网卡等主机共享面；不把它宣称为硬件隔离
 - **Profile 清理** — 只清理当前 Profile，不修改全局 `.claude` 或全局凭据
@@ -99,6 +100,7 @@ cac
 ├─ audit\             # 网络、A/B 和用户态 Hook 证据
 ├─ native_read_policy # Native 读取策略：profile（默认）或 empty
 ├─ cpuid_mode         # neutral（默认）、empty 或 passthrough
+├─ network_mode       # profile（默认）或 clean
 ├─ identity.json      # Profile 身份清单
 └─ uuid/stable_id/user_id/machine_id/hostname/mac_address/disk_serial/bios_serial/system_serial/hid_serial
 ```
@@ -145,6 +147,35 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Actio
 ```
 
 这是让未签名 `NativeBridge.dll` 进入 renderer/GPU 的必要条件，同时也降低了 Chromium 自身的沙箱强度。不使用 `-Inject` 时不会追加这两个参数。
+
+### 干净网络视图（network_mode=clean）
+
+```powershell
+Set-Content "$env:USERPROFILE\.cac\desktop\work\network_mode" "clean" -Encoding ASCII
+```
+
+`clean` 模式下，以下路径返回“没有虚拟网卡、没有代理”：
+
+```text
+GetAdaptersAddresses / GetAdaptersInfo
+GetIfTable2 / GetIfEntry2 / GetIfTable
+GetInterfaceInfo
+ConvertInterfaceLuidToNameW / ToAlias / ConvertInterfaceNameToLuidW
+WinHttpGetIEProxyConfigForCurrentUser / WinHttpGetProxyForUrl
+WinHttpGetDefaultProxyConfiguration / WinHttpOpen
+InternetQueryOptionW(INTERNET_OPTION_PROXY)
+HKCU Internet Settings: ProxyEnable / ProxyServer / ProxyOverride / AutoConfigURL / AutoDetect
+WMI Win32_NetworkAdapter / Win32_NetworkAdapterConfiguration 行
+```
+
+Node 实测：
+
+```text
+baseline: Meta, 以太网, VMware VMnet1, VMware VMnet8, Loopback
+clean   : 以太网(02:aa:bb:cc:dd:ee), Loopback
+```
+
+边界：`clean` 只改变进程内的用户态视图，不改变实际路由和出口 IP。`GetBestRoute2` 仍可能返回隧道接口索引；服务端仍能看到真实出口。要让服务端也认为“没有代理/VPN”，必须使用住宅/移动出口并保持时区、语言、地理一致，或用 VM/独立网络边界。
 
 ### 内核 / NDIS / WFP / 物理硬件边界
 

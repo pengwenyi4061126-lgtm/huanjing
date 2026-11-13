@@ -25,6 +25,12 @@
 | `CreateFileW` raw device paths | IAT patch; empty policy denies `\\.\PhysicalDrive*` and friends | on |
 | `CreateProcessW` / `CreateProcessInternalW` / `NtCreateUserProcess` | inline + IAT; inject same-image children at creation | on |
 | WMI COM (`CLSID_WbemLocator`) | in-process `IWbemLocator`/`IWbemServices`/`IWbemClassObject` wrappers | on |
+| `GetAdaptersAddresses` / `GetAdaptersInfo` / `GetIfTable2` / `GetIfEntry2` / `GetIfTable` / `GetInterfaceInfo` | virtual-adapter filtering in clean mode | clean |
+| `ConvertInterfaceLuidToNameW/ToAlias` / `ConvertInterfaceNameToLuidW` | virtual-adapter name lookup refused in clean mode | clean |
+| `WinHttpGetIEProxyConfigForCurrentUser` / `WinHttpGetProxyForUrl` / `WinHttpGetDefaultProxyConfiguration` / `WinHttpOpen` | forced DIRECT in clean mode | clean |
+| `InternetQueryOptionW(INTERNET_OPTION_PROXY)` | forced DIRECT in clean mode | clean |
+| Proxy registry values (`ProxyEnable` / `ProxyServer` / `ProxyOverride` / `AutoConfigURL` / `AutoDetect`) | registry read rewrite in clean mode | clean |
+| WMI `Win32_NetworkAdapter` / `Win32_NetworkAdapterConfiguration` rows | virtual rows filtered in clean mode | clean |
 | `CPUID` / `XGETBV` | inline hook at verified function entry | manifest required |
 | Kernel, NDIS, WFP, driver objects, physical hardware | not implemented | — |
 
@@ -35,6 +41,8 @@ Delay imports are resolved by loading the target DLL, resolving the real export,
 The wrapper passes `CAC_NATIVE_READ_POLICY=profile` by default. Set the current Profile's `native_read_policy` file to `empty` to make covered identity reads return empty strings, zero serials, no SMBIOS table, no storage serial, empty SetupDi properties, and zeroed CPUID/XGETBV output. `CAC_NATIVE_CPUID_MODE` accepts `neutral`, `empty`, or `passthrough`; `empty` is selected automatically when the read policy is `empty` unless a Profile-specific `cpuid_mode` file overrides it.
 
 The `profile` mode is the compatibility default. The `empty` mode is intentionally strict and may make applications disable hardware-dependent features. WMI/COM and renderer/utility processes are covered by this build; kernel APIs, NDIS/WFP filters, kernel driver objects and physical firmware still require a signed kernel driver.
+
+`CAC_NETWORK_MODE=clean` (or `network_mode` file set to `clean`) hides virtual adapters from enumeration, refuses virtual LUID/name resolution, forces WinHTTP/IE/registry proxy queries to DIRECT, and filters virtual WMI network rows. `empty` read policy implies `clean`. This is a process-local view: actual routing and the server-visible exit IP are unchanged, and `GetBestRoute2` can still expose a tunnel interface index.
 
 Enable it for a Code Profile with:
 

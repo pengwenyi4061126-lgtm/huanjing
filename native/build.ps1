@@ -41,6 +41,7 @@ $dllSources = @(
     "NativeBridge\ApiHooks.cpp",
     "NativeBridge\ChildInject.cpp",
     "NativeBridge\WmiHooks.cpp",
+    "NativeBridge\NetworkHooks.cpp",
     "NativeBridge\NativeBridge.cpp"
 ) | ForEach-Object { Join-Path $root $_ }
 

@@ -13,6 +13,7 @@ add_library(NativeBridge SHARED
     NativeBridge/ApiHooks.cpp
     NativeBridge/ChildInject.cpp
     NativeBridge/WmiHooks.cpp
+    NativeBridge/NetworkHooks.cpp
     NativeBridge/NativeBridge.cpp
 )
 target_compile_definitions(NativeBridge PRIVATE _WIN32_WINNT=0x0A00 WIN32_LEAN_AND_MEAN UNICODE _UNICODE)

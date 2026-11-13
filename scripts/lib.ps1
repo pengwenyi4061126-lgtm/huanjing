@@ -195,6 +195,10 @@ function Ensure-ProfileLayout {
     if (-not (Test-Path -LiteralPath $cpuidModePath)) {
         Set-Content -LiteralPath $cpuidModePath -Value "neutral" -Encoding ASCII
     }
+    $networkModePath = Join-Path $paths.Root "network_mode"
+    if (-not (Test-Path -LiteralPath $networkModePath)) {
+        Set-Content -LiteralPath $networkModePath -Value "profile" -Encoding ASCII
+    }
 
     $existingIdentity = $null
     if (Test-Path -LiteralPath $paths.IdentityPath) {
@@ -293,6 +297,9 @@ function Get-ProfileEnvironment {
         $cpuidMode = if ($nativeReadPolicy -eq "empty") { "empty" } else { "neutral" }
     }
     if ($cpuidMode -notin @("neutral", "empty", "passthrough")) { $cpuidMode = "neutral" }
+    $networkMode = Read-FileValue (Join-Path $Paths.Root "network_mode") "profile"
+    if ($networkMode -notin @("profile", "clean")) { $networkMode = "profile" }
+    if ($nativeReadPolicy -eq "empty") { $networkMode = "clean" }
     $hostname = [string]$identity.hostname
     $mac = [string]$identity.mac_address
     $machineId = [string]$identity.machine_id
@@ -323,6 +330,7 @@ function Get-ProfileEnvironment {
         CAC_MACHINE_ID    = $machineId
         CAC_NATIVE_READ_POLICY = $nativeReadPolicy
         CAC_NATIVE_CPUID_MODE  = $cpuidMode
+        CAC_NETWORK_MODE       = $networkMode
         USER              = $profileUser
         USERNAME          = $profileUser
         COMPUTERNAME      = $hostname
@@ -659,6 +667,12 @@ if ([string]::IsNullOrWhiteSpace($cpuidMode)) {
 if ($cpuidMode -notin @("neutral", "empty", "passthrough")) { $cpuidMode = "neutral" }
 $env:CAC_NATIVE_READ_POLICY = $nativeReadPolicy
 $env:CAC_NATIVE_CPUID_MODE = $cpuidMode
+$networkMode = if (Test-Path (Join-Path $ed "network_mode")) {
+    (Get-Content (Join-Path $ed "network_mode") -Raw).Trim().ToLowerInvariant()
+} else { "profile" }
+if ($networkMode -notin @("profile", "clean")) { $networkMode = "profile" }
+if ($nativeReadPolicy -eq "empty") { $networkMode = "clean" }
+$env:CAC_NETWORK_MODE = $networkMode
 $env:BUN_JSC_useCodeCache = "false"
 
 if (Test-Path -LiteralPath $hook) {

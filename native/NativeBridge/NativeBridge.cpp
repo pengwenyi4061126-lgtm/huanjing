@@ -5,6 +5,7 @@
 #include "Audit.h"
 #include "ChildInject.h"
 #include "Identity.h"
+#include "NetworkHooks.h"
 #include "WmiHooks.h"
 
 namespace {
@@ -28,6 +29,7 @@ DWORD WINAPI InitializeThread(LPVOID) {
     InstallApiHooks();
     InstallChildInjection();
     InstallWmiHooks();
+    InstallNetworkHooks();
     InstallCpuHooksFromManifest();
 
     char scan[8] = {};

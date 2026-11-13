@@ -131,6 +131,39 @@ bool SpoofWmiValue(const std::wstring& cls, const std::wstring& prop, std::wstri
     return false;
 }
 
+std::wstring GetObjectString(IWbemClassObject* object, LPCWSTR property) {
+    if (!object) return std::wstring();
+    VARIANT value;
+    VariantInit(&value);
+    std::wstring result;
+    if (SUCCEEDED(object->Get(property, 0, &value, nullptr, nullptr)) && value.vt == VT_BSTR &&
+        value.bstrVal) {
+        result.assign(value.bstrVal, SysStringLen(value.bstrVal));
+    }
+    VariantClear(&value);
+    return result;
+}
+
+bool IsVirtualNetworkObject(IWbemClassObject* object) {
+    if (!object || !NativeCleanNetworkEnabled()) return false;
+    const std::wstring cls = GetObjectString(object, L"__CLASS");
+    if (_wcsicmp(cls.c_str(), L"Win32_NetworkAdapter") != 0 &&
+        _wcsicmp(cls.c_str(), L"Win32_NetworkAdapterConfiguration") != 0) {
+        return false;
+    }
+    static const wchar_t* const properties[] = {
+        L"Name", L"Description", L"PNPDeviceID", L"SettingID",
+    };
+    for (const wchar_t* property : properties) {
+        const std::wstring value = GetObjectString(object, property);
+        if (NativeIsVirtualAdapterName(value.c_str())) {
+            AuditEventRateLimited("wmi.network", "clean-none");
+            return true;
+        }
+    }
+    return false;
+}
+
 class RefCounted {
 public:
     RefCounted() : refs_(1) {}
@@ -294,22 +327,40 @@ public:
     HRESULT STDMETHODCALLTYPE Reset() override { return inner_->Reset(); }
     HRESULT STDMETHODCALLTYPE Next(long timeout, ULONG count, IWbemClassObject** objects,
                                    ULONG* returned) override {
-        HRESULT hr = inner_->Next(timeout, count, objects, returned);
-        if (objects && returned) {
-            for (ULONG i = 0; i < *returned; ++i) {
-                if (!objects[i]) continue;
-                WmiObject* wrapper = new (std::nothrow) WmiObject(objects[i]);
+        if (!objects || !returned) return inner_->Next(timeout, count, objects, returned);
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            ULONG fetched = 0;
+            const HRESULT hr = inner_->Next(timeout, count, objects, &fetched);
+            if (FAILED(hr) || fetched == 0) {
+                *returned = 0;
+                return hr;
+            }
+            ULONG kept = 0;
+            for (ULONG i = 0; i < fetched; ++i) {
+                IWbemClassObject* raw = objects[i];
+                if (!raw) continue;
+                if (IsVirtualNetworkObject(raw)) {
+                    raw->Release();
+                    continue;
+                }
+                WmiObject* wrapper = new (std::nothrow) WmiObject(raw);
                 if (!wrapper) {
-                    for (ULONG j = i; j < *returned; ++j) {
-                        if (objects[j]) { objects[j]->Release(); objects[j] = nullptr; }
+                    raw->Release();
+                    for (ULONG j = i + 1; j < fetched; ++j) {
+                        if (objects[j]) objects[j]->Release();
                     }
                     *returned = 0;
                     return E_OUTOFMEMORY;
                 }
-                objects[i] = wrapper;
+                objects[kept++] = wrapper;
             }
+            *returned = kept;
+            if (kept > 0) return hr;
+            if (hr == WBEM_S_FALSE) return S_FALSE;
+            if (hr == WBEM_S_TIMEDOUT) return hr;
         }
-        return hr;
+        *returned = 0;
+        return S_FALSE;
     }
     HRESULT STDMETHODCALLTYPE NextAsync(ULONG count, IWbemObjectSink* sink) override {
         AuditEventRateLimited("wmi.enum", "async-unwrapped");

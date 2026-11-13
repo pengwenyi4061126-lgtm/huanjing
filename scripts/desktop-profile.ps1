@@ -199,6 +199,10 @@ function Initialize-ProfileLayout {
     if (-not (Test-Path -LiteralPath $cpuidModePath -PathType Leaf)) {
         [System.IO.File]::WriteAllText($cpuidModePath, "neutral`r`n", (New-Object System.Text.UTF8Encoding($false)))
     }
+    $networkModePath = Join-Path $Paths.Root 'network_mode'
+    if (-not (Test-Path -LiteralPath $networkModePath -PathType Leaf)) {
+        [System.IO.File]::WriteAllText($networkModePath, "profile`r`n", (New-Object System.Text.UTF8Encoding($false)))
+    }
     return $Paths
 }
 
@@ -418,6 +422,14 @@ function Start-ClaudeDesktop {
             $environment['CAC_NATIVE_CPUID_MODE'] = $cpuidMode
         }
     }
+    $networkMode = 'profile'
+    $networkModePath = Join-Path $Paths.Root 'network_mode'
+    if (Test-Path -LiteralPath $networkModePath -PathType Leaf) {
+        $configured = (Get-Content -LiteralPath $networkModePath -Raw).Trim().ToLowerInvariant()
+        if ($configured -in @('profile', 'clean')) { $networkMode = $configured }
+    }
+    if ($environment['CAC_NATIVE_READ_POLICY'] -eq 'empty') { $networkMode = 'clean' }
+    $environment['CAC_NETWORK_MODE'] = $networkMode
     $manifest = Join-Path $nativeDir 'native-hook-manifest.txt'
     if (Test-Path -LiteralPath $manifest -PathType Leaf) { $environment['CAC_NATIVE_MANIFEST'] = $manifest }
     if ($nativeUsed) { $environment['CAC_NATIVE_DLL'] = $nativeDll }
