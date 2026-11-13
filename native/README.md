@@ -36,7 +36,9 @@ The kernel boundary is documented separately in [kernel/README.md](kernel/README
 | Proxy registry values (`ProxyEnable` / `ProxyServer` / `ProxyOverride` / `AutoConfigURL` / `AutoDetect`) | registry read rewrite in clean mode | clean |
 | WMI `Win32_NetworkAdapter` / `Win32_NetworkAdapterConfiguration` rows | virtual rows filtered in clean mode | clean |
 | `CPUID` / `XGETBV` | inline hook at verified function entry | manifest required |
-| Kernel, NDIS, WFP, driver objects, physical hardware | not implemented | — |
+| CacKernel per-process policy and exit cleanup | signed WDM control plane + narrow IOCTL + audit ring | optional, required by `-RequireKernel` |
+| Dynamic outbound boundary | user-mode WFP dynamic session; app-image match, loopback allow, non-loopback block | `CAC_NETWORK_ENFORCE=1` |
+| NDIS, WFP callout driver, driver objects, physical hardware | not implemented by this DLL/control plane | — |
 
 Delay imports are resolved by loading the target DLL, resolving the real export, and replacing the delay IAT slot with the hook. Critical network, storage, registry, identity, SetupDi and completion APIs use inline-first installation so direct `GetProcAddress` callers are covered when the prologue is recognized; IAT and delay-IAT slots are then patched for imported callers. `LoadLibraryA`/`GetProcAddress` are called from the bridge init thread, not from DllMain. Export forwarders such as the x64 `kernel32!CreateFile2` form are followed to the real implementation before an inline hook is attempted. If a prologue cannot be decoded safely, the audit records `inline-refused` or `not-imported`; that event is partial evidence, never a successful install, and the bridge does not signal ready. SMBIOS string replacement keeps the original byte length and pads with spaces, so structure offsets and the string-set layout stay valid. UUID and processor ID are fixed-size fields.
 
@@ -44,9 +46,11 @@ Delay imports are resolved by loading the target DLL, resolving the real export,
 
 The wrapper passes `CAC_NATIVE_READ_POLICY=profile` by default. Set the current Profile's `native_read_policy` file to `empty` to make covered identity reads return empty strings, zero serials, no SMBIOS table, no storage serial, empty SetupDi properties, and zeroed CPUID/XGETBV output. `CAC_NATIVE_CPUID_MODE` accepts `neutral`, `empty`, or `passthrough`; `empty` is selected automatically when the read policy is `empty` unless a Profile-specific `cpuid_mode` file overrides it.
 
-The `profile` mode is the compatibility default. The `empty` mode is intentionally strict and may make applications disable hardware-dependent features. WMI/COM wrappers and same-image child-process injection are implemented in userland, but each process and each WMI path must be confirmed by audit evidence. Kernel APIs, NDIS/WFP filters, kernel driver objects and physical firmware are outside this DLL's boundary.
+The `profile` mode is the compatibility default. The `empty` mode is intentionally strict and may make applications disable hardware-dependent features. WMI/COM wrappers and same-image child-process injection are implemented in userland, but each process and each WMI path must be confirmed by audit evidence. NativeBridge registers each process with CacKernel and records `kernel.policy=verified`; this is lifecycle/control-plane evidence, not hardware virtualization.
 
 `CAC_NETWORK_MODE=clean` (or `network_mode` file set to `clean`) hides virtual adapters from enumeration, refuses virtual LUID/name resolution, forces WinHTTP/IE/registry proxy queries to DIRECT, and filters virtual WMI network rows. `empty` read policy implies `clean`. This is a process-local view: actual routing and the server-visible exit IP are unchanged, and `GetBestRoute2` can still expose a tunnel interface index.
+
+`CAC_NETWORK_MODE=enforce` additionally sets `CAC_NETWORK_ENFORCE=1`. NativeBridge opens a dynamic WFP session and installs rules for the current executable image: `127.0.0.1` and `::1` are permitted for a local proxy, while other ALE Connect traffic is blocked. Set `CAC_WFP_REQUIRED=1` to refuse readiness when the WFP session cannot be installed. This is not an NDIS lightweight filter or a kernel WFP callout.
 
 Enable it for a Code Profile with:
 
@@ -149,7 +153,7 @@ cpu.xgetbv            observed index
 
 ## Boundaries
 
-- Userland only. No driver, no NDIS/WFP filter, no kernel callback, and no physical-device virtualization.
+- NativeBridge remains a userland return-value layer. CacKernel is a separate SCM-loaded control plane for per-process registration/lifecycle evidence; `network_mode=enforce` adds a dynamic user-mode WFP session for the Claude image.
 - Physical disk, firmware and NIC state are unchanged on the host.
 - `DeviceIoControl` rewrite only handles the supported storage serial queries; other IOCTLs are observed and passed through.
 - An overlapped `DeviceIoControl` request is sanitized only when the bridge tracks the request and later observes completion through `GetOverlappedResult*` or IOCP. A `NtDeviceIoControlFile` request that returns `STATUS_PENDING` has no safe completion context in this bridge and is recorded as `unhandled`/PARTIAL.
@@ -158,7 +162,7 @@ cpu.xgetbv            observed index
 - CPU hooks are opt-in and hash-bound; no unsigned heuristic patch is applied by default.
 - SetupDi calls use the inline path first and the IAT/delay path as fallback. The empty policy clears the supported output buffers, but it does not create a coherent synthetic PnP device graph or change kernel PnP state. Any refused or missing install is recorded as FAIL/PARTIAL by the audit scripts.
 - Same-image renderer/utility injection is a process-lifecycle feature. Each intercepted child must report `native.bridge=ready`; failed or timed-out child injection is terminated. This still is not proof that every external COM server, broker or native helper was intercepted. Missing child evidence remains NOT_OBSERVED/PARTIAL.
-- The bridge does not isolate or rewrite CPUID/SMBIOS/NDIS/WFP/driver-object/physical-hardware reads that bypass the covered userland APIs. The audit never treats a Node or Native userland hook as hardware isolation.
+- The bridge and CacKernel do not virtualize host CPUID, SMBIOS, NDIS, driver-object, DPAPI or physical-hardware reads that bypass the covered userland APIs. The audit never treats a Node/Native hook or dynamic WFP rule as hardware isolation.
 
 ## Claude Desktop 5.1231.2
 

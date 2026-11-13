@@ -6,7 +6,7 @@
 
 | 文件 | 作用 |
 |---|---|
-| `CacKernel.c` | WDM 驱动：设备对象、5 个 IOCTL、per-PID 策略表、审计环 |
+| `CacKernel.c` | WDM 驱动：设备对象、5 个 IOCTL、per-PID 策略表、进程退出清理、审计环 |
 | `CacKernelIoctl.h` | 用户态/内核态共享 ABI，无指针、固定宽度 |
 | `CacKernel.inf` | 遗留 INF 服务定义（SCM 安装是已验证路径） |
 | `build-driver.ps1` | WDK 26100 编译、链接、测试签名、SHA-256 清单 |
@@ -27,10 +27,11 @@
 ```
 
 - 策略表上限 64 个 PID；注册时记录 `PsGetProcessCreateTimeQuadPart`，防止 PID 复用。
-- 查询时用 `PsGetProcessExitStatus` 惰性清理已退出进程，并写 `event=6` 审计。
+- 查询、注册和 ping 时用 `PsGetProcessExitStatus` 惰性清理已退出进程，并写 `event=6` 审计。
 - 审计事件：驱动加载、设备创建、策略注册/注销/拒绝、进程退出清理、未知 IOCTL、通知注册状态。
 - 驱动不含 SSDT/IDT/inline hook，不触碰 PatchGuard 关心的结构。
-- 本机测试签名构建中 `PsSetCreateProcessNotifyRoutineEx` 返回 `STATUS_ACCESS_DENIED (0xC0000022)`，驱动记录 `event=9` 并继续运行；进程清理由查询时的 `PsGetProcessExitStatus` 惰性校验兜底。正式签名构建可再验证该回调。
+- 本机测试签名构建会先尝试 `PsSetCreateProcessNotifyRoutineEx`，失败时回退到兼容的 `PsSetCreateProcessNotifyRoutine`；smoke 必须看到 `notifyRegistered=1` 和 `CAC_CAP_PROCESS_LIFECYCLE`，否则审计不再把控制面标记为完整。
+- NativeBridge 在每个注入进程内执行 register/query 回读；`-RequireKernel` 会在设备不可用、策略注册失败或回读不一致时拒绝 `ready`。
 
 ## 构建
 
@@ -94,5 +95,6 @@ NOT_IMPLEMENTED -> BUILT_UNSIGNED / HASH_MISMATCH -> SIGNED_DRIVER_READY
 - 测试签名驱动只用于本机验证，不可作为发行包直接分发。
 - 设备 DACL 限制为 SYSTEM/Administrators；本地管理员本来就能加载/卸载驱动，这不是提权边界。
 - 驱动不修改 CPUID、XGETBV、SMBIOS、物理网卡、磁盘固件、BIOS 或 DPAPI。
-- 当前策略是“可注册、可查询、可审计”，还没有内核消费者按策略改写返回值；真正的硬件视图隔离仍需 VM 或独立机器。
-- NDIS LWF / WFP callout 是独立组件，不在本驱动内。
+- 当前策略是“可注册、可查询、可审计”，内核驱动本身不重写硬件返回值；NativeBridge 负责已覆盖用户态 API 的 Profile/empty 语义。
+- `network_mode=enforce` 使用 NativeBridge 的动态 WFP 会话对 Claude 镜像做回环允许/非回环阻断；这不是本驱动内的 NDIS LWF 或 WFP callout。
+- 物理硬件、BIOS/SMBIOS、CPUID、XGETBV、DPAPI 和驱动内部读取仍不属于该控制面的虚拟化能力。

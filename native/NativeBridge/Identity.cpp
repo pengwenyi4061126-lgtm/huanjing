@@ -115,6 +115,7 @@ bool ProfileIdentity::Load() {
 
     JsonString(document, "hostname", hostname);
     JsonString(document, "machine_id", machineId);
+    JsonString(document, "stable_id", stableId);
     JsonString(document, "mac_address", mac);
     JsonString(document, "disk_serial", diskSerial);
     JsonString(document, "bios_serial", biosSerial);
@@ -134,6 +135,7 @@ bool ProfileIdentity::Load() {
     username = GetEnvA("CAC_USERNAME");
 
     if (machineId.empty()) machineId = HexFromHash("cac-fallback", 32);
+    if (stableId.empty()) stableId = HexFromHash(machineId + "|stable", 32);
 
     if (hostname.empty()) hostname = "host-" + HexFromHash(machineId + "|host", 8);
     if (username.empty()) username = "user-" + HexFromHash(machineId + "|user", 8);

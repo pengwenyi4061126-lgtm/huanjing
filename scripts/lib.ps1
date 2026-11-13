@@ -404,8 +404,8 @@ function Get-ProfileEnvironment {
     }
     if ($cpuidMode -notin @("neutral", "empty", "passthrough")) { $cpuidMode = "neutral" }
     $networkMode = Read-FileValue (Join-Path $Paths.Root "network_mode") "profile"
-    if ($networkMode -notin @("profile", "clean")) { $networkMode = "profile" }
-    if ($nativeReadPolicy -eq "empty") { $networkMode = "clean" }
+    if ($networkMode -notin @("profile", "clean", "enforce")) { $networkMode = "profile" }
+    if ($nativeReadPolicy -eq "empty" -and $networkMode -ne "enforce") { $networkMode = "clean" }
     $hostname = [string]$identity.hostname
     $mac = [string]$identity.mac_address
     $machineId = [string]$identity.machine_id
@@ -448,6 +448,9 @@ function Get-ProfileEnvironment {
         CAC_NATIVE_READ_POLICY = $nativeReadPolicy
         CAC_NATIVE_CPUID_MODE  = $cpuidMode
         CAC_NETWORK_MODE       = $networkMode
+        CAC_NETWORK_ENFORCE    = if ($networkMode -eq "enforce") { "1" } else { "0" }
+        CAC_WFP_REQUIRED       = if ($networkMode -eq "enforce") { "1" } else { "0" }
+        CAC_KERNEL_POLICY_REQUIRED = if ($networkMode -eq "enforce") { "1" } else { "0" }
         USER              = $profileUser
         USERNAME          = $profileUser
         COMPUTERNAME      = $hostname
@@ -814,9 +817,11 @@ $env:CAC_NATIVE_CPUID_MODE = $cpuidMode
 $networkMode = if (Test-Path (Join-Path $ed "network_mode")) {
     (Get-Content (Join-Path $ed "network_mode") -Raw).Trim().ToLowerInvariant()
 } else { "profile" }
-if ($networkMode -notin @("profile", "clean")) { $networkMode = "profile" }
-if ($nativeReadPolicy -eq "empty") { $networkMode = "clean" }
+if ($networkMode -notin @("profile", "clean", "enforce")) { $networkMode = "profile" }
+if ($nativeReadPolicy -eq "empty" -and $networkMode -ne "enforce") { $networkMode = "clean" }
 $env:CAC_NETWORK_MODE = $networkMode
+$env:CAC_NETWORK_ENFORCE = if ($networkMode -eq "enforce") { "1" } else { "0" }
+$env:CAC_WFP_REQUIRED = if ($networkMode -eq "enforce") { "1" } else { "0" }
 $env:BUN_JSC_useCodeCache = "false"
 
 if (Test-Path -LiteralPath $hook) {
@@ -859,6 +864,7 @@ $nativeDllHashFile = Join-Path $d "native\NativeBridge.sha256"
 $nativeLauncherHashFile = Join-Path $d "native\cac-native-launch.sha256"
 $nativeManifest = Join-Path $d "native\native-hook-manifest.txt"
 $env:CAC_NATIVE_AUDIT = Join-Path $audit "native-hook.jsonl"
+$env:CAC_KERNEL_POLICY_REQUIRED = "0"
 if ((Test-Path -LiteralPath $nativeLauncher) -and (Test-Path -LiteralPath $nativeDll) -and ($real -like "*.exe")) {
     if (-not (Test-Path -LiteralPath $nativeDllHashFile -PathType Leaf) -or
         -not (Test-Path -LiteralPath $nativeLauncherHashFile -PathType Leaf)) {
@@ -874,8 +880,12 @@ if ((Test-Path -LiteralPath $nativeLauncher) -and (Test-Path -LiteralPath $nativ
         exit 1
     }
     $env:CAC_NATIVE_DLL = $nativeDll
+    $env:CAC_KERNEL_POLICY_REQUIRED = "1"
     if (Test-Path -LiteralPath $nativeManifest) { $env:CAC_NATIVE_MANIFEST = $nativeManifest }
     & $nativeLauncher $real @args
+} elseif ($networkMode -eq "enforce") {
+    Write-Error "[cac] network_mode=enforce requires the verified NativeBridge launcher"
+    exit 1
 } else {
     & $real @args
 }

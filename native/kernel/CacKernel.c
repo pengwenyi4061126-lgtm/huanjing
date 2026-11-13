@@ -22,6 +22,7 @@ typedef struct _CAC_DEVICE_EXTENSION {
     ULONG AuditNext;
     ULONG AuditTotal;
     BOOLEAN NotifyRegistered;
+    BOOLEAN LegacyNotifyRegistered;
 } CAC_DEVICE_EXTENSION;
 
 static PDEVICE_OBJECT g_CacDevice = NULL;
@@ -53,6 +54,9 @@ CacAuditAppend(
     Extension->Audit[index].ProcessId = ProcessId;
     Extension->Audit[index].Status = (ULONG)Status;
     Extension->Audit[index].TimestampUtc = now.QuadPart;
+    if (Detail == NULL) {
+        Detail = "";
+    }
     for (i = 0; i + 1 < CAC_AUDIT_DETAIL_LENGTH && Detail[i] != '\0'; ++i) {
         Extension->Audit[index].Detail[i] = Detail[i];
     }
@@ -83,6 +87,87 @@ CacAuditCounts(
     *Dropped = value > CAC_AUDIT_CAPACITY ? value - CAC_AUDIT_CAPACITY : 0;
 }
 
+static BOOLEAN
+CacIsProcessAlive(
+    _In_ ULONG ProcessId,
+    _In_ LONGLONG CreateTime
+    )
+{
+    PEPROCESS process = NULL;
+    BOOLEAN alive = FALSE;
+    NTSTATUS status = PsLookupProcessByProcessId(
+        (HANDLE)(ULONG_PTR)ProcessId, &process);
+
+    if (NT_SUCCESS(status)) {
+        alive = PsGetProcessCreateTimeQuadPart(process) == CreateTime &&
+                PsGetProcessExitStatus(process) == STATUS_PENDING;
+        ObDereferenceObject(process);
+    }
+    return alive;
+}
+
+static ULONG
+CacPurgeStalePolicies(
+    _In_ CAC_DEVICE_EXTENSION *Extension
+    )
+{
+    PLIST_ENTRY cursor;
+    ULONG purged = 0;
+
+    ExAcquireResourceExclusiveLite(&Extension->PolicyLock, TRUE);
+    cursor = Extension->PolicyList.Flink;
+    while (cursor != &Extension->PolicyList) {
+        PLIST_ENTRY next = cursor->Flink;
+        CAC_POLICY_ENTRY *candidate = CONTAINING_RECORD(cursor, CAC_POLICY_ENTRY, Link);
+        if (!CacIsProcessAlive(candidate->ProcessId, candidate->CreateTime)) {
+            RemoveEntryList(cursor);
+            Extension->PolicyCount -= 1;
+            ExFreePoolWithTag(candidate, CAC_POOL_TAG);
+            purged += 1;
+        }
+        cursor = next;
+    }
+    ExReleaseResourceLite(&Extension->PolicyLock);
+
+    if (purged != 0) {
+        CacAuditAppend(Extension, CacAuditProcessExit, 0, STATUS_SUCCESS,
+                       "stale policies purged");
+    }
+    return purged;
+}
+
+static BOOLEAN
+CacPurgePolicyForProcessId(
+    _In_ CAC_DEVICE_EXTENSION *Extension,
+    _In_ ULONG ProcessId
+    )
+{
+    PLIST_ENTRY cursor;
+    CAC_POLICY_ENTRY *found = NULL;
+
+    ExAcquireResourceExclusiveLite(&Extension->PolicyLock, TRUE);
+    for (cursor = Extension->PolicyList.Flink;
+         cursor != &Extension->PolicyList;
+         cursor = cursor->Flink) {
+        CAC_POLICY_ENTRY *candidate = CONTAINING_RECORD(cursor, CAC_POLICY_ENTRY, Link);
+        if (candidate->ProcessId == ProcessId) {
+            RemoveEntryList(cursor);
+            Extension->PolicyCount -= 1;
+            found = candidate;
+            break;
+        }
+    }
+    ExReleaseResourceLite(&Extension->PolicyLock);
+
+    if (found == NULL) {
+        return FALSE;
+    }
+    ExFreePoolWithTag(found, CAC_POOL_TAG);
+    CacAuditAppend(Extension, CacAuditProcessExit, ProcessId,
+                   STATUS_SUCCESS, "policy purged on exit");
+    return TRUE;
+}
+
 static NTSTATUS
 CacRegisterPolicy(
     _In_ CAC_DEVICE_EXTENSION *Extension,
@@ -96,7 +181,7 @@ CacRegisterPolicy(
     CAC_POLICY_ENTRY *existing = NULL;
     PLIST_ENTRY cursor;
 
-    if (Request->Version != CAC_KERNEL_PROTOCOL_VERSION) {
+    if (Request == NULL || Request->Version != CAC_KERNEL_PROTOCOL_VERSION) {
         return STATUS_REVISION_MISMATCH;
     }
     if (Request->ProcessId == 0 || Request->ProcessId == 4) {
@@ -105,6 +190,8 @@ CacRegisterPolicy(
     if ((Request->Flags & ~CAC_POLICY_FLAG_ALL) != 0) {
         return STATUS_INVALID_PARAMETER;
     }
+
+    CacPurgeStalePolicies(Extension);
 
     status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)Request->ProcessId, &process);
     if (!NT_SUCCESS(status)) {
@@ -165,7 +252,7 @@ CacUnregisterPolicy(
     PLIST_ENTRY cursor;
     CAC_POLICY_ENTRY *found = NULL;
 
-    if (ProcessId == 0) {
+    if (ProcessId == 0 || ProcessId == 4) {
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -221,22 +308,11 @@ CacQueryPolicy(
         }
     }
 
-    if (stale != NULL) {
-        PEPROCESS process = NULL;
-        NTSTATUS lookup = PsLookupProcessByProcessId(
-            (HANDLE)(ULONG_PTR)ProcessId, &process);
-        BOOLEAN alive = FALSE;
-        if (NT_SUCCESS(lookup)) {
-            alive = PsGetProcessCreateTimeQuadPart(process) == stale->CreateTime &&
-                    PsGetProcessExitStatus(process) == STATUS_PENDING;
-            ObDereferenceObject(process);
-        }
-        if (!alive) {
+    if (stale != NULL && !CacIsProcessAlive(ProcessId, stale->CreateTime)) {
             RemoveEntryList(&stale->Link);
             Extension->PolicyCount -= 1;
             found = FALSE;
             purged = TRUE;
-        }
     }
     ExReleaseResourceLite(&Extension->PolicyLock);
 
@@ -263,8 +339,6 @@ CacProcessNotify(
     )
 {
     CAC_DEVICE_EXTENSION *extension;
-    PLIST_ENTRY cursor;
-    CAC_POLICY_ENTRY *found = NULL;
     ULONG pid;
 
     UNREFERENCED_PARAMETER(Process);
@@ -274,26 +348,27 @@ CacProcessNotify(
 
     pid = (ULONG)(ULONG_PTR)ProcessId;
     extension = (CAC_DEVICE_EXTENSION *)g_CacDevice->DeviceExtension;
+    CacPurgePolicyForProcessId(extension, pid);
+}
 
-    ExAcquireResourceExclusiveLite(&extension->PolicyLock, TRUE);
-    for (cursor = extension->PolicyList.Flink;
-         cursor != &extension->PolicyList;
-         cursor = cursor->Flink) {
-        CAC_POLICY_ENTRY *candidate = CONTAINING_RECORD(cursor, CAC_POLICY_ENTRY, Link);
-        if (candidate->ProcessId == pid) {
-            RemoveEntryList(cursor);
-            extension->PolicyCount -= 1;
-            found = candidate;
-            break;
-        }
-    }
-    ExReleaseResourceLite(&extension->PolicyLock);
+static VOID
+CacProcessNotifyLegacy(
+    _In_ HANDLE ParentId,
+    _In_ HANDLE ProcessId,
+    _In_ BOOLEAN Create
+    )
+{
+    CAC_DEVICE_EXTENSION *extension;
+    ULONG pid;
 
-    if (found != NULL) {
-        ExFreePoolWithTag(found, CAC_POOL_TAG);
-        CacAuditAppend(extension, CacAuditProcessExit, pid,
-                       STATUS_SUCCESS, "policy purged on exit");
+    UNREFERENCED_PARAMETER(ParentId);
+    if (Create || g_CacDevice == NULL) {
+        return;
     }
+
+    pid = (ULONG)(ULONG_PTR)ProcessId;
+    extension = (CAC_DEVICE_EXTENSION *)g_CacDevice->DeviceExtension;
+    CacPurgePolicyForProcessId(extension, pid);
 }
 
 static NTSTATUS
@@ -314,6 +389,11 @@ CacPing(
     response->Version = CAC_KERNEL_PROTOCOL_VERSION;
     response->Capabilities =
         CAC_CAP_CONTROL_PLANE | CAC_CAP_PER_PROCESS_POLICY | CAC_CAP_AUDIT_RING;
+
+    CacPurgeStalePolicies(Extension);
+    if (Extension->NotifyRegistered) {
+        response->Capabilities |= CAC_CAP_PROCESS_LIFECYCLE;
+    }
 
     ExAcquireResourceSharedLite(&Extension->PolicyLock, TRUE);
     response->PolicyCount = Extension->PolicyCount;
@@ -457,6 +537,10 @@ CacDeviceControl(
             status = STATUS_BUFFER_TOO_SMALL;
             break;
         }
+        if (request->Version != CAC_KERNEL_PROTOCOL_VERSION) {
+            status = STATUS_REVISION_MISMATCH;
+            break;
+        }
         status = CacUnregisterPolicy(extension, request->ProcessId);
         if (NT_SUCCESS(status)) {
             CacAuditAppend(extension, CacAuditPolicyUnregister,
@@ -474,6 +558,14 @@ CacDeviceControl(
         if (inputLength < sizeof(ULONG) * 2 ||
             outputLength < sizeof(CAC_POLICY_RESPONSE)) {
             status = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+        if (request->Version != CAC_KERNEL_PROTOCOL_VERSION) {
+            status = STATUS_REVISION_MISMATCH;
+            break;
+        }
+        if (request->ProcessId == 0 || request->ProcessId == 4) {
+            status = STATUS_INVALID_PARAMETER;
             break;
         }
         status = CacQueryPolicy(extension, request->ProcessId, response);
@@ -516,8 +608,13 @@ CacDriverUnload(
     }
 
     if (extension != NULL && extension->NotifyRegistered) {
-        PsSetCreateProcessNotifyRoutineEx(CacProcessNotify, TRUE);
+        if (extension->LegacyNotifyRegistered) {
+            PsSetCreateProcessNotifyRoutine(CacProcessNotifyLegacy, TRUE);
+        } else {
+            PsSetCreateProcessNotifyRoutineEx(CacProcessNotify, TRUE);
+        }
         extension->NotifyRegistered = FALSE;
+        extension->LegacyNotifyRegistered = FALSE;
     }
 
     if (g_CacSymlinkCreated) {
@@ -607,11 +704,21 @@ DriverEntry(
     status = PsSetCreateProcessNotifyRoutineEx(CacProcessNotify, FALSE);
     if (NT_SUCCESS(status)) {
         extension->NotifyRegistered = TRUE;
+        extension->LegacyNotifyRegistered = FALSE;
         CacAuditAppend(extension, CacAuditNotifyState,
                        0, status, "process notify registered");
     } else {
-        CacAuditAppend(extension, CacAuditNotifyState,
-                       0, status, "process notify registration failed");
+        NTSTATUS legacyStatus = PsSetCreateProcessNotifyRoutine(
+            CacProcessNotifyLegacy, FALSE);
+        if (NT_SUCCESS(legacyStatus)) {
+            extension->NotifyRegistered = TRUE;
+            extension->LegacyNotifyRegistered = TRUE;
+            CacAuditAppend(extension, CacAuditNotifyState,
+                           0, legacyStatus, "legacy process notify registered");
+        } else {
+            CacAuditAppend(extension, CacAuditNotifyState,
+                           0, status, "process notify registration failed");
+        }
     }
 
     CacAuditAppend(extension, CacAuditDriverLoad,

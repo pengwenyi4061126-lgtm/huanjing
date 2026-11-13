@@ -50,15 +50,43 @@ function Get-CacSignatureInfo([string]$Path) {
     try {
         $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromSignedFile($Path)
     } catch {
-        return [pscustomobject]@{ Status = 'NotSigned'; Signer = $null }
+        return [pscustomobject]@{
+            Status = 'NotSigned'
+            AuthenticodeStatus = 'NotSigned'
+            KernelPolicyStatus = 'NotSigned'
+            Signer = $null
+        }
     }
     $signtool = Find-CacSignTool
     if (-not $signtool) {
-        return [pscustomobject]@{ Status = 'Unknown'; Signer = $cert.Subject }
+        return [pscustomobject]@{
+            Status = 'Unknown'
+            AuthenticodeStatus = 'Unknown'
+            KernelPolicyStatus = 'Unknown'
+            Signer = $cert.Subject
+        }
     }
-    & $signtool verify /pa /q $Path 2>$null | Out-Null
+    $previousErrorAction = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $signtool verify /pa /q $Path 2>$null | Out-Null
+        $authCode = $LASTEXITCODE
+        & $signtool verify /kp /q $Path 2>$null | Out-Null
+        $kernelCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+    $kernelStatus = if ($kernelCode -eq 0) {
+        'Valid'
+    } elseif ((Get-BcdValue 'testsigning') -match '(?i)\bYes\b') {
+        'TestSigned'
+    } else {
+        'Invalid'
+    }
     return [pscustomobject]@{
-        Status = if ($LASTEXITCODE -eq 0) { 'Valid' } else { 'Invalid' }
+        Status = if ($authCode -eq 0) { 'Valid' } else { 'Invalid' }
+        AuthenticodeStatus = if ($authCode -eq 0) { 'Valid' } else { 'Invalid' }
+        KernelPolicyStatus = $kernelStatus
         Signer = $cert.Subject
     }
 }
@@ -84,6 +112,8 @@ function Get-FileRecord {
         length = $item.Length
         sha256 = $hash
         signatureStatus = [string]$signature.Status
+        authenticodeStatus = [string]$signature.AuthenticodeStatus
+        kernelPolicyStatus = [string]$signature.KernelPolicyStatus
         signer = $signature.Signer
     }
 }
@@ -159,6 +189,10 @@ $declaredHash = if (Test-Path -LiteralPath $manifestPath) {
     (Get-Content -LiteralPath $manifestPath -Raw).Trim().ToUpperInvariant()
 } else { $null }
 $hashMatch = [bool]($driver.present -and $declaredHash -and $declaredHash -eq $driver.sha256)
+$installedDriverPath = Join-Path $env:SystemRoot 'System32\drivers\CacKernel.sys'
+$installedDriver = Get-FileRecord $installedDriverPath
+$installedHashMatch = [bool]($driver.present -and $installedDriver.present -and
+    $installedDriver.sha256 -eq $driver.sha256)
 
 $service = Get-CimInstance -ClassName Win32_SystemDriver -Filter "Name='CacKernel'" -ErrorAction SilentlyContinue
 $serviceState = if ($service) { [string]$service.State } else { 'Absent' }
@@ -174,8 +208,14 @@ $smokeVerified = [bool](
     $installEvidence.smoke -and
     $installEvidence.smoke.exitCode -eq 0 -and
     $installEvidence.driver -and
-    $installEvidence.driver.sha256 -eq $driver.sha256
+    $installEvidence.driver.sha256 -eq $driver.sha256 -and
+    $installEvidence.smoke.output -and
+    $installEvidence.smoke.output.notifyRegistered -eq 1 -and
+    $installEvidence.smoke.output.capabilities -band 8
 )
+$lifecycleVerified = [bool]($smokeVerified -and
+    $installEvidence.smoke.output.notifyRegistered -eq 1 -and
+    ($installEvidence.smoke.output.capabilities -band 8))
 
 $status = 'NOT_IMPLEMENTED'
 $capability = 'NOT_IMPLEMENTED'
@@ -186,13 +226,16 @@ if ($driver.present) {
     } elseif ($driver.signatureStatus -ne 'Valid') {
         $status = 'BUILT_UNSIGNED'
         $capability = 'DRIVER_INVALID'
+    } elseif (-not $installedHashMatch) {
+        $status = 'INSTALLED_HASH_MISMATCH'
+        $capability = 'DRIVER_INVALID'
     } elseif (-not $serviceInstalled) {
         $status = 'SIGNED_DRIVER_READY'
         $capability = 'CONTROL_PLANE_READY'
     } elseif ($serviceState -ne 'Running') {
         $status = 'SERVICE_INSTALLED'
         $capability = 'CONTROL_PLANE_READY'
-    } elseif ($smokeVerified) {
+    } elseif ($smokeVerified -and $lifecycleVerified) {
         $status = 'RUNNING_VERIFIED'
         $capability = 'CONTROL_PLANE_ONLY'
     } else {
@@ -246,11 +289,17 @@ $result = [ordered]@{
         declaredSha256 = $declaredHash
         hashMatch = $hashMatch
         signatureStatus = $driver.signatureStatus
+        authenticodeStatus = $driver.authenticodeStatus
+        kernelPolicyStatus = $driver.kernelPolicyStatus
         signer = $driver.signer
         serviceName = 'CacKernel'
         serviceState = $serviceState
         serviceInstalled = $serviceInstalled
         smokeVerified = $smokeVerified
+        lifecycleVerified = $lifecycleVerified
+        installed = $installedDriver
+        installedHashMatch = $installedHashMatch
+        productionKernelPolicyReady = $driver.kernelPolicyStatus -eq 'Valid'
         installEvidence = $installEvidencePath
     }
     capability = $capability
@@ -259,7 +308,8 @@ $result = [ordered]@{
         'WDK availability is not proof that a kernel driver exists or is loaded.'
         'A signed driver must be installed through the approved SCM/INF path.'
         'Manual mapping and vulnerable-driver loading are rejected by project policy.'
-        'RUNNING_VERIFIED proves the signed control-plane IOCTL, per-PID policy, and audit smoke test.'
+        'RUNNING_VERIFIED proves the Authenticode-valid control-plane IOCTL, installed-file hash, per-PID policy, lifecycle callback, and audit smoke test.'
+        'kernelPolicyStatus=TestSigned means local test-signing mode; it is not Microsoft production kernel-policy validation.'
         'The driver does not spoof CPUID, SMBIOS, NICs, disks, firmware, or DPAPI; it is not hardware isolation.'
     )
 }

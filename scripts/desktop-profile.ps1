@@ -15,6 +15,7 @@ param(
     [string]$Exe = 'C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\claude.exe',
     [switch]$Inject,
     [switch]$Fingerprint,
+    [switch]$RequireKernel,
     [int]$WaitSeconds = 30
 )
 
@@ -922,6 +923,9 @@ function Start-ClaudeDesktop {
         $arguments = $userDataArgument + $extraArguments
         $mode = 'direct'
     }
+    if ($RequireKernel -and -not $nativeUsed) {
+        throw '-RequireKernel requires -Inject so NativeBridge can register the process policy'
+    }
     if ($UseFingerprint) { $mode += '+fingerprint' }
 
     $homeDrive = ''
@@ -957,6 +961,7 @@ function Start-ClaudeDesktop {
         CAC_NATIVE_READ_POLICY = 'profile'
         CAC_NATIVE_CPUID_MODE  = 'neutral'
         CAC_NATIVE_AUDIT     = (Join-Path $Paths.AuditDir 'native-hook.jsonl')
+        CAC_KERNEL_POLICY_REQUIRED = if ($RequireKernel -and $nativeUsed) { '1' } else { '0' }
     }
     $nativePolicyPath = Join-Path $Paths.Root 'native_read_policy'
     if (Test-Path -LiteralPath $nativePolicyPath -PathType Leaf) {
@@ -977,10 +982,15 @@ function Start-ClaudeDesktop {
     $networkModePath = Join-Path $Paths.Root 'network_mode'
     if (Test-Path -LiteralPath $networkModePath -PathType Leaf) {
         $configured = (Get-Content -LiteralPath $networkModePath -Raw).Trim().ToLowerInvariant()
-        if ($configured -in @('profile', 'clean')) { $networkMode = $configured }
+        if ($configured -in @('profile', 'clean', 'enforce')) { $networkMode = $configured }
     }
-    if ($environment['CAC_NATIVE_READ_POLICY'] -eq 'empty') { $networkMode = 'clean' }
+    if ($environment['CAC_NATIVE_READ_POLICY'] -eq 'empty' -and $networkMode -ne 'enforce') { $networkMode = 'clean' }
+    if ($networkMode -eq 'enforce' -and -not $nativeUsed) {
+        throw 'network_mode=enforce requires -Inject so NativeBridge can install the per-process WFP boundary'
+    }
     $environment['CAC_NETWORK_MODE'] = $networkMode
+    $environment['CAC_NETWORK_ENFORCE'] = if ($networkMode -eq 'enforce') { '1' } else { '0' }
+    $environment['CAC_WFP_REQUIRED'] = if ($networkMode -eq 'enforce' -and $nativeUsed) { '1' } else { '0' }
     $manifest = Join-Path $nativeDir 'native-hook-manifest.txt'
     if (Test-Path -LiteralPath $manifest -PathType Leaf) { $environment['CAC_NATIVE_MANIFEST'] = $manifest }
     if ($nativeUsed) { $environment['CAC_NATIVE_DLL'] = $nativeDll }

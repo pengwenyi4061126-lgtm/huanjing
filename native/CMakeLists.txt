@@ -14,12 +14,14 @@ add_library(NativeBridge SHARED
     NativeBridge/ChildInject.cpp
     NativeBridge/WmiHooks.cpp
     NativeBridge/NetworkHooks.cpp
+    NativeBridge/KernelPolicy.cpp
+    NativeBridge/WfpPolicy.cpp
     NativeBridge/NativeBridge.cpp
 )
 target_compile_definitions(NativeBridge PRIVATE _WIN32_WINNT=0x0A00 WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 target_compile_options(NativeBridge PRIVATE /guard:cf)
 target_link_options(NativeBridge PRIVATE /guard:cf /Brepro)
-target_link_libraries(NativeBridge PRIVATE iphlpapi bcrypt wbemuuid ole32 oleaut32)
+target_link_libraries(NativeBridge PRIVATE iphlpapi bcrypt wbemuuid ole32 oleaut32 fwpuclnt ws2_32)
 
 add_executable(cac-native-launch Launcher/main.cpp)
 target_compile_definitions(cac-native-launch PRIVATE _WIN32_WINNT=0x0A00 WIN32_LEAN_AND_MEAN UNICODE _UNICODE)

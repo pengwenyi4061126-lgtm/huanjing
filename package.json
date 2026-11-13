@@ -1,6 +1,6 @@
 {
   "name": "cac-windows",
-  "version": "1.0.41",
+  "version": "1.0.42",
   "description": "Claude Code Windows privacy tool — binary patches to remove Chinese identity markers.",
   "bin": {
     "cac": "cac.cmd"
@@ -59,6 +59,7 @@
     "audit:native": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/native-boundary-check.ps1",
     "audit:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-native-check.ps1",
     "audit:kernel": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/kernel-boundary-check.ps1",
+    "native:wfp:smoke": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/tests/run-wfp-smoke.ps1",
     "kernel:build": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/kernel/build-driver.ps1",
     "kernel:install": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/kernel/install-driver.ps1",
     "kernel:uninstall": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/kernel/install-driver.ps1 -Uninstall",

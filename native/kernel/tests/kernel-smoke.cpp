@@ -46,6 +46,7 @@ static void WriteJson(const wchar_t *path, const CAC_PING_RESPONSE &ping, DWORD 
         "  \"capabilities\": %lu,\n"
         "  \"policyCount\": %lu,\n"
         "  \"auditCount\": %lu,\n"
+        "  \"notifyRegistered\": %lu,\n"
         "  \"pid\": %lu,\n"
         "  \"failures\": %d\n"
         "}\n",
@@ -53,6 +54,7 @@ static void WriteJson(const wchar_t *path, const CAC_PING_RESPONSE &ping, DWORD 
         (unsigned long)ping.Capabilities,
         (unsigned long)ping.PolicyCount,
         (unsigned long)ping.AuditCount,
+        (unsigned long)ping.NotifyRegistered,
         (unsigned long)pid,
         g_failures);
     fclose(file);
@@ -91,7 +93,9 @@ int wmain(int argc, wchar_t **argv) {
     Check((ping.Capabilities & CAC_CAP_CONTROL_PLANE) != 0, "control-plane capability");
     Check((ping.Capabilities & CAC_CAP_PER_PROCESS_POLICY) != 0, "per-process policy capability");
     Check((ping.Capabilities & CAC_CAP_AUDIT_RING) != 0, "audit ring capability");
+    Check((ping.Capabilities & CAC_CAP_PROCESS_LIFECYCLE) != 0, "process lifecycle capability");
     Check(ping.ServiceState == 1, "service state reports ready");
+    Check(ping.NotifyRegistered == 1, "process notify registered");
     printf("  [INFO] process notify registered: %lu\n", (unsigned long)ping.NotifyRegistered);
 
     DWORD pid = GetCurrentProcessId();

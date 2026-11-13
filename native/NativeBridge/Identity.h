@@ -11,6 +11,7 @@ struct ProfileIdentity {
     std::string  hostname;
     std::string  username;
     std::string  machineId;
+    std::string  stableId;
     std::string  mac;              // aa:bb:cc:dd:ee:ff
     BYTE         macBytes[6] = {};
     bool         hasMac = false;

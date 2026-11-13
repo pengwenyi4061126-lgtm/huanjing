@@ -1770,7 +1770,8 @@ bool NativeCleanNetworkEnabled() {
         char value[16] = {};
         const DWORD size = GetEnvironmentVariableA("CAC_NETWORK_MODE", value,
                                                    static_cast<DWORD>(sizeof(value)));
-        cached = (size > 0 && size < sizeof(value) && _stricmp(value, "clean") == 0) ? 1 : 0;
+        cached = (size > 0 && size < sizeof(value) &&
+                  (_stricmp(value, "clean") == 0 || _stricmp(value, "enforce") == 0)) ? 1 : 0;
     }
     return cached == 1;
 }

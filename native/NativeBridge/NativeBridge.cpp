@@ -6,7 +6,9 @@
 #include "Audit.h"
 #include "ChildInject.h"
 #include "Identity.h"
+#include "KernelPolicy.h"
 #include "NetworkHooks.h"
+#include "WfpPolicy.h"
 #include "WmiHooks.h"
 
 namespace {
@@ -51,6 +53,18 @@ DWORD WINAPI InitializeThread(LPVOID) {
     InstallWmiHooks();
     InstallNetworkHooks();
     InstallCpuHooksFromManifest();
+
+    const bool kernelPolicyReady = RegisterCurrentProcessKernelPolicy();
+    if (!kernelPolicyReady && KernelPolicyRequired()) {
+        AuditEvent("native.bridge", "failed", "kernel-policy-required", 0, false);
+        return 0;
+    }
+
+    const bool wfpReady = InstallWfpBoundary();
+    if (!wfpReady && WfpPolicyRequired()) {
+        AuditEvent("native.bridge", "failed", "wfp-policy-required", 0, false);
+        return 0;
+    }
 
     char scan[8] = {};
     if (GetEnvironmentVariableA("CAC_NATIVE_SCAN", scan, sizeof(scan)) > 0 && scan[0] == '1') {

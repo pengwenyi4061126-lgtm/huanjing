@@ -7,6 +7,8 @@ param(
     [switch]$RequireChild,
     [switch]$RequireCpuManifest,
     [switch]$RequireRendererUtility,
+    [switch]$RequireKernel,
+    [switch]$RequireWfp,
     [switch]$Strict,
     [switch]$AllowPartial
 )
@@ -88,6 +90,24 @@ $cpuManifest = @($session | Where-Object { $_.surface -eq 'cpu.manifest' } | Sel
 $cpuInstalled = @($session | Where-Object {
     $_.surface -eq 'cpu.install' -and $_.action -eq 'installed'
 })
+$kernelVerified = @($session | Where-Object {
+    $_.surface -eq 'kernel.policy' -and $_.action -eq 'verified'
+}).Count -gt 0
+$kernelFailures = @($session | Where-Object {
+    $_.surface -eq 'kernel.policy' -and $_.action -match 'failed|unavailable'
+})
+$wfpInstalled = @($session | Where-Object {
+    $_.surface -eq 'wfp.policy' -and $_.action -eq 'installed'
+})
+$wfpFailures = @($session | Where-Object {
+    $_.surface -eq 'wfp.policy' -and $_.action -eq 'failed'
+})
+$networkMode = 'profile'
+$networkModePath = Join-Path $root 'network_mode'
+if (Test-Path -LiteralPath $networkModePath -PathType Leaf) {
+    $configuredMode = (Get-Content -LiteralPath $networkModePath -Raw).Trim().ToLowerInvariant()
+    if ($configuredMode) { $networkMode = $configuredMode }
+}
 $ready = @($session | Where-Object { $_.surface -eq 'native.bridge' -and $_.action -eq 'ready' }).Count -gt 0
 
 $result = [ordered]@{
@@ -116,6 +136,8 @@ $result = [ordered]@{
         apiInstallNotImportedDetails = @($notImported | ForEach-Object {
             [ordered]@{ detail = $_.detail; pid = $_.pid }
         })
+        kernelPolicyVerified = $kernelVerified
+        kernelPolicyFailures = $kernelFailures.Count
         childInjected = $childInjected.Count
         childInjectionFailures = $childFailed.Count
         childDetails = @($children | ForEach-Object {
@@ -132,6 +154,9 @@ $result = [ordered]@{
         deviceIoPendingUnverified = $pendingUnverified.Count
         cpuManifest = if ($cpuManifest.Count -gt 0) { [string]$cpuManifest[0].action } else { 'NOT_OBSERVED' }
         cpuHooksInstalled = $cpuInstalled.Count
+        networkMode = $networkMode
+        wfpInstalled = $wfpInstalled.Count
+        wfpFailures = $wfpFailures.Count
         networkCleanEvents = @($session | Where-Object {
             $_.action -in @('cleaned', 'clean-none')
         }).Count
@@ -161,6 +186,19 @@ if ($RequireChild -and $childInjected.Count -eq 0) { $pass = $false }
 if ($RequireCpuManifest -and $cpuInstalled.Count -eq 0) { $pass = $false }
 if ($RequireRendererUtility -and
     (-not $processTypes.Contains('renderer') -or -not $processTypes.Contains('utility'))) { $pass = $false }
+if ($RequireKernel -and -not $kernelVerified) {
+    $pass = $false
+    $failureReasons.Add('kernel-policy-not-verified')
+}
+if ($RequireWfp -and $wfpInstalled.Count -eq 0) {
+    $pass = $false
+    $failureReasons.Add('wfp-policy-not-installed')
+}
+if ($networkMode -eq 'enforce' -and $wfpInstalled.Count -eq 0) {
+    $pass = $false
+    $failureReasons.Add('wfp-enforce-not-installed')
+}
+if ($wfpFailures.Count -gt 0) { $pass = $false; $failureReasons.Add("wfp-install-failures:$($wfpFailures.Count)") }
 if (-not $pass -and $failureReasons.Count -eq 0) { $failureReasons.Add('required-evidence-missing') }
 if ($Strict) {
     foreach ($reason in $partialReasons) { $failureReasons.Add("strict:$reason") }
@@ -170,7 +208,7 @@ $result.result = $result.status
 $result.strict = [bool]$Strict
 $result.partialReasons = @($partialReasons)
 $result.failureReasons = @($failureReasons)
-$result.note = 'This is current-session userland evidence. It does not prove kernel, NDIS/WFP, DPAPI, or physical hardware isolation.'
+$result.note = 'This is current-session evidence. kernel.policy is the signed control-plane registration; wfp.policy is a dynamic app-image outbound boundary. Neither proves NDIS, DPAPI, or physical hardware virtualization.'
 
 New-Item -ItemType Directory -Path (Split-Path -Parent $outputPath) -Force | Out-Null
 $result | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $outputPath -Encoding UTF8

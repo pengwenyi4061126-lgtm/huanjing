@@ -75,27 +75,47 @@ function Find-CacSignTool {
 
 function Get-CacSigningCertificate {
     $subject = 'CN=CAC Kernel Test Signing'
-    $cert = Get-ChildItem Cert:\LocalMachine\My |
-        Where-Object { $_.Subject -eq $subject -and $_.HasPrivateKey } |
-        Sort-Object NotAfter -Descending | Select-Object -First 1
+    $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+        [System.Security.Cryptography.X509Certificates.StoreName]::My,
+        [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+    $cert = $null
+    try {
+        $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+        $cert = $store.Certificates |
+            Where-Object { $_.Subject -eq $subject -and $_.HasPrivateKey } |
+            Sort-Object NotAfter -Descending | Select-Object -First 1
+    } finally {
+        $store.Close()
+    }
     if (-not $cert) {
         Write-Host 'Creating test code-signing certificate ...' -ForegroundColor Cyan
+        try {
+            Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
+        } catch {
+            throw 'Certificate provider is unavailable; install the Microsoft.PowerShell.Security module.'
+        }
         $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject `
             -CertStoreLocation 'Cert:\LocalMachine\My' -HashAlgorithm SHA256 `
             -KeyLength 2048 -NotAfter (Get-Date).AddYears(5)
     }
 
-    $cerPath = Join-Path $env:TEMP ("cac-kernel-test-$($cert.Thumbprint).cer")
-    try {
-        Export-Certificate -Cert $cert -FilePath $cerPath -Force | Out-Null
-        foreach ($store in @('Cert:\LocalMachine\Root', 'Cert:\LocalMachine\TrustedPublisher')) {
-            if (-not (Test-Path -LiteralPath (Join-Path $store $cert.Thumbprint))) {
-                Write-Host "Trusting test certificate in $store ..." -ForegroundColor Cyan
-                Import-Certificate -FilePath $cerPath -CertStoreLocation $store | Out-Null
+    $raw = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+    foreach ($storeName in @(
+        [System.Security.Cryptography.X509Certificates.StoreName]::Root,
+        [System.Security.Cryptography.X509Certificates.StoreName]::TrustedPublisher)) {
+        $trust = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            $storeName,
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+        try {
+            $trust.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            $exists = @($trust.Certificates | Where-Object Thumbprint -eq $cert.Thumbprint).Count -gt 0
+            if (-not $exists) {
+                Write-Host "Trusting test certificate in $storeName ..." -ForegroundColor Cyan
+                $trust.Add([System.Security.Cryptography.X509Certificates.X509Certificate2]::new($raw))
             }
+        } finally {
+            $trust.Close()
         }
-    } finally {
-        Remove-Item -LiteralPath $cerPath -Force -ErrorAction SilentlyContinue
     }
     return $cert
 }
@@ -135,7 +155,7 @@ $sysPath = Join-Path $bin 'CacKernel.sys'
 $hashPath = Join-Path $bin 'CacKernel.sha256'
 
 Write-Host 'Compiling CacKernel.sys ...' -ForegroundColor Cyan
-& $cl /nologo /c /W4 /O2 /GS- /GR- /Zl `
+& $cl /nologo /c /W4 /O2 /GS /GR- /Zl `
     /D_AMD64_ /DAMD64 /D_WIN64 /DWIN32=100 /D_KERNEL_MODE=1 `
     /D_WIN32_WINNT=0x0A00 /DNTDDI_VERSION=0x0A00000C `
     /DUNICODE /D_UNICODE `

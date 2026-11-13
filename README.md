@@ -2,7 +2,7 @@
 
 Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征，遥测正常流转。
 
-当前版本：`1.0.41`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+当前版本：`1.0.42`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
 ## 功能
 
@@ -19,6 +19,7 @@ Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征
 - **WMI/COM 隔离** — 在进程内包装 `CLSID_WbemLocator`，对 `Win32_BIOS`、`Win32_ComputerSystemProduct`、`Win32_DiskDrive`、`Win32_Processor`、`Win32_NetworkAdapter`、`Win32_LogicalDisk` 等结果按 Profile 改写或清空
 - **renderer/utility 注入** — 对 Claude Desktop 的 browser/GPU/renderer/utility/crashpad 子进程做创建时注入，并带启动器后代补偿
 - **干净网络视图** — `network_mode=clean` 时隐藏 VMware/Meta/Teredo/TAP/WireGuard/Tailscale 等虚拟网卡，清零 WinHTTP/IE/注册表代理配置，WMI 网络行同步过滤
+- **动态出口边界** — `network_mode=enforce` 时由 NativeBridge 为 Claude 镜像安装动态 WFP 规则，仅允许回环代理连接并阻断非回环 ALE 出站，失败即拒绝 Native 模式启动
 - **Desktop Profile** — `scripts/desktop-profile.ps1` 为 Claude Desktop 重定向 `APPDATA`/`LOCALAPPDATA`/`USERPROFILE`/`TEMP`，隔离 `Claude`、`Claude-3p`、`ant-did`、sessions 和 Crashpad
 - **Native/硬件证据** — 单独记录 Windows CIM、注册表、磁盘、网卡等主机共享面；不把它宣称为硬件隔离
 - **Profile 清理** — 只清理当前 Profile，不修改全局 `.claude` 或全局凭据
@@ -100,12 +101,12 @@ cac
 ├─ audit\             # 网络、A/B 和用户态 Hook 证据
 ├─ native_read_policy # Native 读取策略：profile（默认）或 empty
 ├─ cpuid_mode         # neutral（默认）、empty 或 passthrough
-├─ network_mode       # profile（默认）或 clean
+├─ network_mode       # profile（默认）、clean 或 enforce
 ├─ identity.json      # Profile 身份清单
 └─ uuid/stable_id/user_id/machine_id/hostname/mac_address/disk_serial/bios_serial/system_serial/hid_serial
 ```
 
-Windows 版本的隔离边界是**进程级 Profile 隔离 + Node 用户态 Hook + 可选 NativeBridge 用户态 Hook**。NativeBridge 覆盖 `GetAdaptersAddresses/Info`、`GetIfTable2/GetIfEntry2`、`GetVolumeInformationW/ByHandleW`、`GetFileInformationByHandle`、`NtQueryVolumeInformationFile`、`GetSystemFirmwareTable`、`NtQuerySystemInformation`、`DeviceIoControl`、`NtDeviceIoControlFile`、`GetComputerNameW/ExW`、`GetUserNameW`、`RegGetValueW/RegQueryValueExW`、`RegEnumValueW`、`EnumDeviceDrivers`、`SetupDiGetClassDevsW` 和 HID 序列号；WMI 通过 COM 包装覆盖。它不安装内核驱动，也不改变 NDIS/WFP 过滤器或物理硬件。`E:\claude` 中的 Native/硬件报告仍应作为独立观测证据，不能用本项目的 Node/PowerShell 结果替代。
+Windows 版本的隔离边界是**进程级 Profile 隔离 + Node 用户态 Hook + NativeBridge 用户态 Hook + 可选签名内核控制面 + 可选动态 WFP 出口边界**。NativeBridge 覆盖 `GetAdaptersAddresses/Info`、`GetIfTable2/GetIfEntry2`、`GetVolumeInformationW/ByHandleW`、`GetFileInformationByHandle`、`NtQueryVolumeInformationFile`、`GetSystemFirmwareTable`、`NtQuerySystemInformation`、`DeviceIoControl`、`NtDeviceIoControlFile`、`GetComputerNameW/ExW`、`GetUserNameW`、`RegGetValueW/RegQueryValueExW`、`RegEnumValueW`、`EnumDeviceDrivers`、`SetupDiGetClassDevsW` 和 HID 序列号；WMI 通过 COM 包装覆盖。`E:\claude` 中的 Native/硬件报告仍应作为独立观测证据，不能用本项目的 Node/PowerShell 结果替代。
 
 菜单中的 **Native/硬件边界证据** 会把 Windows CIM、MachineGuid、磁盘、卷、处理器、主板、显卡和物理网卡等主机共享面写入 `audit/native-hardware-check.json`；敏感标识只保存存在性、长度和 SHA-256。报告会同时记录 Node 层 `fingerprint-hook.jsonl` 与 Native 层 `native-hook.jsonl` 的命中情况，并分别标记 `nativeUserland`、`cpuid`、`xgetbv`、`deviceIoControl` 和内核边界。
 
@@ -113,7 +114,7 @@ Windows 版本的隔离边界是**进程级 Profile 隔离 + Node 用户态 Hook
 
 `native/` 下是独立编译的 x64 DLL 和注入器。构建与清单生成见 [native/README.md](native/README.md)。构建产物同步到 `%USERPROFILE%\.cac\native\` 后，Desktop 的 `-Inject` 模式改用 `cac-native-launch.exe` 启动并注入 `NativeBridge.dll`；产物缺失、哈希不一致、DLL 注入失败或 `native.bridge=ready` 超时都会拒绝启动，不会回退到未注入进程。Code Profile 的非 Native 启动仍使用普通 wrapper 路径。
 
-Native 层始终只做用户态返回值和用户态指令入口处理。内核边界在 [native/kernel/](native/kernel/) 单独实现：`CacKernel.sys` 是签名 WDM 控制面，提供 5 个窄 IOCTL、per-PID 策略表和 128 条审计环，通过 SCM 安装。当前本机验收状态为 `RUNNING_VERIFIED` / `CONTROL_PLANE_ONLY`；它不 hook SSDT/IDT、不修改 NDIS/WFP，也不伪造 CPUID、SMBIOS、物理网卡、磁盘或固件。手动映射器和易受攻击驱动加载器仍被拒绝。
+Native 层始终只做用户态返回值和用户态指令入口处理。内核边界在 [native/kernel/](native/kernel/) 单独实现：`CacKernel.sys` 提供 5 个窄 IOCTL、per-PID 策略表、进程退出清理和 128 条审计环，通过 SCM 安装；NativeBridge 会把主进程及被注入的同镜像子进程注册到该策略表，并回读确认。当前本机验收状态为 `RUNNING_VERIFIED` / `CONTROL_PLANE_ONLY`，`kernelPolicyStatus=TestSigned` 表示本机启用了测试签名，不等于 Microsoft 生产内核签名。该控制面不 hook SSDT/IDT、不伪造 CPUID、SMBIOS、物理网卡、磁盘或固件；手动映射器和易受攻击驱动加载器仍被拒绝。
 
 内核控制面命令：
 
@@ -143,13 +144,14 @@ npm run audit:desktop -- -Profile profile-a -RequireChild -RequireRendererUtilit
 npm run audit:desktop -- -Profile profile-b -RequireChild -RequireRendererUtility -AllowPartial
 npm run audit:kernel
 npm run audit:kernel -- -Strict
+npm run native:wfp:smoke
 ```
 
-`audit:desktop` 默认对未观察到的 WMI、异步 DeviceIoControl 或 CPU manifest 返回非零；`-AllowPartial` 只允许查看当前会话证据，不会把未观察到的路径标记为已覆盖。完整验收仍以 `desktop-native-check.json` 的 `status=PASS` 为准。
+`audit:desktop` 默认对未观察到的 WMI、异步 DeviceIoControl 或 CPU manifest 返回非零；`-RequireKernel` 要求看到 `kernel.policy=verified`，`-RequireWfp` 要求看到 WFP 安装证据；`-AllowPartial` 只允许查看当前会话证据，不会把未观察到的路径标记为已覆盖。完整验收仍以 `desktop-native-check.json` 的 `status=PASS` 为准。
 
 `audit:native` 只读取 `%USERPROFILE%\.cac\envs\<name>` 下的 Claude Code 证据；Claude Desktop 必须使用 `audit:desktop`，两者的日志目录和结论不能混用。
 
-Native 读取策略默认为 `profile`，保证返回值具有一致的 Profile 语义。将当前 Profile 的 `native_read_policy` 写为 `empty` 后，NativeBridge 会对已覆盖的设备身份读取返回空字符串、零序列号、无固件数据、无 WMI 属性或无设备枚举结果；`cpuid_mode` 默认为 `neutral`，在 `empty` 策略下自动改为 `empty`。`empty` 模式作用于主进程、renderer/utility 子进程和 WMI 同步查询；内核回调、NDIS/WFP 过滤器和物理固件仍不在覆盖范围。
+Native 读取策略默认为 `profile`，保证返回值具有一致的 Profile 语义。将当前 Profile 的 `native_read_policy` 写为 `empty` 后，NativeBridge 会对已覆盖的设备身份读取返回空字符串、零序列号、无固件数据、无 WMI 属性或无设备枚举结果；`cpuid_mode` 默认为 `neutral`，在 `empty` 策略下自动改为 `empty`。`empty` 模式作用于主进程、renderer/utility 子进程和 WMI 同步查询；CacKernel 负责注册/生命周期审计，WFP 出口规则需要单独启用。
 
 启用某个 Code Profile 的严格空值策略：
 
@@ -165,6 +167,7 @@ Desktop 使用独立启动器，不复用 Claude Code 的 `CLAUDE_CONFIG_DIR`：
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action create -Profile work
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Inject
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Inject -RequireKernel
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action ab -Inject -WaitSeconds 45
 ```
 
@@ -211,6 +214,15 @@ clean   : 以太网(02:aa:bb:cc:dd:ee), Loopback
 
 边界：`clean` 只改变进程内的用户态视图，不改变实际路由和出口 IP。`GetBestRoute2` 仍可能返回隧道接口索引；服务端仍能看到真实出口。要让服务端也认为“没有代理/VPN”，必须使用住宅/移动出口并保持时区、语言、地理一致，或用 VM/独立网络边界。
 
+### 动态出口边界（network_mode=enforce）
+
+```powershell
+Set-Content "$env:USERPROFILE\.cac\desktop\work\network_mode" "enforce" -Encoding ASCII
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Inject -RequireKernel
+```
+
+`enforce` 仅在 NativeBridge 进程内安装动态 WFP 规则：允许 `127.0.0.1` / `::1` 回环连接，阻断该 Claude 镜像的非回环 ALE Connect；安装失败会记录 `wfp.policy=failed` 并拒绝启动。它是用户态创建的动态 WFP 策略，不是 NDIS 轻量过滤器、WFP callout 驱动，也不会改变物理网卡、路由器或服务端看到的出口地址。
+
 ### 浏览器指纹 MITM（-Fingerprint）
 
 Claude Desktop 拒绝 `--remote-debugging-port` / `--remote-debugging-pipe` / `--inspect`，因此指纹层改用 MITM：
@@ -245,7 +257,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Actio
 
 用户态已覆盖这些表面的可访问路径：`EnumDeviceDrivers`、`NtQuerySystemInformation(SystemModuleInformation)`、`GetIfTable2/GetIfEntry2`、`GetAdapters*`、`SetupDiGetClassDevsW`、`NtDeviceIoControlFile` 和原始设备 `CreateFileW`。在 `empty` 策略下，驱动列表、设备枚举和原始设备打开会被清空或拒绝。
 
-真正的内核回调、NDIS 轻量过滤器和 WFP 过滤器无法由用户态 DLL 安装。要覆盖驱动内部、其他进程的内核查询以及物理固件层，必须加载签名的内核驱动；本机未安装 WDK，也未启用测试签名，因此这一层没有实现，不能被宣称为已完成。
+当前最高上限已经实现为：签名（本机为测试签名）WDM 控制面、per-PID 策略注册/退出清理、NativeBridge 子进程注册、动态 WFP 出口规则和用户态设备读取覆盖。仍未实现的是 NDIS 轻量过滤器、WFP callout 驱动、驱动内部的硬件读取重写、DPAPI/凭据硬件绑定以及物理 BIOS/SMBIOS/CPUID 的宿主级替换；这些不是普通 DLL Hook 能可靠完成的功能，审计不会把它们标记为已隔离。
 
 ## 致谢
 
