@@ -44,6 +44,42 @@ PFN_WinHttpOpen g_origWinHttpOpen = nullptr;
 PFN_InternetQueryOptionW g_origInternetQueryOption = nullptr;
 PFN_GetBestRoute2 g_origGetBestRoute2 = nullptr;
 
+bool GetLocalProxy(std::wstring* value) {
+    if (!value) return false;
+    wchar_t buffer[2048] = {};
+    const DWORD size = GetEnvironmentVariableW(L"CAC_HTTP_PROXY_LOCAL", buffer,
+                                               static_cast<DWORD>(sizeof(buffer) / sizeof(buffer[0])));
+    if (size == 0 || size >= (sizeof(buffer) / sizeof(buffer[0]))) return false;
+    *value = std::wstring(buffer, size);
+    if (value->compare(0, 7, L"http://") == 0) value->erase(0, 7);
+    if (value->compare(0, 8, L"https://") == 0) value->erase(0, 8);
+    return !value->empty();
+}
+
+LPWSTR AllocGlobalWide(const std::wstring& value) {
+    const SIZE_T bytes = (value.size() + 1) * sizeof(wchar_t);
+    auto* result = static_cast<LPWSTR>(GlobalAlloc(GPTR, bytes));
+    if (!result) return nullptr;
+    std::memcpy(result, value.c_str(), bytes);
+    return result;
+}
+
+void FillWinHttpProxyInfo(WINHTTP_PROXY_INFO* info, const std::wstring& proxy) {
+    if (!info) return;
+    std::memset(info, 0, sizeof(*info));
+    info->dwAccessType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
+    info->lpszProxy = AllocGlobalWide(proxy);
+    info->lpszProxyBypass = AllocGlobalWide(L"localhost;127.0.0.1;[::1]");
+}
+
+void FillIeProxyInfo(PWINHTTP_CURRENT_USER_IE_PROXY_CONFIG config, const std::wstring& proxy) {
+    if (!config) return;
+    std::memset(config, 0, sizeof(*config));
+    config->fAutoDetect = FALSE;
+    config->lpszProxy = AllocGlobalWide(proxy);
+    config->lpszProxyBypass = AllocGlobalWide(L"localhost;127.0.0.1;[::1]");
+}
+
 DWORD WINAPI HookGetInterfaceInfo(PIP_INTERFACE_INFO info, PULONG size) {
     const DWORD status = g_origGetInterfaceInfo ? g_origGetInterfaceInfo(info, size) : ERROR_NOT_SUPPORTED;
     if (status == NO_ERROR && info && NativeCleanNetworkEnabled()) {
@@ -96,6 +132,12 @@ BOOL WINAPI HookConvertInterfaceNameToLuidW(const WCHAR* name, NET_LUID* luid) {
 }
 
 BOOL WINAPI HookWinHttpGetIEProxyConfigForCurrentUser(PWINHTTP_CURRENT_USER_IE_PROXY_CONFIG config) {
+    std::wstring proxy;
+    if (config && NativeProxyRedirectEnabled() && GetLocalProxy(&proxy)) {
+        FillIeProxyInfo(config, proxy);
+        AuditEventRateLimited("api.winhttp.ieproxyconfig", "enforce-local");
+        return TRUE;
+    }
     if (config && NativeCleanNetworkEnabled()) {
         std::memset(config, 0, sizeof(*config));
         config->fAutoDetect = FALSE;
@@ -107,6 +149,12 @@ BOOL WINAPI HookWinHttpGetIEProxyConfigForCurrentUser(PWINHTTP_CURRENT_USER_IE_P
 
 BOOL WINAPI HookWinHttpGetProxyForUrl(HINTERNET session, LPCWSTR url,
                                       WINHTTP_AUTOPROXY_OPTIONS* options, WINHTTP_PROXY_INFO* info) {
+    std::wstring proxy;
+    if (info && NativeProxyRedirectEnabled() && GetLocalProxy(&proxy)) {
+        FillWinHttpProxyInfo(info, proxy);
+        AuditEventRateLimited("api.winhttp.proxyforurl", "enforce-local");
+        return TRUE;
+    }
     if (info && NativeCleanNetworkEnabled()) {
         std::memset(info, 0, sizeof(*info));
         info->dwAccessType = WINHTTP_ACCESS_TYPE_NO_PROXY;
@@ -117,6 +165,12 @@ BOOL WINAPI HookWinHttpGetProxyForUrl(HINTERNET session, LPCWSTR url,
 }
 
 BOOL WINAPI HookWinHttpGetDefaultProxyConfiguration(WINHTTP_PROXY_INFO* info) {
+    std::wstring proxy;
+    if (info && NativeProxyRedirectEnabled() && GetLocalProxy(&proxy)) {
+        FillWinHttpProxyInfo(info, proxy);
+        AuditEventRateLimited("api.winhttp.defaultproxy", "enforce-local");
+        return TRUE;
+    }
     if (info && NativeCleanNetworkEnabled()) {
         std::memset(info, 0, sizeof(*info));
         info->dwAccessType = WINHTTP_ACCESS_TYPE_NO_PROXY;
@@ -128,7 +182,13 @@ BOOL WINAPI HookWinHttpGetDefaultProxyConfiguration(WINHTTP_PROXY_INFO* info) {
 
 HINTERNET WINAPI HookWinHttpOpen(LPCWSTR agent, DWORD accessType, LPCWSTR proxy, LPCWSTR bypass,
                                  DWORD flags) {
-    if (NativeCleanNetworkEnabled()) {
+    std::wstring localProxy;
+    if (NativeProxyRedirectEnabled() && GetLocalProxy(&localProxy)) {
+        accessType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
+        proxy = localProxy.c_str();
+        bypass = L"localhost;127.0.0.1;[::1]";
+        AuditEventRateLimited("api.winhttp.open", "enforce-local");
+    } else if (NativeCleanNetworkEnabled()) {
         accessType = WINHTTP_ACCESS_TYPE_NO_PROXY;
         proxy = nullptr;
         bypass = nullptr;
@@ -137,18 +197,25 @@ HINTERNET WINAPI HookWinHttpOpen(LPCWSTR agent, DWORD accessType, LPCWSTR proxy,
 }
 
 BOOL WINAPI HookInternetQueryOptionW(HINTERNET handle, DWORD option, LPVOID buffer, LPDWORD size) {
-    if (NativeCleanNetworkEnabled() && option == INTERNET_OPTION_PROXY && buffer && size) {
-        INTERNET_PROXY_INFO info = {};
-        info.dwAccessType = INTERNET_OPEN_TYPE_DIRECT;
-        const DWORD needed = static_cast<DWORD>(sizeof(info));
+    if ((NativeProxyRedirectEnabled() || NativeCleanNetworkEnabled()) && option == INTERNET_OPTION_PROXY && buffer && size) {
+        const DWORD needed = static_cast<DWORD>(sizeof(INTERNET_PROXY_INFO));
         if (*size < needed) {
             *size = needed;
             SetLastError(ERROR_INSUFFICIENT_BUFFER);
             return FALSE;
         }
+        INTERNET_PROXY_INFO info = {};
+        std::wstring proxy;
+        if (NativeProxyRedirectEnabled() && GetLocalProxy(&proxy)) {
+            info.dwAccessType = INTERNET_OPEN_TYPE_PROXY;
+            info.lpszProxy = AllocGlobalWide(proxy);
+            info.lpszProxyBypass = AllocGlobalWide(L"localhost;127.0.0.1;[::1]");
+        } else {
+            info.dwAccessType = INTERNET_OPEN_TYPE_DIRECT;
+        }
         std::memcpy(buffer, &info, sizeof(info));
         *size = needed;
-        AuditEventRateLimited("api.wininet.queryproxy", "clean-none");
+        AuditEventRateLimited("api.wininet.queryproxy", NativeProxyRedirectEnabled() ? "enforce-local" : "clean-none");
         return TRUE;
     }
     return g_origInternetQueryOption ? g_origInternetQueryOption(handle, option, buffer, size) : FALSE;

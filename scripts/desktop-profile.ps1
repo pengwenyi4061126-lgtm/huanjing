@@ -21,6 +21,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'cert-silent.ps1')
+. (Join-Path $PSScriptRoot 'proxy-pool-lib.ps1')
 
 if (-not ('CacPathNative' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -112,10 +113,9 @@ function Get-IanaTimeZone {
 
 function Get-NormalizedProxy {
     param([string]$Value)
-    if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
-    $Value = $Value.Trim()
-    if ($Value -notmatch '^[a-z][a-z0-9+.-]*://') { return 'http://' + $Value }
-    return $Value
+    $normalized = ConvertTo-CacProxyUrl $Value
+    if ($null -eq $normalized) { return '' }
+    return $normalized
 }
 
 function Get-FreeTcpPort {
@@ -517,6 +517,7 @@ function Initialize-ProfileLayout {
     if (-not (Test-Path -LiteralPath $networkModePath -PathType Leaf)) {
         [System.IO.File]::WriteAllText($networkModePath, "profile`r`n", (New-Object System.Text.UTF8Encoding($false)))
     }
+    [void](Get-CacProxyForAccount -AccountKey ("desktop:{0}" -f $Paths.Name))
     return $Paths
 }
 
@@ -691,6 +692,8 @@ function Start-ClaudeDesktop {
     $mitmPidFile = $null
     $mitmProcessPidFile = $null
     $personaPath = $null
+    $relay = $null
+    $proxyBinding = $null
 
     # Fail before starting MITM or touching the profile when the Desktop process
     # is already active or the requested WindowsApps path is unavailable. The
@@ -733,6 +736,11 @@ function Start-ClaudeDesktop {
     # profile cannot publish its PID file and fail-closed monitoring breaks.
     Initialize-ProfileLayout -Paths $Paths -ForLaunch | Out-Null
 
+    $proxyBinding = Get-CacProxyForAccount -AccountKey ("desktop:{0}" -f $Paths.Name)
+    if ($null -ne $proxyBinding) {
+        $relay = Start-CacProxyRelay -UpstreamProxyUrl ([string]$proxyBinding.url) -LogsDir $Paths.LogsDir
+    }
+
     if ($UseFingerprint) {
         $mitm = (Get-Command mitmdump -ErrorAction SilentlyContinue).Source
         if (-not $mitm) {
@@ -743,6 +751,7 @@ function Start-ClaudeDesktop {
         $shim = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\fingerprint-shim.js'
         if (-not $mitm -or -not (Test-Path -LiteralPath $addon -PathType Leaf) -or
             -not (Test-Path -LiteralPath $shim -PathType Leaf)) {
+            Stop-CacProxyRelay $relay
             return [pscustomobject]@{
                 started = $false; blocked = $true; error = 'mitmdump or fingerprint assets missing'
                 mode = $null; processId = $null; launchFile = $null; arguments = $null
@@ -766,9 +775,11 @@ function Start-ClaudeDesktop {
             $env:CAC_MITM_LOG = Join-Path $Paths.LogsDir 'mitm-fingerprint.log'
             $env:CAC_MITM_PIDFILE = $mitmPidFile
         New-Item -ItemType Directory -Path $Paths.MitmDir -Force | Out-Null
+        $mitmArguments = @('-q', '-s', $addon, '--listen-port', "$mitmPort",
+            '--set', "confdir=$($Paths.MitmDir)")
+        if ($null -ne $relay) { $mitmArguments += @('--mode', "upstream:$($relay.url)") }
         $mitmProcess = Start-Process -FilePath $mitm `
-            -ArgumentList @('-q', '-s', $addon, '--listen-port', "$mitmPort",
-                '--set', "confdir=$($Paths.MitmDir)") `
+            -ArgumentList $mitmArguments `
                 -PassThru -WindowStyle Hidden
         Set-Content -LiteralPath $mitmProcessPidFile -Value "$($mitmProcess.Id)" -Encoding ASCII
         } finally {
@@ -797,6 +808,7 @@ function Start-ClaudeDesktop {
 
         if (-not $mitmReady) {
             Stop-TrackedProcess -Process $mitmProcess
+            Stop-CacProxyRelay $relay
             Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
             return [pscustomobject]@{
@@ -826,6 +838,7 @@ function Start-ClaudeDesktop {
         }
         if (-not $caInstalled) {
             Stop-TrackedProcess -Process $mitmProcess
+            Stop-CacProxyRelay $relay
             Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
             return [pscustomobject]@{
@@ -847,6 +860,7 @@ function Start-ClaudeDesktop {
         Write-Host "          Close all Claude Desktop windows manually, then retry." -ForegroundColor Yellow
         Write-Host "          This script does not terminate existing user sessions." -ForegroundColor Yellow
         Stop-TrackedProcess -Process $mitmProcess
+        Stop-CacProxyRelay $relay
         if ($mitmPidFile) { Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue }
         if ($mitmProcessPidFile) { Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue }
         return [pscustomobject]@{
@@ -865,6 +879,7 @@ function Start-ClaudeDesktop {
 
     if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
         Stop-TrackedProcess -Process $mitmProcess
+        Stop-CacProxyRelay $relay
         if ($mitmPidFile) { Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue }
         if ($mitmProcessPidFile) { Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue }
         return [pscustomobject]@{
@@ -890,6 +905,14 @@ function Start-ClaudeDesktop {
         $fingerprintArgs += "--proxy-server=http://127.0.0.1:$mitmPort"
         $fingerprintArgs += '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
         if ($persona.locale) { $fingerprintArgs += "--lang=$($persona.locale)" }
+    } elseif ($null -ne $relay) {
+        $fingerprintArgs += "--proxy-server=$($relay.url)"
+    }
+    if ($null -ne $relay) {
+        $fingerprintArgs += '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1'
+        $fingerprintArgs += '--disable-quic'
+        $fingerprintArgs += '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
+        $fingerprintArgs += '--proxy-bypass-list=localhost;127.0.0.1;[::1]'
     }
 
     $nativeDir = Join-Path $script:OriginalUserProfile '.cac\native'
@@ -903,6 +926,7 @@ function Start-ClaudeDesktop {
             (Test-Path -LiteralPath $nativeDll -PathType Leaf)) {
             $nativeUsed = $true
         } else {
+            Stop-CacProxyRelay $relay
             throw "Native injection requested but the verified Native layer is unavailable: $nativeDir"
         }
     }
@@ -924,6 +948,7 @@ function Start-ClaudeDesktop {
         $mode = 'direct'
     }
     if ($RequireKernel -and -not $nativeUsed) {
+        Stop-CacProxyRelay $relay
         throw '-RequireKernel requires -Inject so NativeBridge can register the process policy'
     }
     if ($UseFingerprint) { $mode += '+fingerprint' }
@@ -962,6 +987,13 @@ function Start-ClaudeDesktop {
         CAC_NATIVE_CPUID_MODE  = 'neutral'
         CAC_NATIVE_AUDIT     = (Join-Path $Paths.AuditDir 'native-hook.jsonl')
         CAC_KERNEL_POLICY_REQUIRED = if ($RequireKernel -and $nativeUsed) { '1' } else { '0' }
+        HTTP_PROXY           = if ($null -ne $relay) { [string]$relay.url } else { '' }
+        HTTPS_PROXY          = if ($null -ne $relay) { [string]$relay.url } else { '' }
+        ALL_PROXY            = if ($null -ne $relay) { [string]$relay.url } else { '' }
+        NO_PROXY             = 'localhost,127.0.0.1,::1'
+        CAC_HTTP_PROXY_LOCAL = if ($null -ne $relay) { [string]$relay.url } else { '' }
+        CAC_PROXY_UPSTREAM   = if ($null -ne $proxyBinding) { [string]$proxyBinding.url } else { '' }
+        CAC_PROXY_SOURCE     = if ($null -ne $proxyBinding) { [string]$proxyBinding.source } else { '' }
     }
     $nativePolicyPath = Join-Path $Paths.Root 'native_read_policy'
     if (Test-Path -LiteralPath $nativePolicyPath -PathType Leaf) {
@@ -985,7 +1017,9 @@ function Start-ClaudeDesktop {
         if ($configured -in @('profile', 'clean', 'enforce')) { $networkMode = $configured }
     }
     if ($environment['CAC_NATIVE_READ_POLICY'] -eq 'empty' -and $networkMode -ne 'enforce') { $networkMode = 'clean' }
+    if ($null -ne $relay -and $networkMode -eq 'profile') { $networkMode = 'enforce' }
     if ($networkMode -eq 'enforce' -and -not $nativeUsed) {
+        Stop-CacProxyRelay $relay
         throw 'network_mode=enforce requires -Inject so NativeBridge can install the per-process WFP boundary'
     }
     $environment['CAC_NETWORK_MODE'] = $networkMode
@@ -1042,6 +1076,10 @@ function Start-ClaudeDesktop {
         fingerprintPersona = $personaPath
         mitmPort        = $mitmPort
         mitmPid         = if ($mitmProcess) { $mitmProcess.Id } else { $null }
+        proxyId         = if ($null -ne $proxyBinding) { [string]$proxyBinding.proxyId } else { $null }
+        proxySource     = if ($null -ne $proxyBinding) { [string]$proxyBinding.source } else { $null }
+        relayPort       = if ($null -ne $relay) { [int]$relay.port } else { $null }
+        relayPid        = if ($null -ne $relay -and $relay.process) { [int]$relay.process.Id } else { $null }
     }
 }
 
@@ -1122,7 +1160,8 @@ function Get-ProfileProcessIds {
         'mitmdump.exe',
         'mitmproxy.exe',
         'python.exe',
-        'pythonw.exe'
+        'pythonw.exe',
+        'node.exe'
     )
 
     try {
@@ -1159,7 +1198,7 @@ function Get-ProfileProcessIds {
 
     # The PID file tracks the Desktop root process and remains useful when
     # Windows returns an empty CommandLine during early process startup.
-    foreach ($pidFileName in @('mitm-claude.pid', 'mitm-proxy.pid')) {
+    foreach ($pidFileName in @('mitm-claude.pid', 'mitm-proxy.pid', 'proxy-relay.pid')) {
         $pidFile = Join-Path $Paths.LogsDir $pidFileName
         if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf)) { continue }
         $pidText = (Get-Content -LiteralPath $pidFile -Raw -ErrorAction SilentlyContinue).Trim()
@@ -1180,7 +1219,7 @@ function Get-ProfileProcessIds {
                 }
             }
             if ($pidMatchesProfile -and
-                $pidName -in @('claude.exe', 'mitmdump.exe', 'mitmproxy.exe', 'python.exe', 'pythonw.exe') -and
+                $pidName -in @('claude.exe', 'mitmdump.exe', 'mitmproxy.exe', 'python.exe', 'pythonw.exe', 'node.exe') -and
                 -not ($ids -contains $pidValue)) {
                 $ids += $pidValue
             }
@@ -1280,7 +1319,7 @@ function Stop-ClaudeProcessTree {
     } while ([DateTime]::UtcNow -lt $deadline)
 
     if ($null -ne $Paths -and $remaining.Count -eq 0) {
-        foreach ($pidFileName in @('mitm-claude.pid', 'mitm-proxy.pid')) {
+        foreach ($pidFileName in @('mitm-claude.pid', 'mitm-proxy.pid', 'proxy-relay.pid')) {
             Remove-Item -LiteralPath (Join-Path $Paths.LogsDir $pidFileName) -Force -ErrorAction SilentlyContinue
         }
     }
@@ -1317,6 +1356,7 @@ function Invoke-CreateAction {
     $paths = Get-ProfilePaths -Name $name
     Initialize-ProfileLayout -Paths $paths | Out-Null
     Initialize-ProfileIdentity -Paths $paths | Out-Null
+    Show-CacProxyCapacityWarning (Get-CacKnownAccountCapacityWarning)
     Write-Host "[CREATE] $($paths.Name)"
     Write-Host "  root: $($paths.Root)"
     foreach ($relative in $script:LayoutFolders) {
@@ -1385,6 +1425,7 @@ function Invoke-LaunchAction {
 
     Write-Host "[LAUNCH] $($paths.Name)"
     Write-Host "  mode: $($launch.mode)  PID: $($launch.processId)"
+    if ($launch.relayPort) { Write-Host "  proxy relay: 127.0.0.1:$($launch.relayPort)  source=$($launch.proxySource)" }
     if ($launch.mitmPort) { Write-Host "  fingerprint MITM: 127.0.0.1:$($launch.mitmPort)" }
     Write-Host "  userData: $($launch.userDataDir)"
     Write-Host "  waiting up to $WaitSeconds seconds for ant-did ..."

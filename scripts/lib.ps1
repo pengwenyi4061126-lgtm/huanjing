@@ -4,6 +4,8 @@ $ErrorActionPreference = "Stop"
 $CAC_DIR = Join-Path $env:USERPROFILE ".cac"
 $ENVS_DIR = Join-Path $CAC_DIR "envs"
 $CAC_PACKAGE_ROOT = Split-Path $PSScriptRoot -Parent
+$proxyPoolModule = Join-Path $PSScriptRoot "proxy-pool-lib.ps1"
+if (Test-Path -LiteralPath $proxyPoolModule -PathType Leaf) { . $proxyPoolModule }
 
 function Write-OK($t) { Write-Host "  [OK] $t" -ForegroundColor Green }
 function Write-Err($t) { Write-Host "  [!!] $t" -ForegroundColor Red }
@@ -154,6 +156,7 @@ function Parse-Proxy {
         try {
             $uri = [Uri]$value
             if ($uri.Scheme -in $allowedSchemes -and $uri.Host -and $uri.Port -gt 0 -and $uri.Port -le 65535) {
+                if ($uri.Scheme -in @('socks5', 'socks5h')) { return ($value -replace '^(?i)socks5h?://', 'socks5h://') }
                 return $value
             }
         } catch { }
@@ -358,6 +361,7 @@ function Ensure-ProfileLayout {
     if ($identityChanged) {
         Set-Content -LiteralPath $paths.IdentityPath -Value ($identity | ConvertTo-Json -Depth 5) -Encoding UTF8
     }
+    [void](Get-CacProxyForAccount -AccountKey ("claude-code:{0}" -f $paths.Name) -ExplicitProxy (Read-FileValue (Join-Path $paths.Root "proxy")))
     return $paths
 }
 
@@ -393,7 +397,9 @@ function Get-ProfileEnvironment {
     param([psobject]$Paths)
     [void](Sync-IdentityHook)
     $identity = Read-ProfileIdentity $Paths
-    $proxy = Read-FileValue (Join-Path $Paths.Root "proxy")
+    $profileProxy = Read-FileValue (Join-Path $Paths.Root "proxy")
+    $proxyBinding = Get-CacProxyForAccount -AccountKey ("claude-code:{0}" -f $Paths.Name) -ExplicitProxy $profileProxy
+    $proxy = if ($null -ne $proxyBinding) { [string]$proxyBinding.url } else { $null }
     $tz = Read-FileValue (Join-Path $Paths.Root "tz")
     $lang = Read-FileValue (Join-Path $Paths.Root "lang") "en_US.UTF-8"
     $nativeReadPolicy = Read-FileValue (Join-Path $Paths.Root "native_read_policy") "profile"
@@ -406,6 +412,7 @@ function Get-ProfileEnvironment {
     $networkMode = Read-FileValue (Join-Path $Paths.Root "network_mode") "profile"
     if ($networkMode -notin @("profile", "clean", "enforce")) { $networkMode = "profile" }
     if ($nativeReadPolicy -eq "empty" -and $networkMode -ne "enforce") { $networkMode = "clean" }
+    if ($proxy -and $networkMode -eq "profile") { $networkMode = "enforce" }
     $hostname = [string]$identity.hostname
     $mac = [string]$identity.mac_address
     $machineId = [string]$identity.machine_id
@@ -460,6 +467,10 @@ function Get-ProfileEnvironment {
         LANG              = $lang
         BUN_JSC_useCodeCache = "false"
         NO_PROXY          = "localhost,127.0.0.1"
+    }
+    if ($null -ne $proxyBinding) {
+        $values.CAC_PROXY_SOURCE = [string]$proxyBinding.source
+        if ($proxyBinding.proxyId) { $values.CAC_PROXY_ID = [string]$proxyBinding.proxyId }
     }
     if (Test-Path -LiteralPath $hookPath) {
         $hookOption = '--require "' + $hookPathForNode + '"'
@@ -658,6 +669,12 @@ function Write-Wrapper {
     if (Test-Path -LiteralPath $hookSource) {
         Copy-Item -LiteralPath $hookSource -Destination $hookTarget -Force
     }
+    $poolSource = Join-Path $PSScriptRoot "proxy-pool-lib.ps1"
+    $poolTarget = Join-Path $CAC_DIR "proxy-pool-lib.ps1"
+    if (Test-Path -LiteralPath $poolSource) { Copy-Item -LiteralPath $poolSource -Destination $poolTarget -Force }
+    $relaySource = Join-Path $CAC_PACKAGE_ROOT "src\relay.js"
+    $relayTarget = Join-Path $CAC_DIR "proxy-relay.js"
+    if (Test-Path -LiteralPath $relaySource) { Copy-Item -LiteralPath $relaySource -Destination $relayTarget -Force }
 
     # CMD wrapper delegates to the single PowerShell implementation so both
     # entry points enforce identical profile and integrity rules.
@@ -700,6 +717,9 @@ function Get-CacDeclaredSha256([string]$Path) {
 }
 $cacHome = $env:USERPROFILE
 $d = Join-Path $cacHome ".cac"
+$proxyPoolModule = Join-Path $d "proxy-pool-lib.ps1"
+if (-not (Test-Path -LiteralPath $proxyPoolModule -PathType Leaf)) { Write-Error "[cac] proxy pool module is missing; reinitialize cac-windows"; exit 1 }
+. $proxyPoolModule
 $hook = Join-Path $d "fingerprint-hook.js"
 if (-not (Test-Path -LiteralPath $hook)) { Write-Error "[cac] Profile identity hook is missing; reinitialize cac-windows"; exit 1 }
 $cf = Join-Path $d "current"
@@ -750,14 +770,19 @@ if ($actualHash -ne ([string]$manifestData.sha256).ToUpperInvariant()) {
     exit 1
 }
 
-$proxy = Join-Path $ed "proxy"
-if (Test-Path $proxy) {
-    $px = (Get-Content $proxy -Raw).Trim()
-    if ($px) {
-        $env:HTTPS_PROXY=$px; $env:HTTP_PROXY=$px; $env:ALL_PROXY=$px
-    } else { Remove-Item Env:HTTPS_PROXY,Env:HTTP_PROXY,Env:ALL_PROXY -ErrorAction SilentlyContinue }
+$proxyFile = Join-Path $ed "proxy"
+$profileProxy = if (Test-Path $proxyFile) { (Get-Content $proxyFile -Raw).Trim() } else { '' }
+$proxyBinding = Get-CacProxyForAccount -AccountKey ("claude-code:{0}" -f $en) -ExplicitProxy $profileProxy
+$upstreamProxy = if ($null -ne $proxyBinding) { [string]$proxyBinding.url } else { $null }
+$relay = $null
+if ($upstreamProxy) {
+    $relay = Start-CacProxyRelay -UpstreamProxyUrl $upstreamProxy -LogsDir $logs
+    $env:HTTPS_PROXY=$relay.url; $env:HTTP_PROXY=$relay.url; $env:ALL_PROXY=$relay.url
+    $env:CAC_HTTP_PROXY_LOCAL=$relay.url
+    $env:CAC_PROXY_UPSTREAM=$upstreamProxy
+    $env:CAC_PROXY_SOURCE=[string]$proxyBinding.source
 } else {
-    Remove-Item Env:HTTPS_PROXY,Env:HTTP_PROXY,Env:ALL_PROXY -ErrorAction SilentlyContinue
+    Remove-Item Env:HTTPS_PROXY,Env:HTTP_PROXY,Env:ALL_PROXY,Env:CAC_HTTP_PROXY_LOCAL,Env:CAC_PROXY_UPSTREAM,Env:CAC_PROXY_SOURCE -ErrorAction SilentlyContinue
 }
 $env:NO_PROXY = "localhost,127.0.0.1"
 $tz = Join-Path $ed "tz"
@@ -819,6 +844,7 @@ $networkMode = if (Test-Path (Join-Path $ed "network_mode")) {
 } else { "profile" }
 if ($networkMode -notin @("profile", "clean", "enforce")) { $networkMode = "profile" }
 if ($nativeReadPolicy -eq "empty" -and $networkMode -ne "enforce") { $networkMode = "clean" }
+if ($upstreamProxy -and $networkMode -eq "profile") { $networkMode = "enforce" }
 $env:CAC_NETWORK_MODE = $networkMode
 $env:CAC_NETWORK_ENFORCE = if ($networkMode -eq "enforce") { "1" } else { "0" }
 $env:CAC_WFP_REQUIRED = if ($networkMode -eq "enforce") { "1" } else { "0" }
@@ -865,6 +891,7 @@ $nativeLauncherHashFile = Join-Path $d "native\cac-native-launch.sha256"
 $nativeManifest = Join-Path $d "native\native-hook-manifest.txt"
 $env:CAC_NATIVE_AUDIT = Join-Path $audit "native-hook.jsonl"
 $env:CAC_KERNEL_POLICY_REQUIRED = "0"
+try {
 if ((Test-Path -LiteralPath $nativeLauncher) -and (Test-Path -LiteralPath $nativeDll) -and ($real -like "*.exe")) {
     if (-not (Test-Path -LiteralPath $nativeDllHashFile -PathType Leaf) -or
         -not (Test-Path -LiteralPath $nativeLauncherHashFile -PathType Leaf)) {
@@ -888,6 +915,9 @@ if ((Test-Path -LiteralPath $nativeLauncher) -and (Test-Path -LiteralPath $nativ
     exit 1
 } else {
     & $real @args
+}
+} finally {
+    Stop-CacProxyRelay $relay
 }
 exit $LASTEXITCODE
 '@

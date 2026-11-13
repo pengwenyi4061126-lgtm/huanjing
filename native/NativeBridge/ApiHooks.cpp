@@ -1776,6 +1776,13 @@ bool NativeCleanNetworkEnabled() {
     return cached == 1;
 }
 
+bool NativeProxyRedirectEnabled() {
+    char value[2048] = {};
+    const DWORD size = GetEnvironmentVariableA("CAC_HTTP_PROXY_LOCAL", value,
+                                               static_cast<DWORD>(sizeof(value)));
+    return size > 0 && size < sizeof(value);
+}
+
 bool InstallApiHooks() {
     g_hookInstallFailures.store(0);
     InstallInlineThenIat("iphlpapi.dll", "GetAdaptersAddresses", reinterpret_cast<void*>(&HookGetAdaptersAddresses),

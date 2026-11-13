@@ -1,6 +1,6 @@
 {
   "name": "cac-windows",
-  "version": "1.0.42",
+  "version": "1.0.43",
   "description": "Claude Code Windows privacy tool — binary patches to remove Chinese identity markers.",
   "bin": {
     "cac": "cac.cmd"
@@ -10,6 +10,10 @@
     "cac.ps1",
     "cac.cmd",
     "scripts/lib.ps1",
+    "scripts/proxy-pool-lib.ps1",
+    "scripts/proxy-pool.ps1",
+    "scripts/proxy-pool-smoke.ps1",
+    "scripts/proxy-relay-smoke.js",
     "scripts/menu.ps1",
     "scripts/postinstall.js",
     "scripts/patch-cli.js",
@@ -49,6 +53,7 @@
     "native/dist/cac-native-launch.exe",
     "native/dist/cac-native-launch.sha256",
     "native/dist/NativeBridge.sha256",
+    "src/relay.js",
     "README.md",
     "LICENSE"
   ],
@@ -60,6 +65,8 @@
     "audit:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-native-check.ps1",
     "audit:kernel": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/kernel-boundary-check.ps1",
     "native:wfp:smoke": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/tests/run-wfp-smoke.ps1",
+    "proxy:pool:smoke": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/proxy-pool-smoke.ps1",
+    "proxy:relay:smoke": "node scripts/proxy-relay-smoke.js",
     "kernel:build": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/kernel/build-driver.ps1",
     "kernel:install": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/kernel/install-driver.ps1",
     "kernel:uninstall": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/kernel/install-driver.ps1 -Uninstall",

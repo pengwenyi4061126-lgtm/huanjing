@@ -33,6 +33,7 @@ $env:CAC_NETWORK_MODE = 'enforce'
 $env:CAC_NETWORK_ENFORCE = '1'
 $env:CAC_WFP_REQUIRED = '1'
 $env:CAC_KERNEL_POLICY_REQUIRED = '1'
+$env:CAC_HTTP_PROXY_LOCAL = 'http://127.0.0.1:1081'
 
 $probeOutput = @(& $launcher $Probe 2>&1)
 $probeOutput | ForEach-Object { Write-Output $_ }
@@ -58,10 +59,14 @@ $probeText = $probeOutput -join [Environment]::NewLine
 if ($probeText -match '(?i)VMware|VirtualBox|WireGuard|Tailscale|Teredo|Meta Tunnel') {
     throw 'enforce mode still exposed a known virtual/tunnel adapter'
 }
+if ($probeText -notmatch '(?i)ie_proxy_server=127\.0\.0\.1:1081') {
+    throw 'WinHTTP proxy redirection evidence is missing'
+}
 
 [pscustomobject]@{
     status = 'PASS'
     kernelPolicyVerified = $kernel.Count
     wfpInstalled = $wfp.Count
+    proxyRedirect = '127.0.0.1:1081'
     audit = $audit
 } | ConvertTo-Json

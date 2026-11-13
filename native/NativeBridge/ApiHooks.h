@@ -22,6 +22,9 @@ bool NativeEmptyReadsEnabled();
 // True when virtual adapters and proxy configuration must be hidden.
 bool NativeCleanNetworkEnabled();
 
+// True when network APIs must use the per-profile local HTTP relay.
+bool NativeProxyRedirectEnabled();
+
 // Case-insensitive match against known virtual/tunnel adapter names.
 bool NativeIsVirtualAdapterName(const wchar_t* name);
 void InstallCpuHooksFromManifest();

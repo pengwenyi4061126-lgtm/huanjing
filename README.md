@@ -2,7 +2,7 @@
 
 Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征，遥测正常流转。
 
-当前版本：`1.0.42`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+当前版本：`1.0.43`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
 ## 功能
 
@@ -60,7 +60,8 @@ cac
 7. Profile A/B 隔离测试
 8. Native/硬件边界证据
 9. 生成 CPUID Hook 候选
-10. Desktop Profile 管理
+10. 代理池管理       （SOCKS5H 自动绑定、重分配、全部解绑）
+11. Desktop Profile 管理
 0. 退出
 ```
 
@@ -172,6 +173,24 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Actio
 ```
 
 启动器把 `APPDATA` 放在 `USERPROFILE\home\AppData\Roaming` 下，并隔离 `Claude`、`Claude-3p`、`ant-did`、sessions 和 Crashpad。不要用 `CLAUDE_USER_DATA_DIR`：Desktop 会删除/忽略该变量。
+
+### Profile 代理池与无 DNS 泄漏链
+
+代理池文件位于 `%USERPROFILE%\.cac\proxy-pool.json`。新建 Code/ Desktop Profile 时，会按 `claude-code:<name>` 或 `desktop:<name>` 自动绑定当前负载最小的启用代理；显式写入 Profile 的 `proxy` 文件时，显式代理优先。推荐统一使用 `socks5h://user:pass@host:port`，输入 `socks5://` 也会自动规范为 `socks5h://`。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action add -Proxy socks5h://user:pass@proxy.example:1080
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action list
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action auto-bind -AccountKey claude-code:profile-a,desktop:profile-a
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action rebalance -AccountsFile .\accounts.txt
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action unbind-all
+```
+
+启动时不会把上游 SOCKS5 地址直接交给 Claude。cac 会先启动 Profile 专属的 `proxy-relay.js`，进程和所有后代只拿到 `http://127.0.0.1:<port>`；relay 对 HTTPS `CONNECT` 和明文 HTTP 请求都通过 SOCKS5 的域名地址类型 `ATYP=3` 发送目标主机名，因此目标 DNS 在上游代理解析，失败时本地 relay 断开且 `network_mode=enforce` 的动态 WFP 规则只允许回环连接。Desktop 还追加 `--proxy-server`、`--host-resolver-rules`、`--disable-quic` 和 WebRTC 禁止非代理 UDP，renderer/utility/GPU/登录页继承同一代理链。
+
+只要 Profile 配置了代理，启动器会自动把 `network_mode=profile` 提升为 `enforce`；没有已校验的 NativeBridge/WFP 时拒绝启动，避免某个不遵守代理环境变量的 Node、Bun、WinHTTP 或 Socket 子进程直连。
+
+代理池容量提示默认按“账号数 > 启用代理数 × 2”弹窗；每代理承载数默认 2，可用 `-Action settings -AccountsPerProxy N -WarningMultiplier 2` 调整。上游代理服务器自己的域名仍由本机解析；目标站点域名不会在本机解析。Claude Code 调起系统外部浏览器的场景不受 Desktop Chromium 参数控制，Desktop 内嵌登录浏览器会继承该链。
 
 > **为什么必须通过 `claude` wrapper（或 cac 菜单）启动？** claude.exe 是 Bun 打包的单文件程序，内置了预编译的 JSC 字节码。默认情况下运行时直接执行字节码，**内嵌的 JS 源码根本不会被读取，补丁等于没打**。wrapper 启动时会设置 `BUN_JSC_useCodeCache=false`，强制 Bun 放弃字节码、回退到（已打补丁的）源码执行。代价是启动慢约 0.3 秒。直接双击或用绝对路径运行 claude.exe 不会带上这个变量，补丁不生效。
 

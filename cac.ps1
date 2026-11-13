@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$CAC_VERSION = "1.0.42"
+$CAC_VERSION = "1.0.43"
 $SUPPORTED_CC = "2.1.294"
 
 $scriptDir = Split-Path $MyInvocation.MyCommand.Definition -Parent
@@ -216,15 +216,25 @@ function Action-Launch {
         Wait-AnyKey; return
     }
     $values = Get-ProfileEnvironment $paths
-    $names = @($values.Keys) + @("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "TZ")
+    $relay = $null
+    $names = @($values.Keys) + @("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "CAC_HTTP_PROXY_LOCAL", "CAC_PROXY_UPSTREAM", "TZ")
     $snapshot = Save-ProcessEnvironment $names
     Clear-Host
     try {
+        if ($values.Contains('HTTPS_PROXY') -and -not [string]::IsNullOrWhiteSpace([string]$values.HTTPS_PROXY)) {
+            $relay = Start-CacProxyRelay -UpstreamProxyUrl ([string]$values.HTTPS_PROXY) -LogsDir $paths.LogsDir
+            $values.HTTPS_PROXY = $relay.url
+            $values.HTTP_PROXY = $relay.url
+            $values.ALL_PROXY = $relay.url
+            $values.CAC_HTTP_PROXY_LOCAL = $relay.url
+            $values.CAC_PROXY_UPSTREAM = [string]$relay.upstream
+        }
         Set-ProcessEnvironment $values $names
         Update-Statsig -ConfigDir $paths.ConfigDir -StableId (Read-FileValue (Join-Path $paths.Root "stable_id"))
         Update-ClaudeJsonUserId -ConfigDir $paths.ConfigDir -HomeDir $paths.HomeDir -UserId (Read-FileValue (Join-Path $paths.Root "user_id"))
         if ($real -like "*.js") { & node $real } else { & $real }
     } finally {
+        Stop-CacProxyRelay $relay
         Restore-ProcessEnvironment $snapshot
     }
 }
@@ -381,6 +391,11 @@ function Action-EnvCreate {
     }
     Set-Content (Join-Path $CAC_DIR "current") $name
     [void](Ensure-ProfileLayout $name)
+    if (-not $rawProxy) {
+        $poolBinding = Get-CacProxyForAccount -AccountKey ("claude-code:{0}" -f $name)
+        if ($null -ne $poolBinding) { $proxyNote = "代理池: $(Mask-CacProxyUrl $poolBinding.url)" }
+    }
+    Show-CacProxyCapacityWarning (Get-CacKnownAccountCapacityWarning)
     Write-Host ""
     Write-OK "已创建并激活 '$name'"
     Write-Host "     时区: $tzInput" -ForegroundColor White
@@ -587,6 +602,46 @@ function Action-DesktopProfiles {
     Wait-AnyKey
 }
 
+function Action-ProxyPool {
+    $poolScript = Join-Path $scriptDir "scripts\proxy-pool.ps1"
+    if (-not (Test-Path -LiteralPath $poolScript -PathType Leaf)) { Write-Err "proxy-pool.ps1 未找到"; Wait-AnyKey; return }
+    $choices = @(
+        "1. 查看代理池"
+        "2. 添加代理"
+        "3. 自动绑定未分配账号"
+        "4. 重新分配全部"
+        "5. 全部解绑"
+        "6. 设置容量与自动绑定"
+        "0. 返回"
+    )
+    $index = Show-Menu $choices
+    if ($index -lt 0 -or $index -eq 6) { return }
+    switch ($index) {
+        0 { & $poolScript -Action list }
+        1 {
+            $raw = (Read-Input "  代理地址 (推荐 socks5h://user:pass@host:port)").Trim()
+            if ($raw) { & $poolScript -Action add -Proxy $raw } else { Write-Warn "未添加代理" }
+        }
+        2 {
+            $raw = (Read-Input "  账号键 (逗号分隔，如 claude-code:profile-a,desktop:profile-a)").Trim()
+            $keys = @($raw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            if ($keys.Count -gt 0) { & $poolScript -Action auto-bind -AccountKey $keys } else { Write-Warn "未提供账号键" }
+        }
+        3 {
+            $raw = (Read-Input "  账号键 (逗号分隔)").Trim()
+            $keys = @($raw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            if ($keys.Count -gt 0) { & $poolScript -Action rebalance -AccountKey $keys } else { Write-Warn "未提供账号键" }
+        }
+        4 { & $poolScript -Action unbind-all }
+        5 {
+            $cap = (Read-Input "  每代理承载账号数 [2]").Trim(); if (-not $cap) { $cap = '2' }
+            $mult = (Read-Input "  超过 IP 数的倍数弹窗 [2]").Trim(); if (-not $mult) { $mult = '2' }
+            & $poolScript -Action settings -AccountsPerProxy ([int]$cap) -WarningMultiplier ([int]$mult)
+        }
+    }
+    Wait-AnyKey
+}
+
 # ── main loop ──────────────────────────────────────────────
 
 if (-not (Do-Init)) { exit 1 }
@@ -609,7 +664,8 @@ while ($true) {
         "7. Profile A/B 隔离测试"
         "8. Native/硬件边界证据"
         "9. 生成 CPUID Hook 候选"
-        "10. Desktop Profile 管理"
+        "10. 代理池管理"
+        "11. Desktop Profile 管理"
         "0. 退出"
     )
     $sel = Show-Menu $opts
@@ -623,7 +679,8 @@ while ($true) {
         6 { Action-ProfileCheck }
         7 { Action-NativeBoundaryCheck }
         8 { Action-NativeCandidates }
-        9 { Action-DesktopProfiles }
-        { $_ -eq 10 -or $_ -eq -1 } { exit 0 }
+        9 { Action-ProxyPool }
+        10 { Action-DesktopProfiles }
+        { $_ -eq 11 -or $_ -eq -1 } { exit 0 }
     }
 }

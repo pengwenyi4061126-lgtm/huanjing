@@ -4,7 +4,7 @@
 //
 // Listens on 127.0.0.1:<port> as an HTTP proxy, forwards upstream via:
 //   - HTTP CONNECT (for http:// upstream)
-//   - SOCKS5 (for socks5:// upstream)
+//   - SOCKS5 domain forwarding (for socks5:// and socks5h:// upstream)
 //
 // Safety: fail-closed design — if relay dies, HTTPS_PROXY points to dead port,
 // connections refuse (no IP leak). Watchdog in wrapper auto-restarts relay.
@@ -29,7 +29,7 @@ var upstreamHost = upstream.hostname;
 var upstreamPort = parseInt(upstream.port, 10);
 var upstreamUser = decodeURIComponent(upstream.username || '');
 var upstreamPass = decodeURIComponent(upstream.password || '');
-var isSocks5 = upstream.protocol === 'socks5:';
+var isSocks5 = upstream.protocol === 'socks5:' || upstream.protocol === 'socks5h:';
 
 function log(msg) { process.stderr.write('[cac-relay] ' + msg + '\n'); }
 
@@ -305,6 +305,38 @@ function handleConnect(clientSock, targetHost, targetPort, headerRest) {
 }
 
 function handlePlainHttp(clientSock, firstLine, headerRest) {
+  if (isSocks5) {
+    var requestMatch = firstLine.match(/^([A-Z]+)\s+(https?:\/\/[^\s]+)\s+(HTTP\/\d(?:\.\d)?)$/i);
+    if (!requestMatch) {
+      try { clientSock.write('HTTP/1.1 400 Bad Request\r\n\r\n'); } catch(_) {}
+      clientSock.destroy();
+      return;
+    }
+    var targetUrl;
+    try { targetUrl = new URL(requestMatch[2]); } catch (_) { targetUrl = null; }
+    if (!targetUrl || !targetUrl.hostname) {
+      try { clientSock.write('HTTP/1.1 400 Bad Request\r\n\r\n'); } catch(_) {}
+      clientSock.destroy();
+      return;
+    }
+    var targetPort = parseInt(targetUrl.port, 10) || (targetUrl.protocol === 'https:' ? 443 : 80);
+    var targetPath = (targetUrl.pathname || '/') + (targetUrl.search || '');
+    var originLine = requestMatch[1] + ' ' + targetPath + ' ' + requestMatch[3];
+    connectUpstream(targetUrl.hostname, targetPort, function(err, upstreamSock, upstreamExtra) {
+      if (err) {
+        try { clientSock.write('HTTP/1.1 502 Bad Gateway\r\n\r\n'); } catch(_) {}
+        clientSock.destroy();
+        return;
+      }
+      if (upstreamExtra && upstreamExtra.length > 0) clientSock.write(upstreamExtra);
+      upstreamSock.write(originLine + '\r\n' + headerRest);
+      clientSock.pipe(upstreamSock);
+      upstreamSock.pipe(clientSock);
+      clientSock.on('error', function() { upstreamSock.destroy(); });
+      upstreamSock.on('error', function() { clientSock.destroy(); });
+    });
+    return;
+  }
   // For plain HTTP requests, forward directly to upstream proxy
   var sock = net.connect(upstreamPort, upstreamHost, function() {
     var authHeader = '';

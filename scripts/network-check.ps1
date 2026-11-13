@@ -176,7 +176,10 @@ async function directSocket() {
 
 $paths = Ensure-ProfileLayout $EnvName
 $proxyPath = Join-Path $paths.Root "proxy"
-$proxy = Read-FileValue $proxyPath
+$profileProxy = Read-FileValue $proxyPath
+$proxyBinding = Get-CacProxyForAccount -AccountKey ("claude-code:{0}" -f $EnvName) -ExplicitProxy $profileProxy
+$proxy = if ($null -ne $proxyBinding) { [string]$proxyBinding.url } else { '' }
+$proxySource = if ($null -ne $proxyBinding) { [string]$proxyBinding.source } else { '' }
 $proxyConfigured = -not [string]::IsNullOrWhiteSpace($proxy)
 $proxyError = $null
 if ($proxyConfigured) {
@@ -190,6 +193,7 @@ if ($proxyConfigured) {
 $audit = [ordered]@{
     schema = 2
     profile = $EnvName
+    proxySource = $proxySource
     profileRoot = $paths.Root
     checkedUtc = [DateTime]::UtcNow.ToString("o")
     scope = "PROCESS_LOCAL_EVIDENCE_ONLY"
