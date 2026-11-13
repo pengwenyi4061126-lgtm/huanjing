@@ -103,6 +103,7 @@ function Get-FreeTcpPort {
 
 function Initialize-ProfilePersona {
     param([psobject]$Paths)
+    New-Item -ItemType Directory -Path $Paths.Root -Force | Out-Null
     $path = Join-Path $Paths.Root 'fingerprint.json'
     if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
 
@@ -483,22 +484,62 @@ function Start-ClaudeDesktop {
         [bool]$UseFingerprint
     )
 
+    $mitmProcess = $null
+    $mitmPort = $null
+    $mitmPidFile = $null
+    $personaPath = $null
     if ($UseFingerprint) {
-        Write-Host "[BLOCKED] Claude Desktop rejects --remote-debugging-port / --remote-debugging-pipe / --inspect (exit 1)." -ForegroundColor Yellow
-        Write-Host "          CDP injection into the app is unavailable in this build." -ForegroundColor Yellow
-        return [pscustomobject]@{
-            started            = $false
-            blocked            = $true
-            error              = 'Claude Desktop blocks CDP/debugger entry points'
-            mode               = $null
-            processId          = $null
-            launchFile         = $null
-            arguments          = $null
-            userDataDir        = $Paths.UserDataDir
-            nativeRequested    = $UseInject
-            nativeUsed         = $false
-            fingerprintPort    = $null
-            fingerprintPersona = $null
+        $mitm = (Get-Command mitmdump -ErrorAction SilentlyContinue).Source
+        if (-not $mitm) {
+            $candidate = 'D:\zhibo\runtime\py312\python\Scripts\mitmdump.exe'
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { $mitm = $candidate }
+        }
+        $addon = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\mitm_fingerprint.py'
+        $shim = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\fingerprint-shim.js'
+        if (-not $mitm -or -not (Test-Path -LiteralPath $addon -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $shim -PathType Leaf)) {
+            return [pscustomobject]@{
+                started = $false; blocked = $true; error = 'mitmdump or fingerprint assets missing'
+                mode = $null; processId = $null; launchFile = $null; arguments = $null
+                userDataDir = $Paths.UserDataDir; nativeRequested = $UseInject; nativeUsed = $false
+                mitmPort = $null; fingerprintPersona = $null
+            }
+        }
+        $personaPath = Initialize-ProfilePersona -Paths $Paths
+        $mitmPort = Get-FreeTcpPort
+        $mitmPidFile = Join-Path $Paths.LogsDir 'mitm-claude.pid'
+        Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
+        $saved = @{}
+        foreach ($name in @('CAC_PERSONA', 'CAC_SHIM', 'CAC_MITM_LOG', 'CAC_MITM_PIDFILE')) {
+            $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        }
+        try {
+            $env:CAC_PERSONA = $personaPath
+            $env:CAC_SHIM = $shim
+            $env:CAC_MITM_LOG = Join-Path $Paths.LogsDir 'mitm-fingerprint.log'
+            $env:CAC_MITM_PIDFILE = $mitmPidFile
+            $mitmProcess = Start-Process -FilePath $mitm `
+                -ArgumentList @('-q', '-s', $addon, '--listen-port', "$mitmPort") `
+                -PassThru -WindowStyle Hidden
+        } finally {
+            foreach ($name in $saved.Keys) {
+                [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process')
+            }
+        }
+        $deadline = (Get-Date).AddSeconds(10)
+        do {
+            try {
+                $client = [System.Net.Sockets.TcpClient]::new()
+                $client.Connect('127.0.0.1', $mitmPort)
+                $client.Close()
+                break
+            } catch {
+                Start-Sleep -Milliseconds 200
+            }
+        } while ((Get-Date) -lt $deadline)
+        $ca = Join-Path $env:USERPROFILE '.mitmproxy\mitmproxy-ca-cert.cer'
+        if (Test-Path -LiteralPath $ca -PathType Leaf) {
+            & certutil -user -addstore Root $ca 2>&1 | Out-Null
         }
     }
 
@@ -510,6 +551,7 @@ function Start-ClaudeDesktop {
         }
         Write-Host "          Close all Claude Desktop windows manually, then retry." -ForegroundColor Yellow
         Write-Host "          This script does not terminate existing user sessions." -ForegroundColor Yellow
+        if ($mitmProcess) { Stop-Process -Id $mitmProcess.Id -Force -ErrorAction SilentlyContinue }
         return [pscustomobject]@{
             started        = $false
             blocked        = $true
@@ -525,6 +567,7 @@ function Start-ClaudeDesktop {
     }
 
     if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
+        if ($mitmProcess) { Stop-Process -Id $mitmProcess.Id -Force -ErrorAction SilentlyContinue }
         return [pscustomobject]@{
             started        = $false
             blocked        = $false
@@ -543,18 +586,12 @@ function Start-ClaudeDesktop {
     $identity = Initialize-ProfileIdentity -Paths $Paths
 
     $fingerprintPort = $null
-    $personaPath = $null
     $fingerprintArgs = @()
-    if ($UseFingerprint) {
-        $personaPath = Initialize-ProfilePersona -Paths $Paths
+    if ($UseFingerprint -and $mitmPort -and $personaPath) {
         $persona = Get-Content -LiteralPath $personaPath -Raw | ConvertFrom-Json
-        $fingerprintPort = Get-FreeTcpPort
-        $fingerprintArgs += "--remote-debugging-port=$fingerprintPort"
-        $fingerprintArgs += '--remote-allow-origins=*'
+        $fingerprintArgs += "--proxy-server=http://127.0.0.1:$mitmPort"
         $fingerprintArgs += '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
         if ($persona.locale) { $fingerprintArgs += "--lang=$($persona.locale)" }
-        $proxy = Get-NormalizedProxy (Read-FileValue (Join-Path $Paths.Root 'proxy'))
-        if ($proxy) { $fingerprintArgs += "--proxy-server=$proxy" }
     }
 
     $nativeDir = Join-Path $script:OriginalUserProfile '.cac\native'
@@ -659,17 +696,11 @@ function Start-ClaudeDesktop {
     $processId = $null
     if ($null -ne $startedProcess) { $processId = [int]$startedProcess.Id }
 
-    if ($UseFingerprint -and $processId -and $fingerprintPort) {
-        $node = (Get-Command node -ErrorAction SilentlyContinue).Source
-        $injector = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\fingerprint-cdp.js'
-        $shim = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\fingerprint-shim.js'
-        if ($node -and (Test-Path -LiteralPath $injector -PathType Leaf)) {
-            $logPath = Join-Path $Paths.LogsDir 'fingerprint-cdp.log'
-            $injectorArguments = '"' + $injector + '" --port ' + $fingerprintPort +
-                ' --persona "' + $personaPath + '" --shim "' + $shim + '" --log "' + $logPath +
-                '" --pid ' + $processId + ' --wait 30'
-            Start-Process -FilePath $node -ArgumentList $injectorArguments -WindowStyle Hidden -ErrorAction SilentlyContinue | Out-Null
-        }
+    if ($UseFingerprint -and $processId -and $mitmPidFile) {
+        Set-Content -LiteralPath $mitmPidFile -Value "$processId" -Encoding ASCII
+    }
+    if ($UseFingerprint -and -not $processId -and $mitmProcess) {
+        Stop-Process -Id $mitmProcess.Id -Force -ErrorAction SilentlyContinue
     }
 
     return [pscustomobject]@{
@@ -685,6 +716,8 @@ function Start-ClaudeDesktop {
         nativeUsed      = $nativeUsed
         fingerprintPort = $fingerprintPort
         fingerprintPersona = $personaPath
+        mitmPort        = $mitmPort
+        mitmPid         = if ($mitmProcess) { $mitmProcess.Id } else { $null }
     }
 }
 
@@ -860,7 +893,7 @@ function Invoke-LaunchAction {
 
     Write-Host "[LAUNCH] $($paths.Name)"
     Write-Host "  mode: $($launch.mode)  PID: $($launch.processId)"
-    if ($launch.fingerprintPort) { Write-Host "  fingerprint CDP: 127.0.0.1:$($launch.fingerprintPort)" }
+    if ($launch.mitmPort) { Write-Host "  fingerprint MITM: 127.0.0.1:$($launch.mitmPort)" }
     Write-Host "  userData: $($launch.userDataDir)"
     Write-Host "  waiting up to $WaitSeconds seconds for ant-did ..."
     $info = Wait-AntDid -Paths $paths -Seconds $WaitSeconds

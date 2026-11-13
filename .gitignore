@@ -32,3 +32,5 @@ native/dist/*.exp
 native/dist/*.lib
 native/dist/*.pdb
 .npm-cache-pack-test/
+__pycache__/
+*.pyc

@@ -205,7 +205,7 @@
         } catch (_) { return date.getTimezoneOffset(); }
       }
       Date.prototype.getTimezoneOffset = mask(function getTimezoneOffset() {
-        return -offsetMinutes(this);
+        return offsetMinutes(this);
       }, 'getTimezoneOffset');
     }
   } catch (_) {}

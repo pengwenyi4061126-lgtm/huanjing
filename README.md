@@ -2,7 +2,7 @@
 
 Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征，遥测正常流转。
 
-当前版本：`1.0.36`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+当前版本：`1.0.37`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
 ## 功能
 
@@ -176,6 +176,28 @@ clean   : 以太网(02:aa:bb:cc:dd:ee), Loopback
 ```
 
 边界：`clean` 只改变进程内的用户态视图，不改变实际路由和出口 IP。`GetBestRoute2` 仍可能返回隧道接口索引；服务端仍能看到真实出口。要让服务端也认为“没有代理/VPN”，必须使用住宅/移动出口并保持时区、语言、地理一致，或用 VM/独立网络边界。
+
+### 浏览器指纹 MITM（-Fingerprint）
+
+Claude Desktop 拒绝 `--remote-debugging-port` / `--remote-debugging-pipe` / `--inspect`，因此指纹层改用 MITM：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Fingerprint
+```
+
+启动器会生成 `fingerprint.json`，启动 `mitmdump`，安装 mitmproxy CA 到 CurrentUser Root，并给 Claude 加 `--proxy-server=http://127.0.0.1:<port>`。登录页和 hCaptcha iframe 的 HTML 会注入 `fingerprint-shim.js`。
+
+实测：
+
+```text
+inject claude.ai/login
+inject newassets.hcaptcha.com/.../hcaptcha.html
+probe {"hc":24,"tz":"Asia/Shanghai","offset":-480,"persona":true}
+```
+
+`fingerprint.json` 可编辑 timezone / locale / screen / webgl / canvasNoise / audioNoise。`-Inject` 与 `-Fingerprint` 可同时使用。
+
+安全提示：`-Fingerprint` 会安装 mitmproxy CA 到当前用户 Root 存储，并用 `--proxy-server` 接管 Claude 的 Chromium 流量；不使用该开关时不安装 CA、不改代理。
 
 ### 内核 / NDIS / WFP / 物理硬件边界
 
