@@ -482,7 +482,7 @@ function Stop-ClaudeProcesses {
 # ordering otherwise. Returns $true if PATH was modified.
 function Ensure-CacInPath {
     $binDir = (Join-Path $CAC_DIR "bin").TrimEnd("\")
-    $npmDir = (Join-Path $env:APPDATA "npm").TrimEnd("\")
+    $npmDir = (Get-NpmGlobalPrefix).TrimEnd("\")
     $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
     if (-not $userPath) { $userPath = "" }
     $parts = [System.Collections.ArrayList]@()

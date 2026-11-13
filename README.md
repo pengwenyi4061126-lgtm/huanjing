@@ -2,7 +2,7 @@
 
 Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征，遥测正常流转。
 
-当前版本：`1.0.35`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+当前版本：`1.0.36`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
 ## 功能
 
