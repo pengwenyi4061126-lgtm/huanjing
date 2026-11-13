@@ -58,6 +58,16 @@ $cacSource = Get-Content -LiteralPath (Join-Path $root 'cac.ps1') -Raw
 $cacVersionMatch = [regex]::Match($cacSource, '\$CAC_VERSION\s*=\s*"([^"]+)"')
 if (-not $cacVersionMatch.Success) { throw 'cac.ps1 version source is missing' }
 Assert-Equal $version $cacVersionMatch.Groups[1].Value 'cac.ps1 version'
+$readme = Get-Content -LiteralPath (Join-Path $root 'README.md') -Raw
+$readmeHead = (($readme -split "`r?`n") | Select-Object -First 12) -join [Environment]::NewLine
+$readmeVersionMatch = [regex]::Match($readmeHead, '(\d+\.\d+\.\d+)')
+if (-not $readmeVersionMatch.Success) { throw 'README current version is missing' }
+Assert-Equal $version $readmeVersionMatch.Groups[1].Value 'README version'
+$audit = Get-Content -LiteralPath (Join-Path $root 'AUDIT-20261113.md') -Raw
+$auditHead = (($audit -split "`r?`n") | Select-Object -First 80) -join [Environment]::NewLine
+$auditVersionMatch = [regex]::Match($auditHead, '\| cac-windows \| `([^`]+)` \|')
+if (-not $auditVersionMatch.Success) { throw 'AUDIT current version is missing' }
+Assert-Equal $version $auditVersionMatch.Groups[1].Value 'AUDIT version'
 $runtimeChainFiles = @(
     'cac',
     'cac.cmd',
@@ -87,7 +97,8 @@ $runtimeChainFiles = @(
     'native/dist/NativeBridge.dll',
     'native/dist/NativeBridge.sha256',
     'native/dist/cac-native-launch.exe',
-    'native/dist/cac-native-launch.sha256'
+    'native/dist/cac-native-launch.sha256',
+    'native/kernel/RELEASE.md'
 )
 foreach ($relativePath in $runtimeChainFiles) {
     $workspacePath = Join-Path $root ($relativePath -replace '/', '\')
@@ -111,6 +122,18 @@ Assert-Equal $dllHash $declaredHash 'workspace NativeBridge SHA-256'
 $launcherHash = Get-Sha256 $launcher
 $declaredLauncherHash = Get-DeclaredSha256 $launcherHashFile 'workspace cac-native-launch.sha256'
 Assert-Equal $launcherHash $declaredLauncherHash 'workspace native launcher SHA-256'
+$readmeHashMatch = [regex]::Match($readme, 'NativeBridge SHA-256[^\r\n`]*`([0-9A-Fa-f]{64})`')
+if (-not $readmeHashMatch.Success) { throw 'README NativeBridge hash is missing' }
+Assert-Equal $dllHash $readmeHashMatch.Groups[1].Value 'README NativeBridge SHA-256'
+$auditHashMatch = [regex]::Match($auditHead, '\| NativeBridge SHA-256 \| `([0-9A-Fa-f]{64})` \|')
+if (-not $auditHashMatch.Success) { throw 'AUDIT NativeBridge hash is missing' }
+Assert-Equal $dllHash $auditHashMatch.Groups[1].Value 'AUDIT NativeBridge SHA-256'
+$readmeLauncherHashMatch = [regex]::Match($readme, 'cac-native-launch\.exe[^\r\n]*([0-9A-Fa-f]{64})')
+if (-not $readmeLauncherHashMatch.Success) { throw 'README launcher hash is missing' }
+Assert-Equal $launcherHash $readmeLauncherHashMatch.Groups[1].Value 'README launcher SHA-256'
+$auditLauncherHashMatch = [regex]::Match($auditHead, '\| cac-native-launch SHA-256 \| `([0-9A-Fa-f]{64})` \|')
+if (-not $auditLauncherHashMatch.Success) { throw 'AUDIT launcher hash is missing' }
+Assert-Equal $launcherHash $auditLauncherHashMatch.Groups[1].Value 'AUDIT launcher SHA-256'
 
 $result = [ordered]@{
     version = $version

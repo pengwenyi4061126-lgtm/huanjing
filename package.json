@@ -34,6 +34,7 @@
     "fingerprint-hook.js",
     "native/README.md",
     "native/kernel/README.md",
+    "native/kernel/RELEASE.md",
     "native/kernel/driver-policy.json",
     "native/kernel/CacKernel.c",
     "native/kernel/CacKernelIoctl.h",

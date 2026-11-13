@@ -47,7 +47,7 @@ jobs:
         run: |
           $pack = @(npm.cmd pack --ignore-scripts --dry-run --json | ConvertFrom-Json)
           $paths = @($pack[0].files | ForEach-Object { $_.path })
-          foreach ($required in @('cac.cmd', 'cac.ps1', 'native/dist/NativeBridge.dll', 'native/dist/cac-native-launch.exe', 'native/dist/cac-native-launch.sha256')) {
+          foreach ($required in @('cac.cmd', 'cac.ps1', 'native/dist/NativeBridge.dll', 'native/dist/cac-native-launch.exe', 'native/dist/cac-native-launch.sha256', 'native/kernel/RELEASE.md')) {
             if ($paths -notcontains $required) { throw "npm package is missing $required" }
           }
           foreach ($file in @(rg --files -g '*.js' -g '!node_modules/**')) {

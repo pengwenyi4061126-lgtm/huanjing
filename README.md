@@ -4,7 +4,7 @@ Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征
 
 当前版本：`1.0.44`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
-最终审计快照（2026-11-14，提交前工作树）记录的 `native/dist` NativeBridge SHA-256 为 `1C98CA2EA7E8ECE4EE28882D7D5A6048E404A2B373B95235A9C6B8C17FC3F58A`，`cac-native-launch.exe` SHA-256 为 `080D8E6EBCF9020C42D1D5A231BB8425B9B9532405C9778B17F8959B08717BDD`。本机 `%USERPROFILE%\.cac\native` 已同步到相同哈希；`npm run audit:release`、Native smoke、WFP smoke、代理池 smoke 和 relay smoke 均通过。Desktop 历史 PID 审计在未启动真实 Desktop 的情况下保持 `PARTIAL`，不会被静态日志冒充为完整运行时通过。
+最终审计快照（2026-11-14，当前发布快照）记录的 `native/dist` NativeBridge SHA-256 为 `1C98CA2EA7E8ECE4EE28882D7D5A6048E404A2B373B95235A9C6B8C17FC3F58A`，`cac-native-launch.exe` SHA-256 为 `080D8E6EBCF9020C42D1D5A231BB8425B9B9532405C9778B17F8959B08717BDD`。本机 `%USERPROFILE%\.cac\native` 已同步到相同哈希；`npm run audit:release`、Native smoke、WFP smoke、代理池 smoke 和 relay smoke 均通过。Desktop 历史 PID 审计在未启动真实 Desktop 的情况下保持 `PARTIAL`，不会被静态日志冒充为完整运行时通过。
 
 ## 功能
 
@@ -25,14 +25,20 @@ Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征
 - **Desktop Profile** — `scripts/desktop-profile.ps1` 为 Claude Desktop 重定向 `APPDATA`/`LOCALAPPDATA`/`USERPROFILE`/`TEMP`，隔离 `Claude`、`Claude-3p`、`ant-did`、sessions 和 Crashpad
 - **Native/硬件证据** — 单独记录 Windows CIM、注册表、磁盘、网卡等主机共享面；不把它宣称为硬件隔离
 - **Profile 清理** — 只清理当前 Profile，不修改全局 `.claude` 或全局凭据
-- **零依赖** — 只需要 Node.js 和 PowerShell
+- **分层依赖** — 基础 Code Profile 只需要 Node.js 和 PowerShell；Desktop Native 使用仓库内已构建的 NativeBridge/launcher；Fingerprint MITM 需要 `mitmdump`；Kernel 控制面需要本机 WDK、MSVC、Windows SDK、`signtool`、管理员权限和测试签名环境
 
 ## 环境要求
 
 - Windows 10 / 11
-- Node.js ≥ 14
+- Node.js ≥ 14（基础 Code Profile）
 - PowerShell 5.1（系统自带）或 PowerShell 7（推荐）
 - Claude Code 2.1.294（`npm i -g @anthropic-ai/claude-code@2.1.294`，或在 cac 菜单里一键安装）
+
+可选组件的边界：
+
+- Desktop Native：使用 `native/dist` 与 `%USERPROFILE%\.cac\native` 中的 NativeBridge/launcher。
+- Fingerprint MITM：使用 `-Fingerprint` 前必须能解析 `mitmdump`，npm 包只携带 addon/shim，不携带 Python/mitmproxy 运行时。
+- Kernel 控制面：`npm` 包只携带 `native/kernel` 源码和策略文档，不携带 `CacKernel.sys`；本机构建需要 WDK 10.0.26100、MSVC、Windows SDK、`signtool`、管理员权限和测试签名配置。该驱动目前是 `CONTROL_PLANE_ONLY`，不伪造物理硬件。
 
 ## 安装
 

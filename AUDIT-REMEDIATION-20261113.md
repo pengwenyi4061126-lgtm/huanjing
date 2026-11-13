@@ -19,7 +19,8 @@
 | P1 | 网络检查只看环境变量 | 增加 DNS、路由、直连 socket 和代理继承证据，明确不修改系统路由 | 无代理结果为 `NOT_CONFIGURED` |
 | P1 | 发布入口和版本漂移 | `cac.ps1`/README/package 当前统一到 1.0.44，npm `bin` 指向 `cac.cmd`，CI/发布流程改读 Windows 版本源 | 版本、npm 包、安装目录和 Native manifest 一致；`npm run audit:release` 通过 |
 | P1 | CI shell 与本机 Windows PowerShell 不一致 | Windows audit workflow 的四个 PowerShell 步骤统一为 `shell: powershell` | workflow 源码检查通过 |
-| P1 | Desktop 生命周期和清理存在并发竞态 | 启动、monitor、cleanup、remove-ca 使用 Profile mutex；monitor 验证路径/启动时间并清理已认证进程树；cleanup 递归拒绝 reparse point | Windows PowerShell 5.1 parser 24/24 通过；未启动真实 Desktop |
+| P1 | Desktop 生命周期和清理存在并发竞态 | 启动、monitor、cleanup、remove-ca 使用 Profile mutex；monitor 使用 launch generation、ready 握手和根进程身份快照，根进程退出后清理已认证进程树，旧 monitor 遇到新 generation 跳过；cleanup 递归拒绝 reparse point | Windows PowerShell 5.1 parser 24/24 通过；未启动真实 Desktop |
+| P1 | 发布依赖和 Kernel 产物边界不清 | README 分层说明 Node/PowerShell、mitmdump、WDK 依赖；`vm-test.ps1` 从 package.json 动态读取 tgz 版本；`native/kernel/RELEASE.md` 明确 npm 只发源码、测试签名驱动为本机产物；release-check 增加 README/AUDIT 版本和 Native 哈希门禁 | `npm run audit:release` 通过；npm 包含 Kernel 发布说明但不包含被忽略的驱动二进制 |
 | P1 | 上游代理凭据泄漏到 Claude 子进程和转发头 | 子进程只继承本地 relay、proxyId/source；relay 拒绝 URL argv 并过滤 Proxy-Authorization/Proxy-Connection/hop-by-hop headers | relay smoke、代理池 smoke 通过 |
 | P2 | Cookies/登录态没有真实账号证据 | 当前报告只记录路径和哈希，不再宣称登录隔离完成 | 需登录后补 Cookie/Token/DPAPI 读取审计 |
 | P2 | WDK/内核边界缺失 | 实现签名 WDM 控制面 `CacKernel.sys`：5 个窄 IOCTL、per-PID 策略、128 条审计环、SCM 安装/卸载、哈希与签名校验；保留 `audit:kernel` 证据门并拒绝手动映射器和易受攻击驱动 | 本机 `RUNNING_VERIFIED` / `CONTROL_PLANE_ONLY`；NDIS/WFP/物理硬件仍未实现 |

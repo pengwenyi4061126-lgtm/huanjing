@@ -31,6 +31,9 @@ param(
     [string]$MitmPidFile,
     [string]$MitmProcessPidFile,
     [string]$CaPath,
+    [string]$LaunchStateFile,
+    [string]$LaunchGeneration,
+    [string]$MonitorReadyFile,
     [switch]$RemoveCaAfterExit
 )
 
@@ -425,6 +428,58 @@ function Exit-DesktopProfileMutex {
     finally { try { $Lock.Mutex.Dispose() } catch { } }
 }
 
+function Test-TextPathMarker {
+    param(
+        [string]$Text,
+        [string]$Marker
+    )
+    if ([string]::IsNullOrWhiteSpace($Text) -or [string]::IsNullOrWhiteSpace($Marker)) { return $false }
+    $needle = $Marker.TrimEnd([char[]]@('\', '/'))
+    if ([string]::IsNullOrWhiteSpace($needle)) { return $false }
+    $offset = 0
+    while ($offset -lt $Text.Length) {
+        $index = $Text.IndexOf($needle, $offset, [StringComparison]::OrdinalIgnoreCase)
+        if ($index -lt 0) { return $false }
+        $beforeOk = ($index -eq 0 -or $Text[$index - 1] -notmatch '[A-Za-z0-9._-]')
+        $afterIndex = $index + $needle.Length
+        $afterOk = ($afterIndex -ge $Text.Length -or $Text[$afterIndex] -match '[\\/"''\s=;]')
+        if ($beforeOk -and $afterOk) { return $true }
+        $offset = $index + 1
+    }
+    return $false
+}
+
+function Write-DesktopStateFile {
+    param(
+        [string]$Path,
+        [string]$State,
+        [string]$Generation,
+        [int]$RootPid = 0,
+        [string]$RootPath,
+        [string]$RootStartUtc,
+        [string]$ErrorText
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    $parent = Split-Path -Parent $Path
+    if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    [pscustomobject][ordered]@{
+        state       = $State
+        generation  = $Generation
+        rootPid     = $RootPid
+        rootPath    = $RootPath
+        rootStartUtc = $RootStartUtc
+        monitorPid  = $PID
+        error       = $ErrorText
+        updatedUtc  = [DateTime]::UtcNow.ToString('o')
+    } | ConvertTo-Json -Compress | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
+function Read-DesktopStateFile {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    try { return (Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json) } catch { return $null }
+}
+
 function Assert-DesktopNoReparsePoints {
     param([Parameter(Mandatory = $true)][string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return }
@@ -785,16 +840,25 @@ function Wait-ClaudeDesktopRoot {
         if (-not [string]::IsNullOrWhiteSpace($ExpectedUserDataDir)) {
             $expectedMarker = $ExpectedUserDataDir.TrimEnd('\')
             $matchedCandidates = @($candidates | Where-Object {
+                try {
+                    $candidatePath = [System.IO.Path]::GetFullPath([string]$_.Path)
+                    $expectedPath = [System.IO.Path]::GetFullPath($ExePath)
+                    if (-not [string]::Equals($candidatePath, $expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
+                        return $false
+                    }
+                    $process = Get-Process -Id ([int]$_.Id) -ErrorAction Stop
+                    if ($LaunchStartedUtc -ne [DateTime]::MinValue -and
+                        $process.StartTime.ToUniversalTime() -lt $LaunchStartedUtc.AddSeconds(-2)) {
+                        return $false
+                    }
+                } catch {
+                    return $false
+                }
                 $commandLine = [string]$_.CommandLine
                 if (-not [string]::IsNullOrWhiteSpace($commandLine)) {
-                    $commandLine.IndexOf($expectedMarker, [StringComparison]::OrdinalIgnoreCase) -ge 0
+                    Test-TextPathMarker -Text $commandLine -Marker $expectedMarker
                 } else {
-                    try {
-                        $process = Get-Process -Id ([int]$_.Id) -ErrorAction Stop
-                        $process.StartTime.ToUniversalTime() -ge $LaunchStartedUtc.AddSeconds(-2)
-                    } catch {
-                        $false
-                    }
+                    $true
                 }
             })
             $candidates = $matchedCandidates
@@ -861,6 +925,7 @@ function Stop-DesktopLaunchResources {
         [psobject]$Paths,
         [System.Diagnostics.Process]$DesktopProcess,
         [int]$DesktopPid = 0,
+        [psobject]$RootIdentity,
         [System.Diagnostics.Process]$MitmProcess,
         [object]$Relay,
         [string[]]$PidFiles,
@@ -876,7 +941,7 @@ function Stop-DesktopLaunchResources {
     }
     if ($rootProcessId -gt 0 -and $null -ne $Paths) {
         try {
-            $stop = Stop-ClaudeProcessTree -RootProcessId $rootProcessId -Paths $Paths
+            $stop = Stop-ClaudeProcessTree -RootProcessId $rootProcessId -Paths $Paths -RootIdentity $RootIdentity
             if ($stop.error) { [void]$errors.Add([string]$stop.error) }
             if (@($stop.remainingPids).Count -gt 0) { [void]$errors.Add("Desktop processes remain: $(@($stop.remainingPids) -join ',')") }
         } catch { [void]$errors.Add("Desktop stop failed: $($_.Exception.Message)") }
@@ -910,7 +975,10 @@ function Start-DesktopLifecycleMonitor {
         [string]$MitmPidFile,
         [string]$MitmProcessPidFile,
         [bool]$RemoveCa,
-        [string]$CaPath
+        [string]$CaPath,
+        [string]$LaunchStateFile,
+        [string]$LaunchGeneration,
+        [string]$MonitorReadyFile
     )
     if ($DesktopPid -le 0) { throw 'Desktop lifecycle monitor requires a root PID' }
     $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
@@ -966,15 +1034,38 @@ function Start-DesktopLifecycleMonitor {
     if ($MitmPidFile) { $arguments += @('-MitmPidFile', (ConvertTo-ProcessArgument $MitmPidFile)) }
     if ($MitmProcessPidFile) { $arguments += @('-MitmProcessPidFile', (ConvertTo-ProcessArgument $MitmProcessPidFile)) }
     if ($CaPath) { $arguments += @('-CaPath', (ConvertTo-ProcessArgument $CaPath)) }
+    if ($LaunchStateFile) { $arguments += @('-LaunchStateFile', (ConvertTo-ProcessArgument $LaunchStateFile)) }
+    if ($LaunchGeneration) { $arguments += @('-LaunchGeneration', (ConvertTo-ProcessArgument $LaunchGeneration)) }
+    if ($MonitorReadyFile) { $arguments += @('-MonitorReadyFile', (ConvertTo-ProcessArgument $MonitorReadyFile)) }
     if ($RemoveCa) { $arguments += '-RemoveCaAfterExit' }
     $monitor = Start-Process -FilePath $powershell -ArgumentList $arguments -PassThru -WindowStyle Hidden -ErrorAction Stop
-    return [int]$monitor.Id
+    try {
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if ($monitor.HasExited) { throw "Desktop lifecycle monitor exited with code $($monitor.ExitCode) before ready" }
+            $state = Read-DesktopStateFile -Path $MonitorReadyFile
+            if ($null -ne $state -and [string]$state.state -eq 'ready' -and
+                [string]$state.generation -eq [string]$LaunchGeneration -and
+                [int]$state.rootPid -eq $DesktopPid) {
+                return [int]$monitor.Id
+            }
+            Start-Sleep -Milliseconds 100
+        }
+        throw 'Desktop lifecycle monitor did not publish a ready state'
+    } catch {
+        try {
+            if (-not $monitor.HasExited) { $monitor.Kill(); [void]$monitor.WaitForExit(3000) }
+        } catch { }
+        throw
+    }
 }
 
 function Invoke-DesktopMonitorAction {
     $errors = New-Object 'System.Collections.Generic.List[string]'
     $paths = $null
     $profileLock = $null
+    $rootIdentity = $null
+    $allowCleanup = $false
     $rootIdentityValid = ($WatchPid -gt 0 -and
         -not [string]::IsNullOrWhiteSpace($WatchPath) -and
         -not [string]::IsNullOrWhiteSpace($WatchStartUtc))
@@ -985,10 +1076,27 @@ function Invoke-DesktopMonitorAction {
         if (-not $rootIdentityValid) {
             [void]$errors.Add("Desktop root identity is incomplete; refusing PID-only monitoring")
         } else {
-            $tracked = Get-TrackedProcess -ProcessId $WatchPid -ExpectedPath $WatchPath -ExpectedStartUtc $WatchStartUtc
-            while ($null -ne $tracked) {
-                Start-Sleep -Milliseconds 500
-                $tracked = Get-TrackedProcess -ProcessId $WatchPid -ExpectedPath $WatchPath -ExpectedStartUtc $WatchStartUtc
+            try {
+                $rootStart = [DateTime]::Parse($WatchStartUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+                $rootIdentity = [pscustomobject]@{ Id = $WatchPid; Path = $WatchPath; StartUtc = $rootStart }
+            } catch {
+                [void]$errors.Add("Desktop root start time is invalid: $WatchStartUtc")
+            }
+            if ($null -ne $rootIdentity) {
+                Write-DesktopStateFile -Path $MonitorReadyFile -State 'ready' -Generation $LaunchGeneration `
+                    -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc
+                $state = Get-TrackedProcessState -ProcessId $WatchPid -ExpectedPath $WatchPath -ExpectedStartUtc $WatchStartUtc
+                while ($state -eq 'alive') {
+                    Start-Sleep -Milliseconds 500
+                    $state = Get-TrackedProcessState -ProcessId $WatchPid -ExpectedPath $WatchPath -ExpectedStartUtc $WatchStartUtc
+                }
+                if ($state -eq 'exited') {
+                    $allowCleanup = $true
+                } elseif ($state -eq 'reused') {
+                    [void]$errors.Add("Desktop root PID $WatchPid was reused; cleanup refused")
+                } else {
+                    [void]$errors.Add("Desktop root PID $WatchPid identity became unavailable; cleanup refused")
+                }
             }
         }
     } finally {
@@ -1000,6 +1108,25 @@ function Invoke-DesktopMonitorAction {
                 if ($errors.Count -eq 0) { [void]$errors.Add("Desktop monitor could not acquire Profile mutex") }
             } else {
                 try {
+                    $launchState = Read-DesktopStateFile -Path $LaunchStateFile
+                    $statePathMatches = ($null -ne $launchState -and
+                        [string]::Equals([string]$launchState.rootPath, [string]$WatchPath, [StringComparison]::OrdinalIgnoreCase))
+                    $stateStartMatches = $false
+                    if ($null -ne $launchState -and -not [string]::IsNullOrWhiteSpace([string]$launchState.rootStartUtc)) {
+                        try {
+                            $stateStart = [DateTime]::Parse([string]$launchState.rootStartUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+                            $watchStart = [DateTime]::Parse($WatchStartUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+                            $stateStartMatches = ([Math]::Abs(($stateStart - $watchStart).TotalSeconds) -le 2)
+                        } catch { $stateStartMatches = $false }
+                    }
+                    $stateMatches = ($null -ne $launchState -and
+                        [string]$launchState.generation -eq [string]$LaunchGeneration -and
+                        [int]$launchState.rootPid -eq $WatchPid -and
+                        $statePathMatches -and $stateStartMatches)
+                    if (-not $stateMatches) {
+                        Write-Host '[CLEANUP] stale Desktop monitor ignored; Profile has a newer launch generation' -ForegroundColor Yellow
+                        $allowCleanup = $false
+                    }
                     $mitm = $null
                     if ($MitmPid -gt 0) {
                         if ([string]::IsNullOrWhiteSpace($MitmPath) -or [string]::IsNullOrWhiteSpace($MitmStartUtc)) {
@@ -1019,14 +1146,23 @@ function Invoke-DesktopMonitorAction {
                     $relay = if ($null -ne $relayProcess) {
                         [pscustomobject]@{ owned = $true; process = $relayProcess; pidFile = $RelayPidFile }
                     } else { $null }
-                    if ($rootIdentityValid) {
+                    if ($rootIdentityValid -and $allowCleanup -and $stateMatches) {
                         $cleanupErrors = @(Stop-DesktopLaunchResources -Paths $paths -DesktopPid $WatchPid `
+                            -RootIdentity $rootIdentity `
                             -MitmProcess $mitm -Relay $relay `
                             -PidFiles @($RelayPidFile, $MitmPidFile, $MitmProcessPidFile) `
                             -CaPath $CaPath -RemoveCa ([bool]$RemoveCaAfterExit))
                         foreach ($errorText in $cleanupErrors) { [void]$errors.Add($errorText) }
+                        if ($cleanupErrors.Count -eq 0) {
+                            Write-DesktopStateFile -Path $LaunchStateFile -State 'stopped' -Generation $LaunchGeneration `
+                                -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc
+                        }
                     } else {
-                        [void]$errors.Add('Desktop root tree cleanup skipped because root identity was not authenticated')
+                        if ($rootIdentityValid -and -not $stateMatches) {
+                            Write-Host '[CLEANUP] Desktop tree cleanup skipped for stale launch generation' -ForegroundColor Yellow
+                        } else {
+                            [void]$errors.Add('Desktop root tree cleanup skipped because root identity was not authenticated')
+                        }
                     }
                 } finally {
                     Exit-DesktopProfileMutex $profileLock
@@ -1062,6 +1198,9 @@ function Start-ClaudeDesktop {
     $launcherProcess = $null
     $resourceTransferred = $false
     $monitorPid = $null
+    $launchGeneration = $null
+    $launchStateFile = $null
+    $monitorReadyFile = $null
     $result = $null
     $profileLock = $null
 
@@ -1110,6 +1249,10 @@ function Start-ClaudeDesktop {
     # profile cannot publish its PID file and fail-closed monitoring breaks.
     Initialize-ProfileLayout -Paths $Paths -ForLaunch | Out-Null
     Assert-DesktopNoReparsePoints -Path $Paths.Root
+    $launchGeneration = [Guid]::NewGuid().ToString('N')
+    $launchStateFile = Join-Path $Paths.LogsDir 'desktop-launch.json'
+    $monitorReadyFile = Join-Path $Paths.LogsDir ('.desktop-monitor-{0}.json' -f $launchGeneration)
+    Remove-Item -LiteralPath $monitorReadyFile -Force -ErrorAction SilentlyContinue
 
     $proxyBinding = Resolve-DesktopProxyBinding -ProfileName $Paths.Name
     if ($null -ne $proxyBinding) {
@@ -1419,6 +1562,9 @@ function Start-ClaudeDesktop {
         -ExpectedUserDataDir $Paths.UserDataDir -LaunchStartedUtc $launchStartedUtc
     $startedProcess = $desktopProcess
     $processId = [int]$desktopProcess.Id
+    $desktopStartUtc = $desktopProcess.StartTime.ToUniversalTime().ToString('o')
+    Write-DesktopStateFile -Path $launchStateFile -State 'active' -Generation $launchGeneration `
+        -RootPid $processId -RootPath ([string]$desktopProcess.Path) -RootStartUtc $desktopStartUtc
 
     if ($UseFingerprint -and $processId -and $mitmPidFile) {
         Set-Content -LiteralPath $mitmPidFile -Value "$processId" -Encoding ASCII
@@ -1427,7 +1573,8 @@ function Start-ClaudeDesktop {
     # renderer/utility processes after the Desktop root exits.
     $monitorPid = Start-DesktopLifecycleMonitor -Paths $Paths -DesktopPid $processId `
         -Relay $relay -MitmProcess $mitmProcess -MitmPidFile $mitmPidFile `
-        -MitmProcessPidFile $mitmProcessPidFile -RemoveCa $caInstalledByLaunch -CaPath $caPath
+        -MitmProcessPidFile $mitmProcessPidFile -RemoveCa $caInstalledByLaunch -CaPath $caPath `
+        -LaunchStateFile $launchStateFile -LaunchGeneration $launchGeneration -MonitorReadyFile $monitorReadyFile
     $resourceTransferred = $true
 
     return [pscustomobject]@{
@@ -1490,7 +1637,7 @@ function Get-ProcessSnapshot {
             return @(Get-WmiObject -Class Win32_Process -ErrorAction Stop |
                 Select-Object ProcessId, ParentProcessId)
         } catch {
-            return @()
+            throw "Unable to enumerate the process tree through CIM/WMI: $($_.Exception.Message)"
         }
     }
 }
@@ -1552,7 +1699,7 @@ function Test-ProcessIdentity {
     if (-not [string]::Equals([string]$current.Path, [string]$Identity.Path, [StringComparison]::OrdinalIgnoreCase)) {
         return $false
     }
-    return ([Math]::Abs(($current.StartUtc - $Identity.StartUtc).TotalSeconds) -le 5)
+    return ([Math]::Abs(($current.StartUtc - $Identity.StartUtc).TotalSeconds) -le 2)
 }
 
 function Get-ClaudeRootIdentity {
@@ -1572,7 +1719,7 @@ function Get-ClaudeRootIdentity {
         $row = @(Get-ClaudeProcessRows | Where-Object { [int]$_.Id -eq $ProcessId } | Select-Object -First 1)
         if ($row.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$row[0].CommandLine)) {
             $marker = ([string]$Paths.UserDataDir).TrimEnd('\')
-            if ([string]$row[0].CommandLine.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            if (-not (Test-TextPathMarker -Text ([string]$row[0].CommandLine) -Marker $marker)) {
                 return $null
             }
         }
@@ -1637,10 +1784,8 @@ function Get-ProfileProcessIds {
         $executablePath = [string]$row.ExecutablePath
         $matched = $false
         foreach ($marker in $markers) {
-            if ((-not [string]::IsNullOrWhiteSpace($commandLine) -and
-                 $commandLine.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or
-                (-not [string]::IsNullOrWhiteSpace($executablePath) -and
-                 $executablePath.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+            if ((Test-TextPathMarker -Text $commandLine -Marker $marker) -or
+                (Test-TextPathMarker -Text $executablePath -Marker $marker)) {
                 $matched = $true
                 break
             }
@@ -1662,10 +1807,8 @@ function Get-ProfileProcessIds {
             $pidExecutablePath = [string]$pidRow.ExecutablePath
             $pidMatchesProfile = $false
             foreach ($marker in $markers) {
-                if ((-not [string]::IsNullOrWhiteSpace($pidCommandLine) -and
-                     $pidCommandLine.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or
-                    (-not [string]::IsNullOrWhiteSpace($pidExecutablePath) -and
-                     $pidExecutablePath.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+                if ((Test-TextPathMarker -Text $pidCommandLine -Marker $marker) -or
+                    (Test-TextPathMarker -Text $pidExecutablePath -Marker $marker)) {
                     $pidMatchesProfile = $true
                     break
                 }
@@ -1718,9 +1861,35 @@ function Get-TrackedProcess {
         if (-not [string]::Equals($actualPath, $wantedPath, [StringComparison]::OrdinalIgnoreCase)) { return $null }
         $expected = [DateTime]::Parse($ExpectedStartUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
         $actual = $process.StartTime.ToUniversalTime()
-        if ([Math]::Abs(($actual - $expected).TotalSeconds) -gt 5) { return $null }
+        if ([Math]::Abs(($actual - $expected).TotalSeconds) -gt 2) { return $null }
     } catch { return $null }
     return $process
+}
+
+function Get-TrackedProcessState {
+    param(
+        [int]$ProcessId,
+        [string]$ExpectedPath,
+        [string]$ExpectedStartUtc
+    )
+    if ($ProcessId -le 0 -or [string]::IsNullOrWhiteSpace($ExpectedPath) -or
+        [string]::IsNullOrWhiteSpace($ExpectedStartUtc)) { return 'unknown' }
+    try {
+        $process = Get-Process -Id $ProcessId -ErrorAction Stop
+    } catch {
+        return 'exited'
+    }
+    try {
+        $actualPath = [System.IO.Path]::GetFullPath([string]$process.Path)
+        $wantedPath = [System.IO.Path]::GetFullPath($ExpectedPath)
+        if (-not [string]::Equals($actualPath, $wantedPath, [StringComparison]::OrdinalIgnoreCase)) { return 'reused' }
+        $expected = [DateTime]::Parse($ExpectedStartUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        $actual = $process.StartTime.ToUniversalTime()
+        if ([Math]::Abs(($actual - $expected).TotalSeconds) -gt 2) { return 'reused' }
+        return 'alive'
+    } catch {
+        return 'unknown'
+    }
 }
 
 function Get-PathMarkers {
@@ -1755,10 +1924,14 @@ function Get-PathMarkers {
 function Stop-ClaudeProcessTree {
     param(
         [int]$RootProcessId,
-        [psobject]$Paths
+        [psobject]$Paths,
+        [psobject]$RootIdentity
     )
 
-    $rootIdentity = Get-ClaudeRootIdentity -ProcessId $RootProcessId -Paths $Paths
+    $rootIdentity = if ($null -ne $RootIdentity) { $RootIdentity } else {
+        Get-ClaudeRootIdentity -ProcessId $RootProcessId -Paths $Paths
+    }
+    if ($null -ne $rootIdentity -and [int]$rootIdentity.Id -ne $RootProcessId) { $rootIdentity = $null }
     if ($null -eq $rootIdentity) {
         return [pscustomobject]@{
             collectedPids = @()
@@ -1776,7 +1949,7 @@ function Stop-ClaudeProcessTree {
         # processes are collected after the original tree is gone.
         $scan = @(Get-ProcessTreeIds -RootProcessId $RootProcessId)
         if ($null -ne $Paths) {
-            try { $scan += @(Get-ProfileProcessIds -Paths $Paths) } catch { }
+            $scan += @(Get-ProfileProcessIds -Paths $Paths)
         }
         $scan = @($scan | Where-Object { $_ -and [int]$_ -ne $PID } | Select-Object -Unique)
         foreach ($targetId in $scan) {
@@ -1800,10 +1973,8 @@ function Stop-ClaudeProcessTree {
             $identityById.ContainsKey([int]$_) -and (Test-ProcessIdentity -Identity $identityById[[int]$_])
         } | Select-Object -Unique)
         if ($null -ne $Paths) {
-            try {
-                $remaining += @(Get-ProfileProcessIds -Paths $Paths)
-                $remaining = @($remaining | Select-Object -Unique)
-            } catch { }
+            $remaining += @(Get-ProfileProcessIds -Paths $Paths)
+            $remaining = @($remaining | Select-Object -Unique)
         }
         if ($remaining.Count -eq 0) { break }
     } while ([DateTime]::UtcNow -lt $deadline)

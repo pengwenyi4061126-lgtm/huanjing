@@ -10,7 +10,12 @@ function Pass($t) { Write-Host "  PASS  $t" -ForegroundColor Green }
 function Fail($t) { Write-Host "  FAIL  $t" -ForegroundColor Red; $script:failed = $true }
 $script:failed = $false
 
-$tgz = Join-Path $PSScriptRoot "cac-windows-1.0.27.tgz"
+$packagePath = Join-Path $PSScriptRoot 'package.json'
+if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) { Fail "找不到 $packagePath"; exit 1 }
+$package = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
+$packageVersion = [string]$package.version
+if ([string]::IsNullOrWhiteSpace($packageVersion)) { Fail 'package.json.version 为空'; exit 1 }
+$tgz = Join-Path $PSScriptRoot ("cac-windows-{0}.tgz" -f $packageVersion)
 if (-not (Test-Path $tgz)) { Fail "找不到 $tgz"; exit 1 }
 
 Step "1. 安装 cac-windows（本地 tgz）"
