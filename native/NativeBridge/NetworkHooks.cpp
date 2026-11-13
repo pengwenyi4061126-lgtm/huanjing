@@ -11,6 +11,7 @@
 #include <winhttp.h>
 
 #include <cstring>
+#include <cstdio>
 #include <string>
 
 #include "ApiHooks.h"
@@ -28,6 +29,9 @@ typedef BOOL (WINAPI* PFN_WinHttpGetProxyForUrl)(HINTERNET, LPCWSTR, WINHTTP_AUT
 typedef BOOL (WINAPI* PFN_WinHttpGetDefaultProxyConfiguration)(WINHTTP_PROXY_INFO*);
 typedef HINTERNET (WINAPI* PFN_WinHttpOpen)(LPCWSTR, DWORD, LPCWSTR, LPCWSTR, DWORD);
 typedef BOOL (WINAPI* PFN_InternetQueryOptionW)(HINTERNET, DWORD, LPVOID, LPDWORD);
+typedef DWORD (WINAPI* PFN_GetBestRoute2)(const NET_LUID*, NET_IFINDEX, const SOCKADDR_INET*,
+                                          const SOCKADDR_INET*, ULONG, PMIB_IPFORWARD_ROW2,
+                                          PSOCKADDR_INET);
 
 PFN_GetInterfaceInfo g_origGetInterfaceInfo = nullptr;
 PFN_ConvertInterfaceLuidToNameW g_origConvertLuidToName = nullptr;
@@ -38,6 +42,7 @@ PFN_WinHttpGetProxyForUrl g_origGetProxyForUrl = nullptr;
 PFN_WinHttpGetDefaultProxyConfiguration g_origGetDefaultProxy = nullptr;
 PFN_WinHttpOpen g_origWinHttpOpen = nullptr;
 PFN_InternetQueryOptionW g_origInternetQueryOption = nullptr;
+PFN_GetBestRoute2 g_origGetBestRoute2 = nullptr;
 
 DWORD WINAPI HookGetInterfaceInfo(PIP_INTERFACE_INFO info, PULONG size) {
     const DWORD status = g_origGetInterfaceInfo ? g_origGetInterfaceInfo(info, size) : ERROR_NOT_SUPPORTED;
@@ -149,6 +154,30 @@ BOOL WINAPI HookInternetQueryOptionW(HINTERNET handle, DWORD option, LPVOID buff
     return g_origInternetQueryOption ? g_origInternetQueryOption(handle, option, buffer, size) : FALSE;
 }
 
+DWORD WINAPI HookGetBestRoute2(const NET_LUID* interfaceLuid, NET_IFINDEX interfaceIndex,
+                               const SOCKADDR_INET* sourceAddress,
+                               const SOCKADDR_INET* destinationAddress, ULONG addressSortOptions,
+                               PMIB_IPFORWARD_ROW2 bestRoute, PSOCKADDR_INET bestSourceAddress) {
+    const DWORD status = g_origGetBestRoute2
+        ? g_origGetBestRoute2(interfaceLuid, interfaceIndex, sourceAddress, destinationAddress,
+                              addressSortOptions, bestRoute, bestSourceAddress)
+        : ERROR_NOT_SUPPORTED;
+    char detail[160] = {};
+    if (status == NO_ERROR && bestRoute) {
+        std::snprintf(detail, sizeof(detail), "status=0;interface=%lu;metric=%lu;policy=observe-only",
+                      static_cast<unsigned long>(bestRoute->InterfaceIndex),
+                      static_cast<unsigned long>(bestRoute->Metric));
+        AuditEventRateLimited("api.getbestroute2",
+                              NativeCleanNetworkEnabled() ? "observed-clean-passthrough" : "observed",
+                              detail);
+    } else {
+        std::snprintf(detail, sizeof(detail), "status=%lu;policy=observe-only",
+                      static_cast<unsigned long>(status));
+        AuditEventRateLimited("api.getbestroute2", "observed-error", detail);
+    }
+    return status;
+}
+
 }  // namespace
 
 void InstallNetworkHooks() {
@@ -178,4 +207,6 @@ void InstallNetworkHooks() {
     InstallHookInlinePrimary("wininet.dll", "InternetQueryOptionW",
                              reinterpret_cast<void*>(&HookInternetQueryOptionW),
                              reinterpret_cast<void**>(&g_origInternetQueryOption));
+    InstallHookInlinePrimary("iphlpapi.dll", "GetBestRoute2", reinterpret_cast<void*>(&HookGetBestRoute2),
+                             reinterpret_cast<void**>(&g_origGetBestRoute2));
 }
