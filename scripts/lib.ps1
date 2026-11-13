@@ -15,6 +15,21 @@ function Read-FileValue {
     return $Default
 }
 
+function Get-CacSha256 {
+    param([string]$Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try {
+            return ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToUpperInvariant()
+        } finally {
+            $stream.Dispose()
+        }
+    } finally {
+        $sha.Dispose()
+    }
+}
+
 function Test-ProfileName {
     param([string]$Name)
     if ([string]::IsNullOrWhiteSpace($Name)) { return $false }
@@ -53,12 +68,12 @@ function Sync-NativeLayer {
     if (-not (Test-Path -LiteralPath $source)) { return $false }
     New-Item -ItemType Directory -Path $target -Force | Out-Null
     $changed = $false
-    foreach ($name in @("NativeBridge.dll", "cac-native-launch.exe")) {
+    foreach ($name in @("NativeBridge.dll", "cac-native-launch.exe", "NativeBridge.sha256")) {
         $from = Join-Path $source $name
         if (-not (Test-Path -LiteralPath $from)) { continue }
         $to = Join-Path $target $name
         if (-not (Test-Path -LiteralPath $to) -or
-            (Get-FileHash -LiteralPath $from -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $to -Algorithm SHA256).Hash) {
+            (Get-CacSha256 $from) -ne (Get-CacSha256 $to)) {
             Copy-Item -LiteralPath $from -Destination $to -Force
             $changed = $true
         }
@@ -71,7 +86,7 @@ function Sync-IdentityHook {
     $target = Join-Path $CAC_DIR "fingerprint-hook.js"
     if (-not (Test-Path -LiteralPath $source)) { return $false }
     if (-not (Test-Path -LiteralPath $target) -or
-        (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) {
+        (Get-CacSha256 $source) -ne (Get-CacSha256 $target)) {
         New-Item -ItemType Directory -Path $CAC_DIR -Force | Out-Null
         Copy-Item -LiteralPath $source -Destination $target -Force
         return $true
@@ -121,12 +136,32 @@ function Test-ProxyReachable {
     } catch { return $false }
 }
 
+function Get-NpmGlobalPrefix {
+    if (-not [string]::IsNullOrWhiteSpace($env:npm_config_prefix)) {
+        return $env:npm_config_prefix.Trim()
+    }
+    try {
+        $lines = @(& npm prefix -g 2>$null)
+        if ($lines.Count -gt 0) {
+            $value = ([string]($lines | Select-Object -Last 1)).Trim()
+            if ($value) { return $value }
+        }
+    } catch { }
+    return (Join-Path $env:APPDATA "npm")
+}
+
+function Get-ClaudeCodeInstallDir {
+    return Join-Path (Get-NpmGlobalPrefix) "node_modules\@anthropic-ai\claude-code"
+}
+
 function Find-RealClaude {
-    $npmBase = Join-Path $env:APPDATA "npm\node_modules\@anthropic-ai\claude-code"
+    $npmBase = Get-ClaudeCodeInstallDir
     foreach ($name in @("claude.exe", "claude")) {
         $c = Join-Path $npmBase "bin\$name"
         if (Test-Path $c) { return $c }
     }
+    $command = Get-Command claude -ErrorAction SilentlyContinue
+    if ($command -and $command.Source) { return $command.Source }
     return $null
 }
 
@@ -551,6 +586,19 @@ exit /b %ERRORLEVEL%
     # PowerShell wrapper
     $ps1 = @'
 $ErrorActionPreference = "Stop"
+function Get-CacSha256([string]$Path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try {
+            return ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToUpperInvariant()
+        } finally {
+            $stream.Dispose()
+        }
+    } finally {
+        $sha.Dispose()
+    }
+}
 $cacHome = $env:USERPROFILE
 $d = Join-Path $cacHome ".cac"
 $hook = Join-Path $d "fingerprint-hook.js"
@@ -597,7 +645,7 @@ if ($manifestData.claudeVersion -ne "2.1.294" -or -not $manifestData.markersOk) 
     Write-Error "[cac] binary manifest is incomplete; run cac to repair"
     exit 1
 }
-$actualHash = (Get-FileHash -LiteralPath $real -Algorithm SHA256).Hash.ToUpperInvariant()
+$actualHash = Get-CacSha256 $real
 if ($actualHash -ne ([string]$manifestData.sha256).ToUpperInvariant()) {
     Write-Error "[cac] claude.exe SHA-256 mismatch; launch refused"
     exit 1

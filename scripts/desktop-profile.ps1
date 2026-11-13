@@ -34,6 +34,21 @@ $script:LayoutFolders = @(
     'logs'
 )
 
+function Get-Sha256 {
+    param([string]$Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try {
+            return ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToUpperInvariant()
+        } finally {
+            $stream.Dispose()
+        }
+    } finally {
+        $sha.Dispose()
+    }
+}
+
 function Test-ProfileName {
     param([string]$Name)
     if ([string]::IsNullOrWhiteSpace($Name)) { return $false }
@@ -211,14 +226,13 @@ function Sync-NativeLayer {
     $target = Join-Path $script:OriginalUserProfile '.cac\native'
     if (-not (Test-Path -LiteralPath $source -PathType Container)) { return }
     New-Item -ItemType Directory -Path $target -Force | Out-Null
-    foreach ($name in @('NativeBridge.dll', 'cac-native-launch.exe')) {
+    foreach ($name in @('NativeBridge.dll', 'cac-native-launch.exe', 'NativeBridge.sha256')) {
         $from = Join-Path $source $name
         if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
         $to = Join-Path $target $name
         $needsCopy = -not (Test-Path -LiteralPath $to -PathType Leaf)
         if (-not $needsCopy) {
-            $needsCopy = (Get-FileHash -LiteralPath $from -Algorithm SHA256).Hash -ne
-                        (Get-FileHash -LiteralPath $to -Algorithm SHA256).Hash
+            $needsCopy = (Get-Sha256 $from) -ne (Get-Sha256 $to)
         }
         if ($needsCopy) {
             Copy-Item -LiteralPath $from -Destination $to -Force
@@ -233,7 +247,7 @@ function Get-AntDidInfo {
         if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
         $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
         if ($item.PSIsContainer) { return $null }
-        $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash
+        $hash = Get-Sha256 $Path
         return [pscustomobject][ordered]@{
             path          = $item.FullName
             length        = [long]$item.Length

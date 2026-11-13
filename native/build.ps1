@@ -55,9 +55,16 @@ try {
         /link /DLL /guard:cf iphlpapi.lib bcrypt.lib wbemuuid.lib ole32.lib oleaut32.lib
     if ($LASTEXITCODE -ne 0) { throw "NativeBridge.dll build failed ($LASTEXITCODE)" }
 
+    $dllPath = Join-Path $dist "NativeBridge.dll"
+    $dllHash = (Get-FileHash -LiteralPath $dllPath -Algorithm SHA256).Hash
+    Set-Content -LiteralPath (Join-Path $obj "expected_dll_hash.h") `
+        -Value "#define CAC_EXPECTED_DLL_SHA256 `"$dllHash`"" -Encoding ASCII
+    Set-Content -LiteralPath (Join-Path $dist "NativeBridge.sha256") -Value $dllHash -Encoding ASCII
+
     Write-Host "Building cac-native-launch.exe ..." -ForegroundColor Cyan
     & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        "/I$obj" `
         (Join-Path $root "Launcher\main.cpp") `
         "/Fo$obj\" "/Fe:$dist\cac-native-launch.exe" /link /guard:cf
     if ($LASTEXITCODE -ne 0) { throw "cac-native-launch.exe build failed ($LASTEXITCODE)" }

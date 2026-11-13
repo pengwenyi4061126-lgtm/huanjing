@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$CAC_VERSION = "1.0.34"
+$CAC_VERSION = "1.0.35"
 $SUPPORTED_CC = "2.1.294"
 
 $scriptDir = Split-Path $MyInvocation.MyCommand.Definition -Parent
@@ -11,7 +11,7 @@ $scriptDir = Split-Path $MyInvocation.MyCommand.Definition -Parent
 # ── helpers ────────────────────────────────────────────────
 
 function Get-CcInstallDir {
-    return Join-Path $env:APPDATA "npm\node_modules\@anthropic-ai\claude-code"
+    return Get-ClaudeCodeInstallDir
 }
 
 function Get-CcVersion {
@@ -143,7 +143,7 @@ function Do-Init {
     Write-Host ""
     Write-Host "  正在初始化..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Path $ENVS_DIR -Force | Out-Null
-    $ccDir = Join-Path $env:APPDATA "npm\node_modules\@anthropic-ai\claude-code"
+    $ccDir = Get-CcInstallDir
     $claude = Find-RealClaude
     if (-not $claude -and -not (Test-Path (Join-Path $ccDir "package.json"))) {
         # Not installed at all (postinstall may have been blocked by npm allowScripts)
@@ -247,7 +247,7 @@ function Action-InstallAndPatch {
     $npmOutput | ForEach-Object { Write-Host "  $_" }
     if ($npmExit -ne 0) { Write-Err "安装失败"; Wait-AnyKey; return }
     # npm may skip install.cjs (allow-scripts policy) — run it so bin/claude.exe exists
-    $ccDir = Join-Path $env:APPDATA "npm\node_modules\@anthropic-ai\claude-code"
+    $ccDir = Get-CcInstallDir
     $ccInstall = Join-Path $ccDir "install.cjs"
     if (-not (Find-RealClaude) -and (Test-Path $ccInstall)) {
         Write-Host "  运行 install.cjs 解包二进制..." -ForegroundColor Cyan

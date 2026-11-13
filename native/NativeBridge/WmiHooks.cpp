@@ -77,6 +77,12 @@ const Rule kRules[] = {
     { L"Win32_NetworkAdapterConfiguration", L"MACAddress", 4 },
     { L"Win32_NetworkAdapterConfiguration", L"SettingID", 0 },
     { L"Win32_NetworkAdapterConfiguration", L"Description", 0 },
+    { L"MSFT_NetAdapter", L"MacAddress", 4 },
+    { L"MSFT_NetAdapter", L"PermanentAddress", 4 },
+    { L"MSFT_NetAdapter", L"InterfaceDescription", 0 },
+    { L"MSFT_NetAdapter", L"DriverDescription", 0 },
+    { L"MSFT_NetAdapter", L"PNPDeviceID", 0 },
+    { L"MSFT_NetAdapter", L"DeviceID", 0 },
     { L"Win32_ComputerSystem", L"Name", 6 },
     { L"Win32_ComputerSystem", L"Manufacturer", 0 },
     { L"Win32_ComputerSystem", L"Model", 0 },
@@ -148,11 +154,13 @@ bool IsVirtualNetworkObject(IWbemClassObject* object) {
     if (!object || !NativeCleanNetworkEnabled()) return false;
     const std::wstring cls = GetObjectString(object, L"__CLASS");
     if (_wcsicmp(cls.c_str(), L"Win32_NetworkAdapter") != 0 &&
-        _wcsicmp(cls.c_str(), L"Win32_NetworkAdapterConfiguration") != 0) {
+        _wcsicmp(cls.c_str(), L"Win32_NetworkAdapterConfiguration") != 0 &&
+        _wcsicmp(cls.c_str(), L"MSFT_NetAdapter") != 0) {
         return false;
     }
     static const wchar_t* const properties[] = {
-        L"Name", L"Description", L"PNPDeviceID", L"SettingID",
+        L"Name", L"Description", L"InterfaceDescription", L"DriverDescription",
+        L"PNPDeviceID", L"SettingID", L"DeviceID",
     };
     for (const wchar_t* property : properties) {
         const std::wstring value = GetObjectString(object, property);

@@ -81,7 +81,7 @@ function Get-PathState([string]$Path) {
                 exists = $true
                 kind = "file"
                 entries = 1
-                sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash
+                sha256 = Get-CacSha256 $Path
             }
         }
         $lines = @(

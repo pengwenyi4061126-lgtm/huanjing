@@ -133,16 +133,32 @@ bool InjectLibrary(HANDLE process, const std::wstring& dllPath, std::string* err
     return true;
 }
 
+bool IsNetworkToolImage(const std::wstring& baseName) {
+    static const wchar_t* const tools[] = {
+        L"powershell.exe", L"pwsh.exe", L"cmd.exe", L"ipconfig.exe", L"netsh.exe",
+        L"wmic.exe", L"getmac.exe", L"route.exe", L"arp.exe", L"systeminfo.exe",
+        L"nbtstat.exe",
+    };
+    for (const wchar_t* tool : tools) {
+        if (_wcsicmp(baseName.c_str(), tool) == 0) return true;
+    }
+    return false;
+}
+
 bool PrepareInjection(const wchar_t* application, const wchar_t* commandLine, std::wstring& dllPath) {
     std::wstring image;
-    const bool sameImage = ExtractImageName(application, commandLine, image) &&
-                           _wcsicmp(BaseName(image).c_str(), BaseName(HostImagePath()).c_str()) == 0;
+    const bool haveImage = ExtractImageName(application, commandLine, image);
+    const std::wstring baseName = haveImage ? BaseName(image) : std::wstring();
+    const bool sameImage = haveImage &&
+                           _wcsicmp(baseName.c_str(), BaseName(HostImagePath()).c_str()) == 0;
+    const bool toolImage = haveImage && NativeCleanNetworkEnabled() && IsNetworkToolImage(baseName);
+    const bool candidate = sameImage || toolImage;
     dllPath.clear();
-    if (sameImage) {
+    if (candidate) {
         dllPath = EnvironmentValue(L"CAC_NATIVE_DLL");
         if (dllPath.empty()) dllPath = DirectoryName(BridgeModulePath()) + L"\\NativeBridge.dll";
     }
-    return sameImage && !dllPath.empty() &&
+    return candidate && !dllPath.empty() &&
            GetFileAttributesW(dllPath.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
