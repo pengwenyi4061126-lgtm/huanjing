@@ -75,13 +75,24 @@ function Install-MitmCa {
 }
 
 function Remove-MitmCa {
-    param([string]$Path)
-    $thumbprint = $null
-    if (-not [string]::IsNullOrWhiteSpace($Path)) {
-        $thumbprint = Get-CertificateThumbprintFromFile -Path $Path
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    # A missing or unreadable profile certificate must never widen the delete
+    # scope to every mitmproxy certificate in the user store.
+    if ([string]::IsNullOrWhiteSpace($Path) -or
+        -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Refusing mitmproxy CA removal: profile certificate is missing: $Path"
     }
+
+    $thumbprint = Get-CertificateThumbprintFromFile -Path $Path
+    if ([string]::IsNullOrWhiteSpace($thumbprint)) {
+        throw "Refusing mitmproxy CA removal: profile certificate is invalid or unreadable: $Path"
+    }
+
     $certs = @(Get-MitmCa | Where-Object {
-        [string]::IsNullOrWhiteSpace($thumbprint) -or
         $_.Thumbprint.Replace(' ', '').ToUpperInvariant() -eq $thumbprint
     })
     if ($certs.Count -eq 0) { return $true }
@@ -97,9 +108,6 @@ function Remove-MitmCa {
         if (-not $process.HasExited) {
             try { $process.Kill() } catch { }
         }
-    }
-    if ([string]::IsNullOrWhiteSpace($thumbprint)) {
-        return ((Get-MitmCa).Count -eq 0)
     }
     return (@(Get-MitmCa | Where-Object {
         $_.Thumbprint.Replace(' ', '').ToUpperInvariant() -eq $thumbprint
