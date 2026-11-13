@@ -160,8 +160,11 @@ void ProbeRoute() {
     MIB_IPFORWARD_ROW2 route = {};
     SOCKADDR_INET source = {};
     const DWORD status = GetBestRoute2(nullptr, 0, nullptr, &destination, 0, &route, &source);
+    std::printf("route_status=%lu\n", static_cast<unsigned long>(status));
     if (status == NO_ERROR) {
         std::printf("route_index=%lu\n", static_cast<unsigned long>(route.InterfaceIndex));
+        std::printf("route_metric=%lu\n", static_cast<unsigned long>(route.Metric));
+        std::printf("route_observation=best-route-interface-index\n");
     } else {
         std::printf("route_index=error\n");
     }

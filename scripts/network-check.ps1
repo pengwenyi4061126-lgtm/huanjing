@@ -40,6 +40,7 @@ function Hash-Text([string]$Value) {
 function Get-HostNetworkEvidence {
     $adapters = @()
     $routes = @()
+    $dnsServers = @()
     try {
         $adapters = @(Get-NetAdapter -ErrorAction Stop | Select-Object -First 128 | ForEach-Object {
             [ordered]@{
@@ -66,9 +67,23 @@ function Get-HostNetworkEvidence {
     } catch {
         $routes = @([ordered]@{ error = $_.Exception.Message })
     }
+    try {
+        $dnsServers = @(Get-DnsClientServerAddress -ErrorAction Stop | ForEach-Object {
+            $servers = @($_.ServerAddresses | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+            [ordered]@{
+                interfaceIndex = [int]$_.InterfaceIndex
+                addressFamily = [string]$_.AddressFamily
+                serverCount = $servers.Count
+                serverHashes = @($servers | ForEach-Object { Hash-Text ([string]$_) })
+            }
+        })
+    } catch {
+        $dnsServers = @([ordered]@{ error = $_.Exception.Message })
+    }
     return [ordered]@{
         adapters = $adapters
         defaultRoutes = $routes
+        dnsServers = $dnsServers
     }
 }
 
@@ -99,14 +114,25 @@ async function directSocket() {
     let done = false;
     const finish = value => { if (done) return; done = true; try { socket.destroy(); } catch (_) {} resolve(value); };
     socket.setTimeout(5000);
-    socket.once("connect", () => finish({ status: "CONNECTED" }));
+    socket.once("connect", () => finish({
+      status: "CONNECTED",
+      remoteAddress: socket.remoteAddress || "",
+      remotePort: socket.remotePort || 0
+    }));
     socket.once("timeout", () => finish({ status: "TIMEOUT" }));
     socket.once("error", error => finish({ status: "ERROR", code: error.code || "ERR", message: error.message }));
   });
 }
 (async () => {
   let dnsResult;
-  try { dnsResult = { status: "RESOLVED", address: (await dns.lookup(host)).address }; }
+  try {
+    const addresses = await dns.lookup(host, { all: true });
+    dnsResult = {
+      status: "RESOLVED",
+      addresses: addresses.map(item => ({ address: item.address, family: item.family })),
+      count: addresses.length
+    };
+  }
   catch (error) { dnsResult = { status: "ERROR", code: error.code || "ERR", message: error.message }; }
   console.log(JSON.stringify({
     http: process.env.HTTP_PROXY || "",
@@ -145,11 +171,14 @@ async function directSocket() {
 $paths = Ensure-ProfileLayout $EnvName
 $proxyPath = Join-Path $paths.Root "proxy"
 $proxy = Read-FileValue $proxyPath
+$proxyConfigured = -not [string]::IsNullOrWhiteSpace($proxy)
 $audit = [ordered]@{
-    schema = 1
+    schema = 2
     profile = $EnvName
     profileRoot = $paths.Root
     checkedUtc = [DateTime]::UtcNow.ToString("o")
+    scope = "PROCESS_LOCAL_EVIDENCE_ONLY"
+    networkMode = if ($proxyConfigured) { "proxy" } else { "no-proxy" }
     proxy = Redact-Proxy $proxy
     hostNetwork = Get-HostNetworkEvidence
     checks = [ordered]@{}
@@ -160,10 +189,14 @@ Write-Host ""
 Write-Host "Network isolation check — $EnvName" -ForegroundColor Cyan
 Write-Host "  Profile: $($paths.Root)" -ForegroundColor DarkGray
 
-if ([string]::IsNullOrWhiteSpace($proxy)) {
-    Write-Result "INFO" "proxy" "Profile 未配置代理；只验证了本地路径策略"
+if (-not $proxyConfigured) {
+    Write-Result "INFO" "proxy" "Profile 未配置代理；代理可达性不适用"
     $audit.checks.proxy = "NOT_CONFIGURED"
+    $audit.checks.policy = "NO_PROXY_REQUESTED"
+    $audit.checks.socket = "NOT_CONFIGURED"
+    $audit.checks.dns = "NOT_CONFIGURED"
 } else {
+    $audit.checks.policy = "PROXY_REQUESTED"
     try { $proxyUri = [Uri]$proxy } catch { $proxyUri = $null }
     if ($null -eq $proxyUri -or $proxyUri.Host -eq "" -or $proxyUri.Port -le 0) {
         Write-Result "FAIL" "proxy" "代理地址无效"
@@ -235,28 +268,56 @@ if ($null -eq $probe) {
     }
     $pathIsolated = ($probe.config -eq $paths.ConfigDir -and $probe.temp -eq $paths.TempDir)
     if ($proxyConsistent -and $pathIsolated) {
-        Write-Result "PASS" "child-env" "Node 子进程继承了 Profile 代理与临时目录"
-        $audit.checks.childEnv = "ISOLATED"
+        if ($proxyConfigured) {
+            Write-Result "PASS" "child-env" "Node 子进程继承了 Profile 代理与临时目录"
+            $audit.checks.childEnv = "PROFILE_ENV_MATCH_WITH_PROXY"
+        } else {
+            Write-Result "INFO" "child-env" "Node 子进程路径隔离；未配置代理，因此没有代理继承结果"
+            $audit.checks.childEnv = "PROFILE_ENV_MATCH_NO_PROXY"
+        }
     } else {
         Write-Result "FAIL" "child-env" "Node 子进程环境与 Profile 预期不一致"
         $audit.checks.childEnv = "MISMATCH"
         $failed = $true
     }
     $audit.checks.dnsRuntime = $probe.dns
+    if ($probe.dns.status -eq "RESOLVED") {
+        $audit.checks.dnsResolution = if ($proxyConfigured) { "OBSERVED_CLIENT_RESOLUTION" } else { "DIRECT_DNS_OBSERVED" }
+    } else {
+        $audit.checks.dnsResolution = "RESOLUTION_FAILED"
+    }
     $audit.checks.directSocket = $probe.directSocket
     if ($probe.directSocket.status -eq "CONNECTED") {
         $message = "Node 可直接建立 TCP/443 连接；环境变量本身没有阻断直连"
-        if ($RequireProxy) {
+        if ($proxyConfigured -and $RequireProxy) {
             Write-Result "FAIL" "direct-socket" $message
             $failed = $true
-        } else {
+        } elseif ($proxyConfigured) {
             Write-Result "INFO" "direct-socket" $message
+        } else {
+            Write-Result "INFO" "direct-socket" "未配置代理；Node 直连 TCP/443 可用是预期结果"
         }
-        $audit.checks.directSocketPolicy = "DIRECT_PATH_AVAILABLE"
+        $audit.checks.directSocketPolicy = if ($proxyConfigured) { "DIRECT_PATH_AVAILABLE" } else { "EXPECTED_DIRECT_PATH_NO_PROXY" }
     } else {
-        Write-Result "PASS" "direct-socket" "Node 未建立直连 TCP/443：$($probe.directSocket.status)"
-        $audit.checks.directSocketPolicy = "NO_DIRECT_SOCKET_OBSERVED"
+        Write-Result "INFO" "direct-socket" "Node 未建立直连 TCP/443：$($probe.directSocket.status)"
+        $audit.checks.directSocketPolicy = if ($proxyConfigured) { "NO_DIRECT_SOCKET_OBSERVED" } else { "DIRECT_PATH_NOT_OBSERVED" }
     }
+}
+
+$routeItems = @($audit.hostNetwork.defaultRoutes | Where-Object { $_ -and -not $_.error })
+if ($routeItems.Count -gt 0) {
+    $routeIndexes = @($routeItems | ForEach-Object { $_.interfaceIndex } | Select-Object -Unique)
+    Write-Result "INFO" "route" ("观察到 {0} 条默认路由；接口索引: {1}。本审计不修改系统路由" -f $routeItems.Count, ($routeIndexes -join ","))
+    $audit.checks.route = [ordered]@{
+        status = "HOST_DEFAULT_ROUTES_OBSERVED"
+        count = $routeItems.Count
+        interfaceIndexes = $routeIndexes
+        mutation = "NOT_PERFORMED"
+        boundary = "UNVERIFIED"
+    }
+} else {
+    Write-Result "INFO" "route" "未能读取默认路由；本审计不宣称路由已隔离"
+    $audit.checks.route = [ordered]@{ status = "UNAVAILABLE"; mutation = "NOT_PERFORMED"; boundary = "UNVERIFIED" }
 }
 
 if ($proxy) {
@@ -285,7 +346,9 @@ if ($proxy) {
 
 New-Item -ItemType Directory -Path $paths.AuditDir -Force | Out-Null
 $auditPath = Join-Path $paths.AuditDir "network-check.json"
+$audit.result = if ($failed) { "FAIL" } elseif (-not $proxyConfigured) { "NOT_CONFIGURED" } else { "PASS_PROCESS_LOCAL" }
 Set-Content -LiteralPath $auditPath -Value ($audit | ConvertTo-Json -Depth 6) -Encoding UTF8
 Write-Host "  证据: $auditPath" -ForegroundColor DarkGray
 Write-Host ""
+Write-Result $audit.result "summary" ("网络边界结果: $($audit.result)")
 if ($failed) { exit 1 }
