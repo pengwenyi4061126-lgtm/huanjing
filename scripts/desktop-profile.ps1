@@ -14,6 +14,7 @@ param(
     [string]$Profile,
     [string]$Exe = 'C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\claude.exe',
     [switch]$Inject,
+    [switch]$Fingerprint,
     [int]$WaitSeconds = 30
 )
 
@@ -47,6 +48,134 @@ function Get-Sha256 {
     } finally {
         $sha.Dispose()
     }
+}
+
+function Read-FileValue {
+    param([string]$Path, [string]$Default = '')
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        return (Get-Content -LiteralPath $Path -Raw).Trim()
+    }
+    return $Default
+}
+
+function Get-IanaTimeZone {
+    $id = (Get-TimeZone).Id
+    $map = @{
+        'China Standard Time'          = 'Asia/Shanghai'
+        'Tokyo Standard Time'          = 'Asia/Tokyo'
+        'Korea Standard Time'          = 'Asia/Seoul'
+        'Taipei Standard Time'         = 'Asia/Taipei'
+        'Singapore Standard Time'      = 'Asia/Singapore'
+        'India Standard Time'          = 'Asia/Kolkata'
+        'Pacific Standard Time'        = 'America/Los_Angeles'
+        'Mountain Standard Time'       = 'America/Denver'
+        'Central Standard Time'        = 'America/Chicago'
+        'Eastern Standard Time'        = 'America/New_York'
+        'GMT Standard Time'            = 'Europe/London'
+        'W. Europe Standard Time'      = 'Europe/Berlin'
+        'Central Europe Standard Time' = 'Europe/Budapest'
+        'Romance Standard Time'        = 'Europe/Paris'
+        'Russian Standard Time'        = 'Europe/Moscow'
+        'AUS Eastern Standard Time'    = 'Australia/Sydney'
+    }
+    if ($map.ContainsKey($id)) { return $map[$id] }
+    if (-not [string]::IsNullOrWhiteSpace($env:TZ)) { return $env:TZ.Trim() }
+    return 'UTC'
+}
+
+function Get-NormalizedProxy {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
+    $Value = $Value.Trim()
+    if ($Value -notmatch '^[a-z][a-z0-9+.-]*://') { return 'http://' + $Value }
+    return $Value
+}
+
+function Get-FreeTcpPort {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    try {
+        $listener.Start()
+        return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    } finally {
+        $listener.Stop()
+    }
+}
+
+function Initialize-ProfilePersona {
+    param([psobject]$Paths)
+    $path = Join-Path $Paths.Root 'fingerprint.json'
+    if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
+
+    $identity = Initialize-ProfileIdentity -Paths $Paths
+    $locale = (Get-Culture).Name
+    if ([string]::IsNullOrWhiteSpace($locale)) { $locale = 'en-US' }
+    $languages = @($locale, 'en-US') | Select-Object -Unique
+
+    $gpu = $null
+    try {
+        $gpu = (Get-CimInstance Win32_VideoController -ErrorAction Stop |
+            Where-Object { $_.Name } | Select-Object -First 1).Name
+    } catch { }
+    if ([string]::IsNullOrWhiteSpace($gpu)) { $gpu = 'Generic Display Adapter' }
+    $shortVendor = 'Google'
+    if ($gpu -match 'NVIDIA') { $shortVendor = 'NVIDIA' }
+    elseif ($gpu -match 'AMD|Radeon') { $shortVendor = 'AMD' }
+    elseif ($gpu -match 'Intel') { $shortVendor = 'Intel' }
+    $renderer = if ($gpu -match 'Basic Display|SwiftShader') {
+        'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)'
+    } else {
+        "ANGLE ($shortVendor, $gpu Direct3D11 vs_5_0 ps_5_0, D3D11)"
+    }
+
+    $width = 1920
+    $height = 1080
+    try {
+        $video = Get-CimInstance Win32_VideoController -ErrorAction Stop |
+            Where-Object { $_.CurrentHorizontalResolution -and $_.CurrentVerticalResolution } |
+            Select-Object -First 1
+        if ($video) {
+            $width = [int]$video.CurrentHorizontalResolution
+            $height = [int]$video.CurrentVerticalResolution
+        }
+    } catch { }
+
+    $cores = [Environment]::ProcessorCount
+    if ($cores -lt 1) { $cores = 8 }
+    $memoryGb = 8
+    try {
+        $bytes = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory
+        $memoryGb = [Math]::Min(8, [Math]::Max(4, [Math]::Round($bytes / 1GB)))
+    } catch { }
+
+    $persona = [ordered]@{
+        schema              = 1
+        seed                = "$($Paths.Name)|$([string]$identity.machine_id)"
+        timezone            = Get-IanaTimeZone
+        locale              = $locale
+        languages           = @($languages)
+        platform            = 'Win32'
+        hardwareConcurrency = $cores
+        deviceMemory        = $memoryGb
+        screen              = [ordered]@{
+            width      = $width
+            height     = $height
+            availWidth = $width
+            availHeight = [Math]::Max(600, $height - 40)
+            colorDepth = 24
+            pixelDepth = 24
+            dpr        = 1
+        }
+        webgl               = [ordered]@{
+            vendor   = "Google Inc. ($shortVendor)"
+            renderer = $renderer
+        }
+        canvasNoise         = 1
+        audioNoise          = 0.0000001
+        webrtc              = 'filter-private'
+    }
+    $json = $persona | ConvertTo-Json -Depth 8
+    [System.IO.File]::WriteAllText($path, $json + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
+    return $path
 }
 
 function Test-ProfileName {
@@ -350,8 +479,28 @@ function Start-ClaudeDesktop {
     param(
         [psobject]$Paths,
         [string]$ExePath,
-        [bool]$UseInject
+        [bool]$UseInject,
+        [bool]$UseFingerprint
     )
+
+    if ($UseFingerprint) {
+        Write-Host "[BLOCKED] Claude Desktop rejects --remote-debugging-port / --remote-debugging-pipe / --inspect (exit 1)." -ForegroundColor Yellow
+        Write-Host "          CDP injection into the app is unavailable in this build." -ForegroundColor Yellow
+        return [pscustomobject]@{
+            started            = $false
+            blocked            = $true
+            error              = 'Claude Desktop blocks CDP/debugger entry points'
+            mode               = $null
+            processId          = $null
+            launchFile         = $null
+            arguments          = $null
+            userDataDir        = $Paths.UserDataDir
+            nativeRequested    = $UseInject
+            nativeUsed         = $false
+            fingerprintPort    = $null
+            fingerprintPersona = $null
+        }
+    }
 
     $running = @(Get-ClaudeDesktopProcesses -ExePath $ExePath)
     if ($running.Count -gt 0) {
@@ -393,6 +542,21 @@ function Start-ClaudeDesktop {
     Initialize-ProfileLayout -Paths $Paths -ForLaunch | Out-Null
     $identity = Initialize-ProfileIdentity -Paths $Paths
 
+    $fingerprintPort = $null
+    $personaPath = $null
+    $fingerprintArgs = @()
+    if ($UseFingerprint) {
+        $personaPath = Initialize-ProfilePersona -Paths $Paths
+        $persona = Get-Content -LiteralPath $personaPath -Raw | ConvertFrom-Json
+        $fingerprintPort = Get-FreeTcpPort
+        $fingerprintArgs += "--remote-debugging-port=$fingerprintPort"
+        $fingerprintArgs += '--remote-allow-origins=*'
+        $fingerprintArgs += '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
+        if ($persona.locale) { $fingerprintArgs += "--lang=$($persona.locale)" }
+        $proxy = Get-NormalizedProxy (Read-FileValue (Join-Path $Paths.Root 'proxy'))
+        if ($proxy) { $fingerprintArgs += "--proxy-server=$proxy" }
+    }
+
     $nativeDir = Join-Path $script:OriginalUserProfile '.cac\native'
     $nativeLauncher = Join-Path $nativeDir 'cac-native-launch.exe'
     $nativeDll = Join-Path $nativeDir 'NativeBridge.dll'
@@ -409,6 +573,7 @@ function Start-ClaudeDesktop {
     }
 
     $userDataArgument = '--user-data-dir=' + (ConvertTo-ProcessArgument -Value $Paths.UserDataDir)
+    $extraArguments = if ($fingerprintArgs.Count -gt 0) { ' ' + ($fingerprintArgs -join ' ') } else { '' }
     if ($nativeUsed) {
         $launchFile = $nativeLauncher
         # Unsigned DLL injection into Chromium renderer/GPU processes is blocked
@@ -416,13 +581,14 @@ function Start-ClaudeDesktop {
         # the renderer sandbox so every child can be intercepted before it reads
         # device identity. Direct (non-Native) mode keeps the stock sandbox.
         $arguments = (ConvertTo-ProcessArgument -Value $ExePath) + ' ' + $userDataArgument +
-                     ' --no-sandbox --disable-gpu-sandbox'
+                     ' --no-sandbox --disable-gpu-sandbox' + $extraArguments
         $mode = 'native'
     } else {
         $launchFile = $ExePath
-        $arguments = $userDataArgument
+        $arguments = $userDataArgument + $extraArguments
         $mode = 'direct'
     }
+    if ($UseFingerprint) { $mode += '+fingerprint' }
 
     $environment = [ordered]@{
         APPDATA              = $Paths.AppData
@@ -493,6 +659,19 @@ function Start-ClaudeDesktop {
     $processId = $null
     if ($null -ne $startedProcess) { $processId = [int]$startedProcess.Id }
 
+    if ($UseFingerprint -and $processId -and $fingerprintPort) {
+        $node = (Get-Command node -ErrorAction SilentlyContinue).Source
+        $injector = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\fingerprint-cdp.js'
+        $shim = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\fingerprint-shim.js'
+        if ($node -and (Test-Path -LiteralPath $injector -PathType Leaf)) {
+            $logPath = Join-Path $Paths.LogsDir 'fingerprint-cdp.log'
+            $injectorArguments = '"' + $injector + '" --port ' + $fingerprintPort +
+                ' --persona "' + $personaPath + '" --shim "' + $shim + '" --log "' + $logPath +
+                '" --pid ' + $processId + ' --wait 30'
+            Start-Process -FilePath $node -ArgumentList $injectorArguments -WindowStyle Hidden -ErrorAction SilentlyContinue | Out-Null
+        }
+    }
+
     return [pscustomobject]@{
         started         = ($null -ne $startedProcess)
         blocked         = $false
@@ -504,6 +683,8 @@ function Start-ClaudeDesktop {
         userDataDir     = $Paths.UserDataDir
         nativeRequested = $UseInject
         nativeUsed      = $nativeUsed
+        fingerprintPort = $fingerprintPort
+        fingerprintPersona = $personaPath
     }
 }
 
@@ -670,7 +851,7 @@ function Invoke-StatusAction {
 function Invoke-LaunchAction {
     $name = Resolve-ProfileName -Requested $Profile
     $paths = Get-ProfilePaths -Name $name
-    $launch = Start-ClaudeDesktop -Paths $paths -ExePath $Exe -UseInject ([bool]$Inject)
+    $launch = Start-ClaudeDesktop -Paths $paths -ExePath $Exe -UseInject ([bool]$Inject) -UseFingerprint ([bool]$Fingerprint)
 
     if (-not $launch.started) {
         if ($launch.error) { Write-Host "[ERROR] $($launch.error)" -ForegroundColor Red }
@@ -679,6 +860,7 @@ function Invoke-LaunchAction {
 
     Write-Host "[LAUNCH] $($paths.Name)"
     Write-Host "  mode: $($launch.mode)  PID: $($launch.processId)"
+    if ($launch.fingerprintPort) { Write-Host "  fingerprint CDP: 127.0.0.1:$($launch.fingerprintPort)" }
     Write-Host "  userData: $($launch.userDataDir)"
     Write-Host "  waiting up to $WaitSeconds seconds for ant-did ..."
     $info = Wait-AntDid -Paths $paths -Seconds $WaitSeconds
@@ -724,7 +906,7 @@ function Invoke-AbAction {
     Remove-ProfileAntDid -Paths $pathsA
     Remove-ProfileAntDid -Paths $pathsB
 
-    $launchA = Start-ClaudeDesktop -Paths $pathsA -ExePath $Exe -UseInject ([bool]$Inject)
+    $launchA = Start-ClaudeDesktop -Paths $pathsA -ExePath $Exe -UseInject ([bool]$Inject) -UseFingerprint ([bool]$Fingerprint)
     $antA = $null
     $stopA = $null
     if ($launchA.started) {
@@ -741,7 +923,7 @@ function Invoke-AbAction {
     $stopB = $null
     if ($launchA.started) {
         Initialize-ProfileLayout -Paths $pathsB | Out-Null
-        $launchB = Start-ClaudeDesktop -Paths $pathsB -ExePath $Exe -UseInject ([bool]$Inject)
+        $launchB = Start-ClaudeDesktop -Paths $pathsB -ExePath $Exe -UseInject ([bool]$Inject) -UseFingerprint ([bool]$Fingerprint)
         if ($launchB.started) {
             Write-Host "[AB] profile-b launched: PID $($launchB.processId), mode $($launchB.mode)"
             $antB = Wait-AntDid -Paths $pathsB -Seconds $WaitSeconds
