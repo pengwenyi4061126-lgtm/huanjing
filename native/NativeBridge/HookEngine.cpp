@@ -48,9 +48,11 @@ int DecodePrologueInstruction(const BYTE* p, int available) {
     // endbr64
     if (available >= 4 && p[0] == 0xF3 && p[1] == 0x0F && p[2] == 0x1E && p[3] == 0xFA) return 4;
 
-    // x64 RIP-relative import/export forwarder: jmp qword ptr [rip+disp32]
-    if (available >= 6 && p[0] == 0xFF && p[1] == 0x25) return 6;
-    if (available >= 7 && p[0] == 0x48 && p[1] == 0xFF && p[2] == 0x25) return 7;
+    // RIP-relative import/export forwarders must be resolved by the caller.
+    // Copying them into a trampoline without relocating the displacement is
+    // unsafe, so reject them instead of producing a crashing original call.
+    if (available >= 6 && p[0] == 0xFF && p[1] == 0x25) return 0;
+    if (available >= 7 && p[0] == 0x48 && p[1] == 0xFF && p[2] == 0x25) return 0;
 
     // REX.W mov [rsp+disp8], r64  (48/4C 89 /r, mod=01, rm=100)
     if (available >= 5 && (p[0] == 0x48 || p[0] == 0x4C) && p[1] == 0x89 &&

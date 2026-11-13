@@ -70,8 +70,9 @@ std::wstring AnsiToWide(const char* value) {
     if (!value || !*value) return std::wstring();
     const int length = MultiByteToWideChar(CP_ACP, 0, value, -1, nullptr, 0);
     if (length <= 1) return std::wstring();
-    std::wstring result(static_cast<size_t>(length - 1), L'\0');
+    std::wstring result(static_cast<size_t>(length), L'\0');
     MultiByteToWideChar(CP_ACP, 0, value, -1, result.data(), length);
+    result.pop_back();
     return result;
 }
 
@@ -216,6 +217,14 @@ typedef BOOL (WINAPI* PFN_GetFileInformationByHandle)(HANDLE, LPBY_HANDLE_FILE_I
 typedef NTSTATUS (NTAPI* PFN_NtQueryVolumeInformationFile)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, ULONG);
 typedef NTSTATUS (NTAPI* PFN_NtDeviceIoControlFile)(HANDLE, HANDLE, PIO_APC_ROUTINE, PVOID,
                                                     PIO_STATUS_BLOCK, ULONG, PVOID, ULONG, PVOID, ULONG);
+typedef HANDLE (WINAPI* PFN_CreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+typedef HANDLE (WINAPI* PFN_CreateFile2)(LPCWSTR, DWORD, DWORD, DWORD, LPCREATEFILE2_EXTENDED_PARAMETERS);
+typedef NTSTATUS (NTAPI* PFN_NtCreateFile)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK,
+                                           PLARGE_INTEGER, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG);
+typedef BOOL (WINAPI* PFN_GetOverlappedResult)(HANDLE, LPOVERLAPPED, LPDWORD, BOOL);
+typedef BOOL (WINAPI* PFN_GetOverlappedResultEx)(HANDLE, LPOVERLAPPED, LPDWORD, DWORD, BOOL);
+typedef BOOL (WINAPI* PFN_GetQueuedCompletionStatus)(HANDLE, LPDWORD, PULONG_PTR, LPOVERLAPPED*, DWORD);
+typedef BOOL (WINAPI* PFN_GetQueuedCompletionStatusEx)(HANDLE, LPOVERLAPPED_ENTRY, ULONG, PULONG, DWORD, BOOL);
 typedef NETIO_STATUS (WINAPI* PFN_GetIfTable2)(PMIB_IF_TABLE2*);
 typedef NETIO_STATUS (WINAPI* PFN_GetIfEntry2)(PMIB_IF_ROW2);
 typedef DWORD (WINAPI* PFN_GetIfTable)(PMIB_IFTABLE, PULONG, BOOL);
@@ -250,6 +259,24 @@ PFN_RegEnumValueW g_origRegEnumValue = nullptr;
 PFN_EnumDeviceDrivers g_origEnumDeviceDrivers = nullptr;
 PFN_SetupDiGetClassDevsW g_origSetupDiGetClassDevs = nullptr;
 PFN_CreateFileW g_origCreateFile = nullptr;
+PFN_CreateFileA g_origCreateFileA = nullptr;
+PFN_CreateFile2 g_origCreateFile2 = nullptr;
+PFN_NtCreateFile g_origNtCreateFile = nullptr;
+PFN_GetOverlappedResult g_origGetOverlappedResult = nullptr;
+PFN_GetOverlappedResultEx g_origGetOverlappedResultEx = nullptr;
+PFN_GetQueuedCompletionStatus g_origGetQueuedCompletionStatus = nullptr;
+PFN_GetQueuedCompletionStatusEx g_origGetQueuedCompletionStatusEx = nullptr;
+
+struct PendingDeviceIo {
+    LPOVERLAPPED overlapped = nullptr;
+    DWORD code = 0;
+    std::vector<BYTE> input;
+    LPVOID output = nullptr;
+    DWORD outputSize = 0;
+};
+
+SRWLOCK g_pendingDeviceIoLock = SRWLOCK_INIT;
+std::vector<PendingDeviceIo> g_pendingDeviceIo;
 
 struct FirmwareTableInfo {
     ULONG ProviderSignature;
@@ -269,10 +296,10 @@ bool ReplaceBufferString(char* value, size_t maxLength, const std::string& desir
     if (!value || maxLength == 0) return false;
     size_t oldLength = strnlen(value, maxLength);
     if (oldLength == 0 || oldLength >= maxLength) return false;
-    const size_t copy = desired.size() < oldLength ? desired.size() : oldLength;
+    const size_t copy = desired.size() < maxLength - 1 ? desired.size() : maxLength - 1;
     std::memcpy(value, desired.data(), copy);
     if (copy < oldLength) std::memset(value + copy, ' ', oldLength - copy);
-    value[oldLength] = 0;
+    value[copy] = 0;
     return true;
 }
 
@@ -672,16 +699,153 @@ void SanitizeStorageOutput(DWORD code, const void* input, DWORD inputSize, void*
     }
 }
 
+void TrackPendingDeviceIo(LPOVERLAPPED overlapped, DWORD code, const void* input, DWORD inputSize,
+                          LPVOID output, DWORD outputSize) {
+    if (!overlapped) return;
+    PendingDeviceIo pending = {};
+    pending.overlapped = overlapped;
+    pending.code = code;
+    pending.output = output;
+    pending.outputSize = outputSize;
+    if (input && inputSize > 0 && inputSize <= 4096) {
+        const BYTE* begin = static_cast<const BYTE*>(input);
+        pending.input.assign(begin, begin + inputSize);
+    }
+
+    AcquireSRWLockExclusive(&g_pendingDeviceIoLock);
+    for (auto it = g_pendingDeviceIo.begin(); it != g_pendingDeviceIo.end(); ++it) {
+        if (it->overlapped == overlapped) {
+            *it = pending;
+            ReleaseSRWLockExclusive(&g_pendingDeviceIoLock);
+            AuditEventRateLimited("api.deviceiocontrol.pending", "replaced", nullptr, code, true);
+            return;
+        }
+    }
+    g_pendingDeviceIo.push_back(pending);
+    ReleaseSRWLockExclusive(&g_pendingDeviceIoLock);
+    AuditEventRateLimited("api.deviceiocontrol.pending", "tracked", nullptr, code, true);
+}
+
+bool CompletePendingDeviceIo(LPOVERLAPPED overlapped, DWORD returned, const char* completionSurface) {
+    if (!overlapped) return false;
+    PendingDeviceIo pending = {};
+    bool found = false;
+    AcquireSRWLockExclusive(&g_pendingDeviceIoLock);
+    for (auto it = g_pendingDeviceIo.begin(); it != g_pendingDeviceIo.end(); ++it) {
+        if (it->overlapped == overlapped) {
+            pending = *it;
+            g_pendingDeviceIo.erase(it);
+            found = true;
+            break;
+        }
+    }
+    ReleaseSRWLockExclusive(&g_pendingDeviceIoLock);
+    if (!found) return false;
+
+    const void* input = pending.input.empty() ? nullptr : pending.input.data();
+    SanitizeStorageOutput(pending.code, input, static_cast<DWORD>(pending.input.size()),
+                          pending.output, pending.outputSize, returned, completionSurface);
+    AuditEventRateLimited("api.deviceiocontrol.pending", "sanitized", completionSurface,
+                          pending.code, true);
+    return true;
+}
+
+void DropPendingDeviceIo(LPOVERLAPPED overlapped, const char* action) {
+    if (!overlapped) return;
+    DWORD code = 0;
+    bool found = false;
+    AcquireSRWLockExclusive(&g_pendingDeviceIoLock);
+    for (auto it = g_pendingDeviceIo.begin(); it != g_pendingDeviceIo.end(); ++it) {
+        if (it->overlapped == overlapped) {
+            code = it->code;
+            g_pendingDeviceIo.erase(it);
+            found = true;
+            break;
+        }
+    }
+    ReleaseSRWLockExclusive(&g_pendingDeviceIoLock);
+    if (found) AuditEventRateLimited("api.deviceiocontrol.pending", action, nullptr, code, true);
+}
+
 BOOL WINAPI HookDeviceIoControl(HANDLE device, DWORD code, LPVOID input, DWORD inputSize,
                                 LPVOID output, DWORD outputSize, LPDWORD returned, LPOVERLAPPED overlapped) {
     const BOOL result = g_origDeviceIoControl
         ? g_origDeviceIoControl(device, code, input, inputSize, output, outputSize, returned, overlapped)
         : FALSE;
+    const DWORD lastError = result ? ERROR_SUCCESS : GetLastError();
     if (result && output && returned && *returned > 0) {
         SanitizeStorageOutput(code, input, inputSize, output, outputSize, *returned,
                               "api.deviceiocontrol.serial");
         AuditEventRateLimited("api.deviceiocontrol", "observed", nullptr, code, true);
+    } else if (!result && overlapped && lastError == ERROR_IO_PENDING) {
+        TrackPendingDeviceIo(overlapped, code, input, inputSize, output, outputSize);
     }
+    if (!result) SetLastError(lastError);
+    return result;
+}
+
+BOOL WINAPI HookGetOverlappedResult(HANDLE file, LPOVERLAPPED overlapped, LPDWORD transferred,
+                                    BOOL wait) {
+    const BOOL result = g_origGetOverlappedResult
+        ? g_origGetOverlappedResult(file, overlapped, transferred, wait)
+        : FALSE;
+    const DWORD lastError = result ? ERROR_SUCCESS : GetLastError();
+    if (result) {
+        CompletePendingDeviceIo(overlapped, transferred ? *transferred : 0,
+                                "GetOverlappedResult");
+    } else if (lastError != ERROR_IO_INCOMPLETE) {
+        DropPendingDeviceIo(overlapped, "failed");
+    }
+    if (!result) SetLastError(lastError);
+    return result;
+}
+
+BOOL WINAPI HookGetOverlappedResultEx(HANDLE file, LPOVERLAPPED overlapped, LPDWORD transferred,
+                                      DWORD milliseconds, BOOL alertable) {
+    const BOOL result = g_origGetOverlappedResultEx
+        ? g_origGetOverlappedResultEx(file, overlapped, transferred, milliseconds, alertable)
+        : FALSE;
+    const DWORD lastError = result ? ERROR_SUCCESS : GetLastError();
+    if (result) {
+        CompletePendingDeviceIo(overlapped, transferred ? *transferred : 0,
+                                "GetOverlappedResultEx");
+    } else if (lastError != ERROR_IO_INCOMPLETE) {
+        DropPendingDeviceIo(overlapped, "failed");
+    }
+    if (!result) SetLastError(lastError);
+    return result;
+}
+
+BOOL WINAPI HookGetQueuedCompletionStatus(HANDLE port, LPDWORD transferred, PULONG_PTR key,
+                                          LPOVERLAPPED* overlapped, DWORD milliseconds) {
+    const BOOL result = g_origGetQueuedCompletionStatus
+        ? g_origGetQueuedCompletionStatus(port, transferred, key, overlapped, milliseconds)
+        : FALSE;
+    const DWORD lastError = result ? ERROR_SUCCESS : GetLastError();
+    if (result && overlapped && *overlapped) {
+        CompletePendingDeviceIo(*overlapped, transferred ? *transferred : 0,
+                                "GetQueuedCompletionStatus");
+    } else if (!result && overlapped && *overlapped && lastError != ERROR_IO_INCOMPLETE) {
+        DropPendingDeviceIo(*overlapped, "failed");
+    }
+    if (!result) SetLastError(lastError);
+    return result;
+}
+
+BOOL WINAPI HookGetQueuedCompletionStatusEx(HANDLE port, LPOVERLAPPED_ENTRY entries, ULONG count,
+                                            PULONG removed, DWORD milliseconds, BOOL alertable) {
+    const BOOL result = g_origGetQueuedCompletionStatusEx
+        ? g_origGetQueuedCompletionStatusEx(port, entries, count, removed, milliseconds, alertable)
+        : FALSE;
+    const DWORD lastError = result ? ERROR_SUCCESS : GetLastError();
+    if (result && entries && removed) {
+        for (ULONG index = 0; index < *removed; ++index) {
+            CompletePendingDeviceIo(entries[index].lpOverlapped,
+                                    entries[index].dwNumberOfBytesTransferred,
+                                    "GetQueuedCompletionStatusEx");
+        }
+    }
+    if (!result) SetLastError(lastError);
     return result;
 }
 
@@ -759,6 +923,12 @@ NTSTATUS NTAPI HookNtDeviceIoControlFile(HANDLE file, HANDLE event, PIO_APC_ROUT
         SanitizeStorageOutput(code, input, inputLength, output, outputLength,
                               static_cast<DWORD>(ioStatus->Information), "api.ntdeviceiocontrol.serial");
         AuditEventRateLimited("api.ntdeviceiocontrol", "observed", nullptr, code, true);
+    } else if (status == static_cast<NTSTATUS>(0x00000103L)) { // STATUS_PENDING
+        // NtDeviceIoControlFile can complete through an APC, event, or IOCP after
+        // this function returns. Without a completion-context hook, clearing the
+        // buffer here would be overwritten by the kernel. Keep explicit evidence
+        // instead of reporting this path as covered.
+        AuditEventRateLimited("api.ntdeviceiocontrol.pending", "unhandled", nullptr, code, true);
     }
     return status;
 }
@@ -917,6 +1087,14 @@ bool IsRawHardwarePath(const wchar_t* path) {
         L"\\\\.\\GLOBALROOT\\Device\\Harddisk",
         L"\\\\?\\GLOBALROOT\\Device\\Harddisk",
         L"\\\\.\\MountPointManager",
+        L"\\Device\\Harddisk",
+        L"\\Device\\CdRom",
+        L"\\Device\\Scsi",
+        L"\\Device\\MountPointManager",
+        L"\\??\\PhysicalDrive",
+        L"\\??\\CdRom",
+        L"\\??\\Volume",
+        L"\\??\\GLOBALROOT\\Device\\Harddisk",
     };
     for (const wchar_t* prefix : prefixes) {
         const size_t length = wcslen(prefix);
@@ -928,13 +1106,73 @@ bool IsRawHardwarePath(const wchar_t* path) {
 HANDLE WINAPI HookCreateFileW(LPCWSTR fileName, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
                               DWORD creation, DWORD flags, HANDLE templateFile) {
     if (EmptyReadsEnabled() && IsRawHardwarePath(fileName)) {
-        SetLastError(ERROR_ACCESS_DENIED);
         AuditEventRateLimited("api.createfile.rawdevice", "denied");
+        SetLastError(ERROR_ACCESS_DENIED);
         return INVALID_HANDLE_VALUE;
     }
     return g_origCreateFile
         ? g_origCreateFile(fileName, access, share, security, creation, flags, templateFile)
         : INVALID_HANDLE_VALUE;
+}
+
+HANDLE WINAPI HookCreateFileA(LPCSTR fileName, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
+                              DWORD creation, DWORD flags, HANDLE templateFile) {
+    const std::wstring wideName = AnsiToWide(fileName);
+    if (IsRawHardwarePath(wideName.c_str())) {
+        if (EmptyReadsEnabled()) {
+            AuditEventRateLimited("api.createfilea.rawdevice", "denied");
+            SetLastError(ERROR_ACCESS_DENIED);
+            return INVALID_HANDLE_VALUE;
+        }
+        AuditEventRateLimited("api.createfilea.rawdevice", "observed");
+    }
+    return g_origCreateFileA
+        ? g_origCreateFileA(fileName, access, share, security, creation, flags, templateFile)
+        : INVALID_HANDLE_VALUE;
+}
+
+HANDLE WINAPI HookCreateFile2(LPCWSTR fileName, DWORD access, DWORD share, DWORD creation,
+                              LPCREATEFILE2_EXTENDED_PARAMETERS extended) {
+    if (IsRawHardwarePath(fileName)) {
+        if (EmptyReadsEnabled()) {
+            AuditEventRateLimited("api.createfile2.rawdevice", "denied");
+            SetLastError(ERROR_ACCESS_DENIED);
+            return INVALID_HANDLE_VALUE;
+        }
+        AuditEventRateLimited("api.createfile2.rawdevice", "observed");
+    }
+    return g_origCreateFile2
+        ? g_origCreateFile2(fileName, access, share, creation, extended)
+        : INVALID_HANDLE_VALUE;
+}
+
+std::wstring ObjectAttributesPath(POBJECT_ATTRIBUTES attributes) {
+    if (!attributes || !attributes->ObjectName || !attributes->ObjectName->Buffer ||
+        attributes->ObjectName->Length == 0) {
+        return std::wstring();
+    }
+    return std::wstring(attributes->ObjectName->Buffer,
+                        attributes->ObjectName->Length / sizeof(wchar_t));
+}
+
+NTSTATUS NTAPI HookNtCreateFile(PHANDLE fileHandle, ACCESS_MASK access, POBJECT_ATTRIBUTES attributes,
+                                PIO_STATUS_BLOCK ioStatus, PLARGE_INTEGER allocationSize,
+                                ULONG fileAttributes, ULONG shareAccess, ULONG disposition,
+                                ULONG createOptions, PVOID eaBuffer, ULONG eaLength) {
+    const std::wstring path = ObjectAttributesPath(attributes);
+    if (IsRawHardwarePath(path.c_str())) {
+        if (EmptyReadsEnabled()) {
+            SetLastError(ERROR_ACCESS_DENIED);
+            AuditEventRateLimited("api.ntcreatefile.rawdevice", "denied");
+            return static_cast<NTSTATUS>(0xC0000022L); // STATUS_ACCESS_DENIED
+        }
+        AuditEventRateLimited("api.ntcreatefile.rawdevice", "observed");
+    }
+    return g_origNtCreateFile
+        ? g_origNtCreateFile(fileHandle, access, attributes, ioStatus, allocationSize,
+                             fileAttributes, shareAccess, disposition, createOptions,
+                             eaBuffer, eaLength)
+        : static_cast<NTSTATUS>(0xC0000022L);
 }
 
 bool PatchIatInModule(HMODULE module, const char* dllName, const char* functionName,
@@ -1081,7 +1319,27 @@ void* ResolveExport(const char* dllName, const char* functionName) {
     HMODULE module = GetModuleHandleA(dllName);
     if (!module) module = LoadLibraryA(dllName);
     if (!module) return nullptr;
-    return reinterpret_cast<void*>(GetProcAddress(module, functionName));
+    BYTE* target = reinterpret_cast<BYTE*>(GetProcAddress(module, functionName));
+    // Kernel32/advapi32/psapi frequently expose forwarder stubs. Follow the
+    // x64 RIP-relative indirection before installing an inline detour; copying
+    // the six-byte forwarder into a trampoline would make its RIP displacement
+    // point at the wrong address and crash on the first original call.
+    for (int depth = 0; target && depth < 4; ++depth) {
+        if (target[0] == 0xFF && target[1] == 0x25) {
+            const int32_t displacement = *reinterpret_cast<const int32_t*>(target + 2);
+            void** slot = reinterpret_cast<void**>(target + 6 + displacement);
+            target = slot ? reinterpret_cast<BYTE*>(*slot) : nullptr;
+            continue;
+        }
+        if (target[0] == 0x48 && target[1] == 0xFF && target[2] == 0x25) {
+            const int32_t displacement = *reinterpret_cast<const int32_t*>(target + 3);
+            void** slot = reinterpret_cast<void**>(target + 7 + displacement);
+            target = slot ? reinterpret_cast<BYTE*>(*slot) : nullptr;
+            continue;
+        }
+        break;
+    }
+    return target;
 }
 
 void InstallOne(const char* dllName, const char* functionName, void* detour, void** original,
@@ -1097,7 +1355,9 @@ void InstallOne(const char* dllName, const char* functionName, void* detour, voi
     }
 
     if (!allowInline) {
-        AuditEvent("api.install", "not-imported", functionName);
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
+        AuditEvent("api.install", "not-imported", detail);
         return;
     }
 
@@ -1111,7 +1371,11 @@ void InstallOne(const char* dllName, const char* functionName, void* detour, voi
     void* trampoline = nullptr;
     std::string error;
     if (HookEngine::Install(target, detour, &trampoline, &error)) {
-        if (original && *original == nullptr) *original = trampoline;
+        // Multiple exported aliases can share the same kernelbase target. If
+        // an earlier IAT patch populated the original pointer with that target,
+        // replace it with the trampoline before the inline patch takes effect;
+        // otherwise the detour would call its own patched entry recursively.
+        if (original) *original = trampoline;
         AuditEvent("api.install", "inline", functionName);
     } else {
         char detail[256] = {};
@@ -1131,7 +1395,9 @@ void InstallInlineThenIat(const char* dllName, const char* functionName, void* d
         std::string error;
         if (HookEngine::Install(target, detour, &trampoline, &error)) {
             if (original) *original = trampoline;
-            AuditEvent("api.install", "inline-primary", functionName);
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
+        AuditEvent("api.install", "inline-primary", detail);
         } else {
             char detail[256] = {};
             std::snprintf(detail, sizeof(detail), "%s!%s: %s", dllName, functionName, error.c_str());
@@ -1476,12 +1742,15 @@ bool InstallApiHooks() {
                reinterpret_cast<void**>(&g_origRegQueryValueEx));
     InstallOne("hid.dll", "HidD_GetSerialNumberString", reinterpret_cast<void*>(&HookHidD_GetSerialNumberString),
                reinterpret_cast<void**>(&g_origHidGetSerial));
-    InstallOne("setupapi.dll", "SetupDiGetDevicePropertyW", reinterpret_cast<void*>(&HookSetupDiGetDevicePropertyW),
-               reinterpret_cast<void**>(&g_origSetupDiGetDeviceProperty), false);
-    InstallOne("setupapi.dll", "SetupDiGetDeviceRegistryPropertyW", reinterpret_cast<void*>(&HookSetupDiGetDeviceRegistryPropertyW),
-               reinterpret_cast<void**>(&g_origSetupDiGetRegistryProperty), false);
-    InstallOne("setupapi.dll", "SetupDiGetDeviceInstanceIdW", reinterpret_cast<void*>(&HookSetupDiGetDeviceInstanceIdW),
-               reinterpret_cast<void**>(&g_origSetupDiGetInstanceId), false);
+    InstallInlineThenIat("setupapi.dll", "SetupDiGetDevicePropertyW",
+                         reinterpret_cast<void*>(&HookSetupDiGetDevicePropertyW),
+                         reinterpret_cast<void**>(&g_origSetupDiGetDeviceProperty));
+    InstallInlineThenIat("setupapi.dll", "SetupDiGetDeviceRegistryPropertyW",
+                         reinterpret_cast<void*>(&HookSetupDiGetDeviceRegistryPropertyW),
+                         reinterpret_cast<void**>(&g_origSetupDiGetRegistryProperty));
+    InstallInlineThenIat("setupapi.dll", "SetupDiGetDeviceInstanceIdW",
+                         reinterpret_cast<void*>(&HookSetupDiGetDeviceInstanceIdW),
+                         reinterpret_cast<void**>(&g_origSetupDiGetInstanceId));
     InstallOne("kernel32.dll", "GetVolumeInformationByHandleW",
                reinterpret_cast<void*>(&HookGetVolumeInformationByHandleW),
                reinterpret_cast<void**>(&g_origGetVolumeInformationByHandle));
@@ -1510,6 +1779,20 @@ bool InstallApiHooks() {
                reinterpret_cast<void**>(&g_origSetupDiGetClassDevs));
     InstallOne("kernel32.dll", "CreateFileW", reinterpret_cast<void*>(&HookCreateFileW),
                reinterpret_cast<void**>(&g_origCreateFile));
+    InstallOne("kernel32.dll", "CreateFileA", reinterpret_cast<void*>(&HookCreateFileA),
+               reinterpret_cast<void**>(&g_origCreateFileA));
+    InstallOne("kernel32.dll", "CreateFile2", reinterpret_cast<void*>(&HookCreateFile2),
+               reinterpret_cast<void**>(&g_origCreateFile2));
+    InstallInlineThenIat("ntdll.dll", "NtCreateFile", reinterpret_cast<void*>(&HookNtCreateFile),
+                         reinterpret_cast<void**>(&g_origNtCreateFile));
+    InstallOne("kernel32.dll", "GetOverlappedResult", reinterpret_cast<void*>(&HookGetOverlappedResult),
+               reinterpret_cast<void**>(&g_origGetOverlappedResult));
+    InstallOne("kernel32.dll", "GetOverlappedResultEx", reinterpret_cast<void*>(&HookGetOverlappedResultEx),
+               reinterpret_cast<void**>(&g_origGetOverlappedResultEx));
+    InstallOne("kernel32.dll", "GetQueuedCompletionStatus", reinterpret_cast<void*>(&HookGetQueuedCompletionStatus),
+               reinterpret_cast<void**>(&g_origGetQueuedCompletionStatus));
+    InstallOne("kernel32.dll", "GetQueuedCompletionStatusEx", reinterpret_cast<void*>(&HookGetQueuedCompletionStatusEx),
+               reinterpret_cast<void**>(&g_origGetQueuedCompletionStatusEx));
     AuditEvent("api.install", "complete");
     return true;
 }
