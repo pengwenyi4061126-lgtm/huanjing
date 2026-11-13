@@ -21,6 +21,18 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'cert-silent.ps1')
 
+if (-not ('CacPathNative' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class CacPathNative {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint GetShortPathName(string longPath, StringBuilder shortPath, uint bufferLength);
+}
+'@
+}
+
 $script:OriginalUserProfile = $env:USERPROFILE
 $script:DesktopRoot = [System.IO.Path]::GetFullPath((Join-Path $script:OriginalUserProfile '.cac\desktop'))
 $script:ProfilePattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
@@ -103,11 +115,80 @@ function Get-FreeTcpPort {
     }
 }
 
+function Get-ChromiumPersonaVersion {
+    param([string]$ExePath)
+
+    $electronVersion = ''
+    if (-not [string]::IsNullOrWhiteSpace($ExePath)) {
+        $versionPath = Join-Path (Split-Path -Parent $ExePath) 'version'
+        $electronVersion = Read-FileValue -Path $versionPath
+    }
+    if ($electronVersion -notmatch '^\d+\.\d+\.\d+') {
+        $electronVersion = '45.0.0'
+    }
+
+    $electronMajor = 45
+    if ($electronVersion -match '^(\d+)') {
+        $electronMajor = [int]$Matches[1]
+    }
+
+    $configuredChromium = [Environment]::GetEnvironmentVariable('CAC_CHROMIUM_VERSION', 'Process')
+    if ($configuredChromium -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+        $configuredChromium = $null
+    }
+    $knownChromium = @{
+        '45.2.1' = '156.0.8078.75'
+        '45.2.2' = '156.0.8078.80'
+        '45.2.3' = '156.0.8078.80'
+        '45.3.0' = '156.0.8078.96'
+        '45.3.1' = '156.0.8078.96'
+        '45.3.2' = '156.0.8078.100'
+    }
+    $knownChromiumMajor = @{
+        45 = 156
+        44 = 152
+        43 = 150
+        42 = 148
+        41 = 146
+    }
+    if ($configuredChromium) {
+        $chromiumVersion = $configuredChromium
+    } elseif ($knownChromium.ContainsKey($electronVersion)) {
+        $chromiumVersion = $knownChromium[$electronVersion]
+    } elseif ($knownChromiumMajor.ContainsKey($electronMajor)) {
+        $chromiumVersion = "$($knownChromiumMajor[$electronMajor]).0.0.0"
+    } else {
+        throw "Chromium version is unknown for Electron $electronVersion; set CAC_CHROMIUM_VERSION before fingerprint launch"
+    }
+
+    return [pscustomobject]@{
+        electronVersion = $electronVersion
+        electronMajor   = $electronMajor
+        chromiumVersion = $chromiumVersion
+        chromiumMajor   = [int]($chromiumVersion.Split('.')[0])
+    }
+}
+
 function Initialize-ProfilePersona {
-    param([psobject]$Paths)
+    param(
+        [psobject]$Paths,
+        [string]$ExePath
+    )
     New-Item -ItemType Directory -Path $Paths.Root -Force | Out-Null
     $path = Join-Path $Paths.Root 'fingerprint.json'
-    if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
+    $browser = Get-ChromiumPersonaVersion -ExePath $ExePath
+    $existingPersona = $null
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        try {
+            $existingPersona = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            if ($existingPersona.ua -and $existingPersona.uaBrands -and
+                [string]$existingPersona.uaChromiumVersion -eq $browser.chromiumVersion) {
+                return $path
+            }
+        } catch {
+            $existingPersona = $null
+        }
+    }
 
     $identity = Initialize-ProfileIdentity -Paths $Paths
     $locale = (Get-Culture).Name
@@ -150,40 +231,79 @@ function Initialize-ProfilePersona {
         $memoryGb = [Math]::Min(8, [Math]::Max(4, [Math]::Round($bytes / 1GB)))
     } catch { }
 
-    $persona = [ordered]@{
-        schema              = 1
-        seed                = "$($Paths.Name)|$([string]$identity.machine_id)"
-        timezone            = Get-IanaTimeZone
-        locale              = $locale
-        languages           = @($languages)
-        platform            = 'Win32'
-        maxTouchPoints      = 0
-        uaMobile            = $false
-        uaPlatform          = 'Windows'
-        hardwareConcurrency = $cores
-        deviceMemory        = $memoryGb
-        connection          = [ordered]@{
-            effectiveType = '4g'
-            rtt           = 50
-            downlink      = 10
-            saveData      = $false
+    $ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$($browser.chromiumVersion) Safari/537.36 Electron/$($browser.electronVersion)"
+    $uaBrands = @(
+        [ordered]@{ brand = 'Not_A Brand'; version = '99' },
+        [ordered]@{ brand = 'Chromium'; version = [string]$browser.chromiumMajor }
+    )
+    $uaHighEntropy = [ordered]@{
+        brands          = @($uaBrands)
+        mobile          = $false
+        platform        = 'Windows'
+        platformVersion = [Environment]::OSVersion.Version.ToString()
+        architecture    = 'x86'
+        bitness         = '64'
+        model           = ''
+        uaFullVersion   = $browser.chromiumVersion
+        fullVersionList = @($uaBrands)
+        wow64           = $false
+    }
+
+    if ($null -ne $existingPersona) {
+        $persona = $existingPersona
+        $updates = [ordered]@{
+            ua                = $ua
+            uaBrands          = @($uaBrands)
+            uaMobile          = $false
+            uaPlatform        = 'Windows'
+            uaHighEntropy     = $uaHighEntropy
+            uaElectronVersion = $browser.electronVersion
+            uaChromiumVersion = $browser.chromiumVersion
         }
-        screen              = [ordered]@{
-            width      = $width
-            height     = $height
-            availWidth = $width
-            availHeight = [Math]::Max(600, $height - 40)
-            colorDepth = 24
-            pixelDepth = 24
-            dpr        = 1
+        foreach ($entry in $updates.GetEnumerator()) {
+            $persona | Add-Member -MemberType NoteProperty -Name $entry.Key -Value $entry.Value -Force
         }
-        webgl               = [ordered]@{
-            vendor   = "Google Inc. ($shortVendor)"
-            renderer = $renderer
+    } else {
+        $persona = [ordered]@{
+            schema              = 1
+            seed                = "$($Paths.Name)|$([string]$identity.machine_id)"
+            timezone            = Get-IanaTimeZone
+            locale              = $locale
+            languages           = @($languages)
+            platform            = 'Win32'
+            maxTouchPoints      = 0
+            ua                  = $ua
+            uaMobile            = $false
+            uaPlatform          = 'Windows'
+            uaBrands            = @($uaBrands)
+            uaHighEntropy       = $uaHighEntropy
+            uaElectronVersion   = $browser.electronVersion
+            uaChromiumVersion   = $browser.chromiumVersion
+            hardwareConcurrency = $cores
+            deviceMemory        = $memoryGb
+            connection          = [ordered]@{
+                effectiveType = '4g'
+                rtt           = 50
+                downlink      = 10
+                saveData      = $false
+            }
+            screen              = [ordered]@{
+                width      = $width
+                height     = $height
+                availWidth = $width
+                availHeight = [Math]::Max(600, $height - 40)
+                colorDepth = 24
+                pixelDepth = 24
+                dpr        = 1
+            }
+            webgl               = [ordered]@{
+                vendor   = "Google Inc. ($shortVendor)"
+                renderer = $renderer
+            }
+            canvasNoise         = 1
+            audioNoise          = 0.0000001
+            webrtc              = 'filter-private'
         }
-        canvasNoise         = 1
-        audioNoise          = 0.0000001
-        webrtc              = 'filter-private'
     }
     $json = $persona | ConvertTo-Json -Depth 8
     [System.IO.File]::WriteAllText($path, $json + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
@@ -536,6 +656,7 @@ function Start-ClaudeDesktop {
     $mitmProcess = $null
     $mitmPort = $null
     $mitmPidFile = $null
+    $mitmProcessPidFile = $null
     $personaPath = $null
 
     # Fail before starting MITM or touching the profile when the Desktop process
@@ -575,6 +696,10 @@ function Start-ClaudeDesktop {
         }
     }
 
+    # Create log/mitm directories before the addon starts; otherwise a fresh
+    # profile cannot publish its PID file and fail-closed monitoring breaks.
+    Initialize-ProfileLayout -Paths $Paths -ForLaunch | Out-Null
+
     if ($UseFingerprint) {
         $mitm = (Get-Command mitmdump -ErrorAction SilentlyContinue).Source
         if (-not $mitm) {
@@ -592,10 +717,12 @@ function Start-ClaudeDesktop {
                 mitmPort = $null; fingerprintPersona = $null
             }
         }
-        $personaPath = Initialize-ProfilePersona -Paths $Paths
+        $personaPath = Initialize-ProfilePersona -Paths $Paths -ExePath $ExePath
         $mitmPort = Get-FreeTcpPort
         $mitmPidFile = Join-Path $Paths.LogsDir 'mitm-claude.pid'
+        $mitmProcessPidFile = Join-Path $Paths.LogsDir 'mitm-proxy.pid'
         Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
         $saved = @{}
         foreach ($name in @('CAC_PERSONA', 'CAC_SHIM', 'CAC_MITM_LOG', 'CAC_MITM_PIDFILE')) {
             $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
@@ -610,25 +737,73 @@ function Start-ClaudeDesktop {
             -ArgumentList @('-q', '-s', $addon, '--listen-port', "$mitmPort",
                 '--set', "confdir=$($Paths.MitmDir)") `
                 -PassThru -WindowStyle Hidden
+        Set-Content -LiteralPath $mitmProcessPidFile -Value "$($mitmProcess.Id)" -Encoding ASCII
         } finally {
             foreach ($name in $saved.Keys) {
                 [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process')
             }
         }
+        $mitmReady = $false
         $deadline = (Get-Date).AddSeconds(10)
         do {
             try {
+                if ($mitmProcess -and $mitmProcess.HasExited) { break }
+            } catch { break }
+            $client = $null
+            try {
                 $client = [System.Net.Sockets.TcpClient]::new()
                 $client.Connect('127.0.0.1', $mitmPort)
-                $client.Close()
+                $mitmReady = $true
                 break
             } catch {
                 Start-Sleep -Milliseconds 200
+            } finally {
+                if ($client) { $client.Dispose() }
             }
         } while ((Get-Date) -lt $deadline)
+
+        if (-not $mitmReady) {
+            Stop-TrackedProcess -Process $mitmProcess
+            Stop-ProfileProcesses -Paths $Paths
+            Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
+            return [pscustomobject]@{
+                started = $false; blocked = $true
+                error = "MITM did not listen on 127.0.0.1:$mitmPort"
+                mode = $null; processId = $null; launchFile = $null; arguments = $null
+                userDataDir = $Paths.UserDataDir; nativeRequested = $UseInject; nativeUsed = $false
+                mitmPort = $mitmPort; fingerprintPersona = $personaPath; mitmPid = $null
+            }
+        }
+
         $ca = Join-Path $Paths.MitmDir 'mitmproxy-ca-cert.cer'
+        $caDeadline = (Get-Date).AddSeconds(5)
+        while (-not (Test-Path -LiteralPath $ca -PathType Leaf) -and (Get-Date) -lt $caDeadline) {
+            try {
+                if ($mitmProcess -and $mitmProcess.HasExited) { break }
+            } catch { break }
+            Start-Sleep -Milliseconds 200
+        }
+        $caInstalled = $false
         if (Test-Path -LiteralPath $ca -PathType Leaf) {
-            [void](Install-MitmCa -Path $ca)
+            try {
+                $caInstalled = [bool](Install-MitmCa -Path $ca)
+            } catch {
+                $caInstalled = $false
+            }
+        }
+        if (-not $caInstalled) {
+            Stop-TrackedProcess -Process $mitmProcess
+            Stop-ProfileProcesses -Paths $Paths
+            Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
+            return [pscustomobject]@{
+                started = $false; blocked = $true
+                error = "MITM CA installation failed for profile $($Paths.Name): $ca"
+                mode = $null; processId = $null; launchFile = $null; arguments = $null
+                userDataDir = $Paths.UserDataDir; nativeRequested = $UseInject; nativeUsed = $false
+                mitmPort = $mitmPort; fingerprintPersona = $personaPath; mitmPid = $null
+            }
         }
     }
 
@@ -640,7 +815,10 @@ function Start-ClaudeDesktop {
         }
         Write-Host "          Close all Claude Desktop windows manually, then retry." -ForegroundColor Yellow
         Write-Host "          This script does not terminate existing user sessions." -ForegroundColor Yellow
-        if ($mitmProcess) { Stop-Process -Id $mitmProcess.Id -Force -ErrorAction SilentlyContinue }
+        Stop-TrackedProcess -Process $mitmProcess
+        Stop-ProfileProcesses -Paths $Paths
+        if ($mitmPidFile) { Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue }
+        if ($mitmProcessPidFile) { Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue }
         return [pscustomobject]@{
             started        = $false
             blocked        = $true
@@ -656,7 +834,10 @@ function Start-ClaudeDesktop {
     }
 
     if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
-        if ($mitmProcess) { Stop-Process -Id $mitmProcess.Id -Force -ErrorAction SilentlyContinue }
+        Stop-TrackedProcess -Process $mitmProcess
+        Stop-ProfileProcesses -Paths $Paths
+        if ($mitmPidFile) { Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue }
+        if ($mitmProcessPidFile) { Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue }
         return [pscustomobject]@{
             started        = $false
             blocked        = $false
@@ -671,7 +852,6 @@ function Start-ClaudeDesktop {
         }
     }
 
-    Initialize-ProfileLayout -Paths $Paths -ForLaunch | Out-Null
     $identity = Initialize-ProfileIdentity -Paths $Paths
 
     $fingerprintPort = $null
@@ -716,11 +896,26 @@ function Start-ClaudeDesktop {
     }
     if ($UseFingerprint) { $mode += '+fingerprint' }
 
+    $homeDrive = ''
+    $homePath = ''
+    $homeRoot = [System.IO.Path]::GetPathRoot($Paths.Home)
+    if ($homeRoot -match '^[A-Za-z]:\\$') {
+        $homeDrive = $homeRoot.Substring(0, 2)
+        $homePath = $Paths.Home.Substring(2)
+    } else {
+        throw "Unable to derive isolated HOMEDRIVE/HOMEPATH for $($Paths.Home)"
+    }
+    if ([string]::IsNullOrWhiteSpace($homeDrive) -or [string]::IsNullOrWhiteSpace($homePath)) {
+        throw "Unable to derive isolated HOMEDRIVE/HOMEPATH for $($Paths.Home)"
+    }
+
     $environment = [ordered]@{
         APPDATA              = $Paths.AppData
         LOCALAPPDATA         = $Paths.LocalAppData
         USERPROFILE          = $Paths.Home
         HOME                 = $Paths.Home
+        HOMEDRIVE            = $homeDrive
+        HOMEPATH             = $homePath
         TEMP                 = $Paths.Temp
         TMP                  = $Paths.Temp
         CAC_DESKTOP_PROFILE  = $Paths.Name
@@ -789,7 +984,10 @@ function Start-ClaudeDesktop {
         Set-Content -LiteralPath $mitmPidFile -Value "$processId" -Encoding ASCII
     }
     if ($UseFingerprint -and -not $processId -and $mitmProcess) {
-        Stop-Process -Id $mitmProcess.Id -Force -ErrorAction SilentlyContinue
+        Stop-TrackedProcess -Process $mitmProcess
+        Stop-ProfileProcesses -Paths $Paths
+        Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
     }
 
     return [pscustomobject]@{
@@ -855,35 +1053,203 @@ function Get-ProcessTreeIds {
     return @($ordered)
 }
 
-function Stop-ClaudeProcessTree {
-    param([int]$RootProcessId)
-    # Collect the tree before stopping anything, then stop children first.
-    $ids = @(Get-ProcessTreeIds -RootProcessId $RootProcessId)
-    for ($index = $ids.Count - 1; $index -ge 0; $index--) {
-        $targetId = [int]$ids[$index]
-        if ($targetId -eq $PID) { continue }
+function Get-ProfileProcessIds {
+    param([psobject]$Paths)
+
+    $markerList = New-Object 'System.Collections.Generic.List[string]'
+    $rawRoot = $null
+    if (-not [string]::IsNullOrWhiteSpace($script:OriginalUserProfile) -and
+        $Paths.Root.StartsWith($script:DesktopRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        $relative = $Paths.Root.Substring($script:DesktopRoot.Length).TrimStart('\')
+        $rawRoot = Join-Path (Join-Path $script:OriginalUserProfile '.cac\desktop') $relative
+    }
+    $pathsToMark = @(
+        $Paths.Root,
+        $Paths.UserDataDir,
+        $Paths.MitmDir,
+        $rawRoot,
+        $(if ($rawRoot) { Join-Path $rawRoot 'home\AppData\Roaming\Claude' }),
+        $(if ($rawRoot) { Join-Path $rawRoot 'mitmproxy' })
+    )
+    foreach ($path in $pathsToMark) {
+        foreach ($marker in @(Get-PathMarkers -Path $path)) {
+            if (-not [string]::IsNullOrWhiteSpace($marker) -and -not ($markerList -contains $marker)) {
+                [void]$markerList.Add($marker)
+            }
+        }
+    }
+    $markers = @($markerList)
+    $relevantNames = @(
+        'claude.exe',
+        'cac-native-launch.exe',
+        'mitmdump.exe',
+        'mitmproxy.exe',
+        'python.exe',
+        'pythonw.exe'
+    )
+
+    try {
+        $rows = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop)
+    } catch {
         try {
-            Stop-Process -Id $targetId -Force -ErrorAction Stop
+            $rows = @(Get-WmiObject -Class Win32_Process -ErrorAction Stop)
         } catch {
-            # The process may have already exited.
+            throw "Unable to inspect processes before touching profile $($Paths.Name): $($_.Exception.Message)"
         }
     }
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(5)
-    $remaining = @()
-    while ($true) {
-        $remaining = @()
-        foreach ($targetId in $ids) {
-            if (Get-Process -Id $targetId -ErrorAction SilentlyContinue) {
-                $remaining += [int]$targetId
+    $byId = @{}
+    $ids = @()
+    foreach ($row in $rows) {
+        $id = [int]$row.ProcessId
+        $byId[$id] = $row
+        $name = [string]$row.Name
+        if ($relevantNames -notcontains $name.ToLowerInvariant()) { continue }
+        $commandLine = [string]$row.CommandLine
+        $executablePath = [string]$row.ExecutablePath
+        $matched = $false
+        foreach ($marker in $markers) {
+            if ((-not [string]::IsNullOrWhiteSpace($commandLine) -and
+                 $commandLine.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or
+                (-not [string]::IsNullOrWhiteSpace($executablePath) -and
+                 $executablePath.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+                $matched = $true
+                break
             }
         }
-        if ($remaining.Count -eq 0 -or [DateTime]::UtcNow -ge $deadline) { break }
+        if ($matched -and -not ($ids -contains $id)) { $ids += $id }
+    }
+
+    # The PID file tracks the Desktop root process and remains useful when
+    # Windows returns an empty CommandLine during early process startup.
+    foreach ($pidFileName in @('mitm-claude.pid', 'mitm-proxy.pid')) {
+        $pidFile = Join-Path $Paths.LogsDir $pidFileName
+        if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf)) { continue }
+        $pidText = (Get-Content -LiteralPath $pidFile -Raw -ErrorAction SilentlyContinue).Trim()
+        $pidValue = 0
+        if ([int]::TryParse($pidText, [ref]$pidValue) -and $pidValue -gt 0 -and $byId.ContainsKey($pidValue)) {
+            $pidRow = $byId[$pidValue]
+            $pidName = [string]$pidRow.Name
+            $pidCommandLine = [string]$pidRow.CommandLine
+            $pidExecutablePath = [string]$pidRow.ExecutablePath
+            $pidMatchesProfile = $false
+            foreach ($marker in $markers) {
+                if ((-not [string]::IsNullOrWhiteSpace($pidCommandLine) -and
+                     $pidCommandLine.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -ge 0) -or
+                    (-not [string]::IsNullOrWhiteSpace($pidExecutablePath) -and
+                     $pidExecutablePath.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+                    $pidMatchesProfile = $true
+                    break
+                }
+            }
+            if ($pidMatchesProfile -and
+                $pidName -in @('claude.exe', 'mitmdump.exe', 'mitmproxy.exe', 'python.exe', 'pythonw.exe') -and
+                -not ($ids -contains $pidValue)) {
+                $ids += $pidValue
+            }
+        }
+    }
+    return @($ids)
+}
+
+function Stop-ProfileProcesses {
+    param([psobject]$Paths)
+    try {
+        $ids = @(Get-ProfileProcessIds -Paths $Paths)
+    } catch {
+        return
+    }
+    foreach ($targetId in @($ids | Sort-Object -Descending)) {
+        if ([int]$targetId -eq $PID) { continue }
+        try { Stop-Process -Id ([int]$targetId) -Force -ErrorAction Stop } catch { }
+    }
+}
+
+function Stop-TrackedProcess {
+    param([System.Diagnostics.Process]$Process)
+    if ($null -eq $Process) { return }
+    try {
+        if (-not $Process.HasExited) { $Process.Kill() }
+    } catch { }
+    try { [void]$Process.WaitForExit(3000) } catch { }
+}
+
+function Get-PathMarkers {
+    param([string]$Path)
+    $markers = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($candidate in @($Path)) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        $normalized = $candidate.TrimEnd('\')
+        if (-not ($markers -contains $normalized)) { [void]$markers.Add($normalized) }
+        try {
+            $resolved = (Resolve-Path -LiteralPath $candidate -ErrorAction Stop).ProviderPath.TrimEnd('\')
+            if (-not ($markers -contains $resolved)) { [void]$markers.Add($resolved) }
+        } catch { }
+        try {
+            $capacity = 512
+            do {
+                $buffer = New-Object System.Text.StringBuilder $capacity
+                $length = [CacPathNative]::GetShortPathName($candidate, $buffer, [uint32]$capacity)
+                if ($length -eq 0) { break }
+                if ($length -lt ($capacity - 1)) {
+                    $short = $buffer.ToString().TrimEnd('\')
+                    if (-not ($markers -contains $short)) { [void]$markers.Add($short) }
+                    break
+                }
+                $capacity *= 2
+            } while ($capacity -le 32768)
+        } catch { }
+    }
+    return @($markers)
+}
+
+function Stop-ClaudeProcessTree {
+    param(
+        [int]$RootProcessId,
+        [psobject]$Paths
+    )
+
+    $collected = @()
+    $remaining = @()
+    $deadline = [DateTime]::UtcNow.AddSeconds(8)
+    do {
+        # Rebuild both views every pass so detached/reparented profile
+        # processes are collected after the original tree is gone.
+        $scan = @(Get-ProcessTreeIds -RootProcessId $RootProcessId)
+        if ($null -ne $Paths) {
+            try { $scan += @(Get-ProfileProcessIds -Paths $Paths) } catch { }
+        }
+        $scan = @($scan | Where-Object { $_ -and [int]$_ -ne $PID } | Select-Object -Unique)
+        foreach ($targetId in $scan) {
+            if (-not ($collected -contains [int]$targetId)) { $collected += [int]$targetId }
+        }
+
+        for ($index = $scan.Count - 1; $index -ge 0; $index--) {
+            $targetId = [int]$scan[$index]
+            try { Stop-Process -Id $targetId -Force -ErrorAction Stop } catch { }
+        }
+
         Start-Sleep -Milliseconds 200
+        $remaining = @($collected | Where-Object {
+            Get-Process -Id ([int]$_) -ErrorAction SilentlyContinue
+        } | Select-Object -Unique)
+        if ($null -ne $Paths) {
+            try {
+                $remaining += @(Get-ProfileProcessIds -Paths $Paths)
+                $remaining = @($remaining | Select-Object -Unique)
+            } catch { }
+        }
+        if ($remaining.Count -eq 0) { break }
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    if ($null -ne $Paths -and $remaining.Count -eq 0) {
+        foreach ($pidFileName in @('mitm-claude.pid', 'mitm-proxy.pid')) {
+            Remove-Item -LiteralPath (Join-Path $Paths.LogsDir $pidFileName) -Force -ErrorAction SilentlyContinue
+        }
     }
 
     return [pscustomobject]@{
-        collectedPids = @($ids)
+        collectedPids = @($collected)
         remainingPids = @($remaining)
     }
 }
@@ -1036,7 +1402,7 @@ function Invoke-AbAction {
         $startedA = [DateTime]::UtcNow
         $antA = Wait-AntDid -Paths $pathsA -Seconds $WaitSeconds
         Wait-DesktopRuntimeWindow -StartedUtc $startedA -Seconds $WaitSeconds -ProfileName 'profile-a'
-        $stopA = Stop-ClaudeProcessTree -RootProcessId $launchA.processId
+        $stopA = Stop-ClaudeProcessTree -RootProcessId $launchA.processId -Paths $pathsA
         Write-Host ("[AB] profile-a tree stopped: {0}" -f (@($stopA.collectedPids) -join ', '))
     } else {
         Write-Host "[AB] profile-a did not start." -ForegroundColor Red
@@ -1053,7 +1419,7 @@ function Invoke-AbAction {
             $startedB = [DateTime]::UtcNow
             $antB = Wait-AntDid -Paths $pathsB -Seconds $WaitSeconds
             Wait-DesktopRuntimeWindow -StartedUtc $startedB -Seconds $WaitSeconds -ProfileName 'profile-b'
-            $stopB = Stop-ClaudeProcessTree -RootProcessId $launchB.processId
+            $stopB = Stop-ClaudeProcessTree -RootProcessId $launchB.processId -Paths $pathsB
             Write-Host ("[AB] profile-b tree stopped: {0}" -f (@($stopB.collectedPids) -join ', '))
         } else {
             Write-Host "[AB] profile-b did not start." -ForegroundColor Red
@@ -1167,9 +1533,22 @@ function Invoke-CleanupAction {
         throw "Refusing cleanup of a reparse-point profile directory: $resolvedFull"
     }
 
+    $liveProcesses = @(Get-ProfileProcessIds -Paths $paths)
+    if ($liveProcesses.Count -gt 0) {
+        Write-Host ("[CLEANUP] refused: profile processes are still running: {0}" -f ($liveProcesses -join ', ')) -ForegroundColor Yellow
+        return 1
+    }
+
     $files = @(Get-ChildItem -LiteralPath $resolvedFull -Recurse -Force -File -ErrorAction SilentlyContinue)
     $bytes = 0
     foreach ($file in $files) { $bytes += [long]$file.Length }
+
+    # Re-scan immediately before deletion to close the check/delete race.
+    $liveProcesses = @(Get-ProfileProcessIds -Paths $paths)
+    if ($liveProcesses.Count -gt 0) {
+        Write-Host ("[CLEANUP] refused: profile processes appeared during cleanup: {0}" -f ($liveProcesses -join ', ')) -ForegroundColor Yellow
+        return 1
+    }
 
     Write-Host "[CLEANUP] removing: $resolvedFull"
     Remove-Item -LiteralPath $resolvedFull -Recurse -Force -ErrorAction Stop
@@ -1181,16 +1560,16 @@ function Invoke-CleanupAction {
 }
 
 function Invoke-RemoveCaAction {
-    $caPath = $null
-    if ($Profile -and (Test-ProfileName $Profile)) {
-        $caPath = Join-Path (Get-ProfilePaths -Name $Profile).MitmDir 'mitmproxy-ca-cert.cer'
+    if ([string]::IsNullOrWhiteSpace($Profile) -or -not (Test-ProfileName $Profile)) {
+        throw "remove-ca requires a valid -Profile name; global mitmproxy certificate removal is disabled"
     }
+    $paths = Get-ProfilePaths -Name $Profile
+    if (-not (Test-Path -LiteralPath $paths.Root -PathType Container)) {
+        throw "Refusing mitmproxy CA removal: profile does not exist: $($paths.Name)"
+    }
+    $caPath = Join-Path $paths.MitmDir 'mitmproxy-ca-cert.cer'
     if (Remove-MitmCa -Path $caPath) {
-        if ($caPath) {
-            Write-Host "[CA] Profile mitmproxy root certificate removed: $caPath" -ForegroundColor Green
-        } else {
-            Write-Host "[CA] mitmproxy root certificates removed" -ForegroundColor Green
-        }
+        Write-Host "[CA] Profile mitmproxy root certificate removed: $caPath" -ForegroundColor Green
         return 0
     }
     Write-Host "[CA] mitmproxy root certificate is still present" -ForegroundColor Red

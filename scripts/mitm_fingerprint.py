@@ -97,6 +97,15 @@ class Addon:
     def __init__(self):
         self.pid = int(os.environ.get("CAC_MITM_PID", "0") or "0")
         self.pid_file = os.environ.get("CAC_MITM_PIDFILE", "")
+        self.started_at = time.monotonic()
+        self.startup_grace = max(
+            5.0, float(os.environ.get("CAC_MITM_PID_STARTUP_GRACE", "20"))
+        )
+        self.missing_grace = max(
+            2.0, float(os.environ.get("CAC_MITM_PID_MISSING_GRACE", "6"))
+        )
+        self.missing_since = None
+        self.missing_logged = False
         if self.pid or self.pid_file:
             threading.Thread(target=self.monitor, daemon=True).start()
 
@@ -107,10 +116,34 @@ class Addon:
                 try:
                     with open(self.pid_file, "r", encoding="ascii") as handle:
                         pid = int(handle.read().strip() or "0")
+                    if pid <= 0:
+                        raise ValueError("empty Desktop PID")
+                    self.missing_since = None
+                    self.missing_logged = False
                 except (OSError, ValueError):
-                    pid = 0
+                    now = time.monotonic()
+                    if now - self.started_at < self.startup_grace:
+                        time.sleep(1)
+                        continue
+                    if self.missing_since is None:
+                        self.missing_since = now
+                    if not self.missing_logged:
+                        log(
+                            "Desktop PID file missing after startup grace; "
+                            f"waiting {self.missing_grace:.0f}s before exit"
+                        )
+                        self.missing_logged = True
+                    if now - self.missing_since >= self.missing_grace:
+                        log("Desktop PID file remained missing; exiting MITM")
+                        os._exit(0)
+                    time.sleep(1)
+                    continue
+            elif not pid:
+                log("no Desktop PID or PID file configured; exiting MITM")
+                os._exit(0)
             if pid:
                 if not process_alive(pid):
+                    log(f"Desktop PID {pid} is no longer alive; exiting MITM")
                     os._exit(0)
             time.sleep(2)
 
