@@ -194,7 +194,9 @@ void ProbeSetupDiDynamic() {
         return;
     }
 
-    HDEVINFO set = getClassDevs(&GUID_DEVCLASS_DISKDRIVE, nullptr, nullptr, DIGCF_PRESENT);
+    // Use the unfiltered device set here so the empty policy can exercise the
+    // dynamically resolved property APIs instead of returning at class lookup.
+    HDEVINFO set = getClassDevs(nullptr, nullptr, nullptr, DIGCF_PRESENT | DIGCF_ALLCLASSES);
     if (set == INVALID_HANDLE_VALUE) {
         std::printf("setupdi_dynamic=empty\n");
         FreeLibrary(setupapi);

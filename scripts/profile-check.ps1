@@ -30,6 +30,8 @@ try {
 console.log(JSON.stringify({
   homedir: os.homedir(),
   userprofile: process.env.USERPROFILE || "",
+  homedrive: process.env.HOMEDRIVE || "",
+  homepath: process.env.HOMEPATH || "",
   config: process.env.CLAUDE_CONFIG_DIR || "",
   appdata: process.env.APPDATA || "",
   localappdata: process.env.LOCALAPPDATA || "",
@@ -155,6 +157,8 @@ foreach ($sourceName in $EnvNames) {
             $expectedSource = ($targetName -eq $sourceName)
             $pathOk = ($probe.homedir -eq $targetPaths.HomeDir -and
                 $probe.userprofile -eq $targetPaths.HomeDir -and
+                $probe.homedrive -eq ([System.IO.Path]::GetPathRoot($targetPaths.HomeDir).Substring(0, 2)) -and
+                $probe.homepath -eq $targetPaths.HomeDir.Substring(2) -and
                 $probe.config -eq $targetPaths.ConfigDir -and
                 $probe.appdata -eq $targetPaths.AppData -and
                 $probe.localappdata -eq $targetPaths.LocalAppData -and
@@ -180,6 +184,8 @@ foreach ($sourceName in $EnvNames) {
                 identityIsolation = $identityOk
                 nodeHookUsed = $hookUsed
                 homedir = $probe.homedir
+                homedrive = $probe.homedrive
+                homepath = $probe.homepath
                 config = $probe.config
                 temp = $probe.temp
                 runtimeHostname = $probe.hostname

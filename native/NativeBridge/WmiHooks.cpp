@@ -237,7 +237,19 @@ public:
     }
     HRESULT STDMETHODCALLTYPE Next(long flags, BSTR* name, VARIANT* value, CIMTYPE* type,
                                    long* flavor) override {
-        return inner_->Next(flags, name, value, type, flavor);
+        const HRESULT hr = inner_->Next(flags, name, value, type, flavor);
+        if (FAILED(hr) || !name || !*name || !value) return hr;
+        std::wstring spoof;
+        if (!SpoofWmiValue(ClassName(), *name, spoof)) return hr;
+        BSTR replacement = SysAllocString(spoof.c_str());
+        if (!replacement) return E_OUTOFMEMORY;
+        VariantClear(value);
+        VariantInit(value);
+        value->vt = VT_BSTR;
+        value->bstrVal = replacement;
+        if (type) *type = CIM_STRING;
+        if (flavor) *flavor = 0;
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE EndEnumeration() override { return inner_->EndEnumeration(); }
     HRESULT STDMETHODCALLTYPE GetPropertyQualifierSet(LPCWSTR property,
@@ -849,10 +861,10 @@ HRESULT WINAPI HookCoGetClassObject(REFCLSID clsid, DWORD context, LPVOID reserv
 }  // namespace
 
 void InstallWmiHooks() {
-    InstallHookShared("ole32.dll", "CoCreateInstance", reinterpret_cast<void*>(&HookCoCreateInstance),
-                      reinterpret_cast<void**>(&g_origCoCreateInstance));
-    InstallHookShared("ole32.dll", "CoCreateInstanceEx", reinterpret_cast<void*>(&HookCoCreateInstanceEx),
-                      reinterpret_cast<void**>(&g_origCoCreateInstanceEx));
-    InstallHookShared("ole32.dll", "CoGetClassObject", reinterpret_cast<void*>(&HookCoGetClassObject),
-                      reinterpret_cast<void**>(&g_origCoGetClassObject));
+    InstallHookInlinePrimary("ole32.dll", "CoCreateInstance", reinterpret_cast<void*>(&HookCoCreateInstance),
+                             reinterpret_cast<void**>(&g_origCoCreateInstance));
+    InstallHookInlinePrimary("ole32.dll", "CoCreateInstanceEx", reinterpret_cast<void*>(&HookCoCreateInstanceEx),
+                             reinterpret_cast<void**>(&g_origCoCreateInstanceEx));
+    InstallHookInlinePrimary("ole32.dll", "CoGetClassObject", reinterpret_cast<void*>(&HookCoGetClassObject),
+                             reinterpret_cast<void**>(&g_origCoGetClassObject));
 }

@@ -181,17 +181,17 @@ DWORD WINAPI HookGetBestRoute2(const NET_LUID* interfaceLuid, NET_IFINDEX interf
 }  // namespace
 
 void InstallNetworkHooks() {
-    InstallHookShared("iphlpapi.dll", "GetInterfaceInfo", reinterpret_cast<void*>(&HookGetInterfaceInfo),
-                      reinterpret_cast<void**>(&g_origGetInterfaceInfo));
-    InstallHookShared("iphlpapi.dll", "ConvertInterfaceLuidToNameW",
-                      reinterpret_cast<void*>(&HookConvertInterfaceLuidToNameW),
-                      reinterpret_cast<void**>(&g_origConvertLuidToName));
-    InstallHookShared("iphlpapi.dll", "ConvertInterfaceLuidToAlias",
-                      reinterpret_cast<void*>(&HookConvertInterfaceLuidToAlias),
-                      reinterpret_cast<void**>(&g_origConvertLuidToAlias));
-    InstallHookShared("iphlpapi.dll", "ConvertInterfaceNameToLuidW",
-                      reinterpret_cast<void*>(&HookConvertInterfaceNameToLuidW),
-                      reinterpret_cast<void**>(&g_origConvertNameToLuid));
+    InstallHookInlinePrimary("iphlpapi.dll", "GetInterfaceInfo", reinterpret_cast<void*>(&HookGetInterfaceInfo),
+                             reinterpret_cast<void**>(&g_origGetInterfaceInfo));
+    InstallHookInlinePrimary("iphlpapi.dll", "ConvertInterfaceLuidToNameW",
+                             reinterpret_cast<void*>(&HookConvertInterfaceLuidToNameW),
+                             reinterpret_cast<void**>(&g_origConvertLuidToName));
+    InstallHookInlinePrimary("iphlpapi.dll", "ConvertInterfaceLuidToAlias",
+                             reinterpret_cast<void*>(&HookConvertInterfaceLuidToAlias),
+                             reinterpret_cast<void**>(&g_origConvertLuidToAlias));
+    InstallHookInlinePrimary("iphlpapi.dll", "ConvertInterfaceNameToLuidW",
+                             reinterpret_cast<void*>(&HookConvertInterfaceNameToLuidW),
+                             reinterpret_cast<void**>(&g_origConvertNameToLuid));
     InstallHookInlinePrimary("winhttp.dll", "WinHttpGetIEProxyConfigForCurrentUser",
                              reinterpret_cast<void*>(&HookWinHttpGetIEProxyConfigForCurrentUser),
                              reinterpret_cast<void**>(&g_origGetIeProxyConfig));

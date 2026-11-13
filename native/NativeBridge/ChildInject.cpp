@@ -4,12 +4,16 @@
 
 #include <windows.h>
 #include <winternl.h>
+#include <sddl.h>
 
+#include <cwchar>
 #include <string>
 #include <vector>
 
 #include "ApiHooks.h"
 #include "Audit.h"
+
+#pragma comment(lib, "advapi32.lib")
 
 namespace {
 
@@ -59,6 +63,14 @@ std::wstring BridgeModulePath() {
 std::wstring BaseName(const std::wstring& path) {
     const size_t slash = path.find_last_of(L"\\/");
     return slash == std::wstring::npos ? path : path.substr(slash + 1);
+}
+
+std::wstring NormalizeImagePath(const std::wstring& path) {
+    if (path.empty()) return std::wstring();
+    wchar_t buffer[32768] = {};
+    const DWORD length = GetFullPathNameW(path.c_str(), static_cast<DWORD>(_countof(buffer)), buffer, nullptr);
+    if (length == 0 || length >= _countof(buffer)) return std::wstring();
+    return std::wstring(buffer, length);
 }
 
 std::wstring DirectoryName(const std::wstring& path) {
@@ -129,15 +141,70 @@ bool InjectLibrary(HANDLE process, const std::wstring& dllPath, std::string* err
         return false;
     }
     const DWORD wait = WaitForSingleObject(thread, 20000);
-    DWORD moduleBase = 0;
-    GetExitCodeThread(thread, &moduleBase);
     CloseHandle(thread);
     VirtualFreeEx(process, remote, 0, MEM_RELEASE);
-    if (wait != WAIT_OBJECT_0 || moduleBase == 0) {
-        *error = wait == WAIT_OBJECT_0 ? "LoadLibraryW returned NULL in child" : "injection timed out";
+    if (wait != WAIT_OBJECT_0) {
+        *error = "injection timed out";
         return false;
     }
+    // The thread exit code is a 32-bit value even on x64 and is not a safe
+    // way to validate an HMODULE. NativeBridge's ready event is the authority.
     return true;
+}
+
+HANDLE CreateReadyEvent(DWORD processId, bool* alreadyExists) {
+    wchar_t name[96] = {};
+    std::swprintf(name, _countof(name), L"Local\\CACNativeBridgeReady_%lu",
+                  static_cast<unsigned long>(processId));
+    if (alreadyExists) *alreadyExists = false;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:(A;;0x00100003;;;WD)", SDDL_REVISION_1, &descriptor, nullptr)) {
+        return nullptr;
+    }
+    SECURITY_ATTRIBUTES attributes = {};
+    attributes.nLength = sizeof(attributes);
+    attributes.lpSecurityDescriptor = descriptor;
+    SetLastError(ERROR_SUCCESS);
+    HANDLE event = CreateEventW(&attributes, TRUE, FALSE, name);
+    const DWORD createError = GetLastError();
+    LocalFree(descriptor);
+    if (event) {
+        if (alreadyExists) *alreadyExists = (createError == ERROR_ALREADY_EXISTS);
+        return event;
+    }
+    if (createError == ERROR_ACCESS_DENIED) {
+        event = OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, name);
+        if (event && alreadyExists) *alreadyExists = true;
+    }
+    return event;
+}
+
+bool WaitForReady(HANDLE event) {
+    return event && WaitForSingleObject(event, 20000) == WAIT_OBJECT_0;
+}
+
+bool CloseFailedChild(LPPROCESS_INFORMATION processInformation) {
+    if (!processInformation) return false;
+    const DWORD processId = processInformation->dwProcessId;
+    bool stopped = true;
+    if (processInformation->hProcess) {
+        if (!TerminateProcess(processInformation->hProcess, 4) &&
+            GetLastError() != ERROR_ACCESS_DENIED) {
+            stopped = false;
+        }
+        if (WaitForSingleObject(processInformation->hProcess, 5000) != WAIT_OBJECT_0) {
+            stopped = false;
+        }
+    }
+    if (!stopped) AuditEvent("native.child", "terminate-failed", nullptr, processId, true);
+    if (processInformation->hThread) CloseHandle(processInformation->hThread);
+    if (processInformation->hProcess) CloseHandle(processInformation->hProcess);
+    processInformation->hThread = nullptr;
+    processInformation->hProcess = nullptr;
+    processInformation->dwThreadId = 0;
+    processInformation->dwProcessId = 0;
+    return stopped;
 }
 
 bool IsNetworkToolImage(const std::wstring& baseName) {
@@ -156,8 +223,10 @@ bool PrepareInjection(const wchar_t* application, const wchar_t* commandLine, st
     std::wstring image;
     const bool haveImage = ExtractImageName(application, commandLine, image);
     const std::wstring baseName = haveImage ? BaseName(image) : std::wstring();
-    const bool sameImage = haveImage &&
-                           _wcsicmp(baseName.c_str(), BaseName(HostImagePath()).c_str()) == 0;
+    const std::wstring normalizedImage = haveImage ? NormalizeImagePath(image) : std::wstring();
+    const std::wstring normalizedHost = NormalizeImagePath(HostImagePath());
+    const bool sameImage = !normalizedImage.empty() && !normalizedHost.empty() &&
+                           _wcsicmp(normalizedImage.c_str(), normalizedHost.c_str()) == 0;
     const bool toolImage = haveImage && NativeCleanNetworkEnabled() && IsNetworkToolImage(baseName);
     const bool candidate = sameImage || toolImage;
     dllPath.clear();
@@ -169,18 +238,34 @@ bool PrepareInjection(const wchar_t* application, const wchar_t* commandLine, st
            GetFileAttributesW(dllPath.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-void FinishInjection(const std::wstring& dllPath, bool inject, bool forcedSuspend,
+bool FinishInjection(const std::wstring& dllPath, bool inject, bool forcedSuspend,
                      LPPROCESS_INFORMATION processInformation) {
-    if (!processInformation) return;
-    if (inject) {
-        std::string error;
-        if (InjectLibrary(processInformation->hProcess, dllPath, &error)) {
-            AuditEvent("native.child", "injected", nullptr, processInformation->dwProcessId, true);
-        } else {
-            AuditEvent("native.child", "failed", error.c_str(), processInformation->dwProcessId, true);
-        }
+    if (!processInformation) return false;
+    if (!inject) {
+        if (forcedSuspend) ResumeThread(processInformation->hThread);
+        return true;
     }
+
+    const DWORD processId = processInformation->dwProcessId;
+    bool alreadyExists = false;
+    HANDLE ready = CreateReadyEvent(processId, &alreadyExists);
+    std::string error;
+    const bool injected = ready && (alreadyExists || InjectLibrary(processInformation->hProcess, dllPath, &error));
+    const bool readySignaled = injected && WaitForReady(ready);
+    if (ready) CloseHandle(ready);
+
+    if (!injected || !readySignaled) {
+        if (!ready) error = "ready event creation failed";
+        else if (injected) error = "NativeBridge ready signal was not received";
+        AuditEvent("native.child", "failed", error.c_str(), processId, true);
+        const bool stopped = CloseFailedChild(processInformation);
+        SetLastError(stopped ? ERROR_DLL_INIT_FAILED : ERROR_PROCESS_ABORTED);
+        return false;
+    }
+
+    AuditEvent("native.child", "injected", nullptr, processId, true);
     if (forcedSuspend) ResumeThread(processInformation->hThread);
+    return true;
 }
 
 BOOL WINAPI HookCreateProcessW(LPCWSTR application, LPWSTR commandLine,
@@ -205,8 +290,7 @@ BOOL WINAPI HookCreateProcessW(LPCWSTR application, LPWSTR commandLine,
                                               processInformation);
     g_inProcessCreation = previous;
     if (!created) return FALSE;
-    FinishInjection(dllPath, inject, forcedSuspend, processInformation);
-    return TRUE;
+    return FinishInjection(dllPath, inject, forcedSuspend, processInformation) ? TRUE : FALSE;
 }
 
 BOOL WINAPI HookCreateProcessInternalW(HANDLE token, LPCWSTR application, LPWSTR commandLine,
@@ -235,8 +319,7 @@ BOOL WINAPI HookCreateProcessInternalW(HANDLE token, LPCWSTR application, LPWSTR
                                                       environment, currentDirectory, startupInfo,
                                                       processInformation, newToken);
     if (!created) return FALSE;
-    FinishInjection(dllPath, inject, forcedSuspend, processInformation);
-    return TRUE;
+    return FinishInjection(dllPath, inject, forcedSuspend, processInformation) ? TRUE : FALSE;
 }
 
 BOOL WINAPI HookCreateProcessAsUserW(HANDLE token, LPCWSTR application, LPWSTR commandLine,
@@ -266,7 +349,8 @@ BOOL WINAPI HookCreateProcessAsUserW(HANDLE token, LPCWSTR application, LPWSTR c
                                                     processInformation);
     g_inProcessCreation = previous;
     if (!created) return FALSE;
-    FinishInjection(dllPath, inject, forcedSuspend, processInformation);
+    const bool injectionReady = FinishInjection(dllPath, inject, forcedSuspend, processInformation);
+    if (!injectionReady) return FALSE;
     if (inject) AuditEventRateLimited("native.child", "entry", "CreateProcessAsUserW");
     return TRUE;
 }
@@ -296,7 +380,8 @@ BOOL WINAPI HookCreateProcessWithTokenW(HANDLE token, DWORD logonFlags, LPCWSTR 
                                                        startupInfo, processInformation);
     g_inProcessCreation = previous;
     if (!created) return FALSE;
-    FinishInjection(dllPath, inject, forcedSuspend, processInformation);
+    const bool injectionReady = FinishInjection(dllPath, inject, forcedSuspend, processInformation);
+    if (!injectionReady) return FALSE;
     if (inject) AuditEventRateLimited("native.child", "entry", "CreateProcessWithTokenW");
     return TRUE;
 }
@@ -338,19 +423,42 @@ NTSTATUS NTAPI HookNtCreateUserProcess(PHANDLE processHandle, PHANDLE threadHand
 
     if (inject) {
         const DWORD processId = GetProcessId(*processHandle);
-        HANDLE target = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
+        HANDLE target = OpenProcess(PROCESS_TERMINATE | PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
                                         PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ | SYNCHRONIZE,
                                     FALSE, processId);
         const bool borrowed = (target == nullptr);
         if (!target) target = *processHandle;
 
+        bool alreadyExists = false;
+        HANDLE ready = CreateReadyEvent(processId, &alreadyExists);
         std::string error;
-        if (InjectLibrary(target, dllPath, &error)) {
+        const bool injected = ready && (alreadyExists || InjectLibrary(target, dllPath, &error));
+        const bool readySignaled = injected && WaitForReady(ready);
+        if (ready) CloseHandle(ready);
+        if (injected && readySignaled) {
             AuditEvent("native.child", "injected", "ntcreateuserprocess", processId, true);
         } else {
+            if (!ready) error = "ready event creation failed";
+            else if (injected) error = "NativeBridge ready signal was not received";
             AuditEvent("native.child", "failed", error.c_str(), processId, true);
+            bool stopped = TerminateProcess(target, 4) != FALSE;
+            if (!stopped && GetLastError() == ERROR_ACCESS_DENIED) stopped = true;
+            if (WaitForSingleObject(target, 5000) != WAIT_OBJECT_0) stopped = false;
+            if (!stopped) AuditEvent("native.child", "terminate-failed", nullptr, processId, true);
         }
         if (!borrowed) CloseHandle(target);
+        if (!(injected && readySignaled)) {
+            if (threadHandle && *threadHandle) {
+                CloseHandle(*threadHandle);
+                *threadHandle = nullptr;
+            }
+            if (processHandle && *processHandle) {
+                CloseHandle(*processHandle);
+                *processHandle = nullptr;
+            }
+            SetLastError(ERROR_DLL_INIT_FAILED);
+            return static_cast<NTSTATUS>(0xC0000225L);
+        }
     }
     if (forcedSuspend && threadHandle && *threadHandle) ResumeThread(*threadHandle);
     return status;

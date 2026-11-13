@@ -19,6 +19,7 @@
 #include <psapi.h>
 
 #include <cstdint>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
@@ -267,6 +268,8 @@ PFN_GetOverlappedResultEx g_origGetOverlappedResultEx = nullptr;
 PFN_GetQueuedCompletionStatus g_origGetQueuedCompletionStatus = nullptr;
 PFN_GetQueuedCompletionStatusEx g_origGetQueuedCompletionStatusEx = nullptr;
 
+std::atomic<unsigned int> g_hookInstallFailures{0};
+
 struct PendingDeviceIo {
     LPOVERLAPPED overlapped = nullptr;
     DWORD code = 0;
@@ -395,6 +398,31 @@ bool IsProxyRegistryValue(const wchar_t* name, bool& dwordValue) {
     return false;
 }
 
+std::wstring ProfileComputerName(COMPUTER_NAME_FORMAT format) {
+    const std::wstring hostname = Utf8ToWide(ProfileIdentity::Get().hostname);
+    wchar_t domainBuffer[512] = {};
+    const DWORD domainLength = GetEnvironmentVariableW(L"CAC_DNS_DOMAIN", domainBuffer,
+                                                        static_cast<DWORD>(_countof(domainBuffer)));
+    const std::wstring domain = domainLength > 0 && domainLength < _countof(domainBuffer)
+        ? std::wstring(domainBuffer, domainLength) : std::wstring();
+    switch (format) {
+        case ComputerNameNetBIOS:
+        case ComputerNamePhysicalNetBIOS:
+            return hostname.substr(0, hostname.size() > 15 ? 15 : hostname.size());
+        case ComputerNameDnsHostname:
+        case ComputerNamePhysicalDnsHostname:
+            return hostname;
+        case ComputerNameDnsDomain:
+        case ComputerNamePhysicalDnsDomain:
+            return domain;
+        case ComputerNameDnsFullyQualified:
+        case ComputerNamePhysicalDnsFullyQualified:
+            return domain.empty() ? hostname : hostname + L"." + domain;
+        default:
+            return std::wstring();
+    }
+}
+
 BOOL WINAPI HookGetComputerNameW(LPWSTR buffer, LPDWORD size) {
     const DWORD capacity = (size && *size) ? *size : 0;
     if (EmptyReadsEnabled()) {
@@ -408,14 +436,13 @@ BOOL WINAPI HookGetComputerNameW(LPWSTR buffer, LPDWORD size) {
 }
 
 BOOL WINAPI HookGetComputerNameExW(COMPUTER_NAME_FORMAT format, LPWSTR buffer, LPDWORD size) {
-    (void)format;
     const DWORD capacity = (size && *size) ? *size : 0;
     if (EmptyReadsEnabled()) {
         const BOOL result = CopyEmptyWideToBuffer(buffer, capacity, size);
         AuditEventRateLimited("api.getcomputernameex", result ? "empty" : "buffer-too-small");
         return result;
     }
-    const BOOL result = CopyWideToBuffer(Utf8ToWide(ProfileIdentity::Get().hostname), buffer, capacity, size);
+    const BOOL result = CopyWideToBuffer(ProfileComputerName(format), buffer, capacity, size);
     AuditEventRateLimited("api.getcomputernameex", result ? "patched" : "buffer-too-small");
     return result;
 }
@@ -1358,6 +1385,7 @@ void InstallOne(const char* dllName, const char* functionName, void* detour, voi
         char detail[256] = {};
         std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
         AuditEvent("api.install", "not-imported", detail);
+        ++g_hookInstallFailures;
         return;
     }
 
@@ -1366,6 +1394,14 @@ void InstallOne(const char* dllName, const char* functionName, void* detour, voi
         char detail[256] = {};
         std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
         AuditEvent("api.install", "missing", detail);
+        ++g_hookInstallFailures;
+        return;
+    }
+    if (void* existing = HookEngine::FindTrampoline(target)) {
+        if (original) *original = existing;
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s -> existing target", dllName, functionName);
+        AuditEvent("api.install", "alias", detail);
         return;
     }
     void* trampoline = nullptr;
@@ -1381,6 +1417,7 @@ void InstallOne(const char* dllName, const char* functionName, void* detour, voi
         char detail[256] = {};
         std::snprintf(detail, sizeof(detail), "%s!%s: %s", dllName, functionName, error.c_str());
         AuditEvent("api.install", "refused", detail);
+        ++g_hookInstallFailures;
     }
 }
 
@@ -1390,23 +1427,35 @@ void InstallOne(const char* dllName, const char* functionName, void* detour, voi
 void InstallInlineThenIat(const char* dllName, const char* functionName, void* detour,
                           void** original) {
     void* target = ResolveExport(dllName, functionName);
+    bool inlineInstalled = false;
     if (target) {
-        void* trampoline = nullptr;
-        std::string error;
-        if (HookEngine::Install(target, detour, &trampoline, &error)) {
-            if (original) *original = trampoline;
-        char detail[256] = {};
-        std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
-        AuditEvent("api.install", "inline-primary", detail);
-        } else {
+        if (void* existing = HookEngine::FindTrampoline(target)) {
+            if (original) *original = existing;
             char detail[256] = {};
-            std::snprintf(detail, sizeof(detail), "%s!%s: %s", dllName, functionName, error.c_str());
-            AuditEvent("api.install", "inline-refused", detail);
+            std::snprintf(detail, sizeof(detail), "%s!%s -> existing target", dllName, functionName);
+            AuditEvent("api.install", "alias", detail);
+            inlineInstalled = true;
+        } else {
+            void* trampoline = nullptr;
+            std::string error;
+            if (HookEngine::Install(target, detour, &trampoline, &error)) {
+                if (original) *original = trampoline;
+                char detail[256] = {};
+                std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
+                AuditEvent("api.install", "inline-primary", detail);
+                inlineInstalled = true;
+            } else {
+                char detail[256] = {};
+                std::snprintf(detail, sizeof(detail), "%s!%s: %s", dllName, functionName, error.c_str());
+                AuditEvent("api.install", "inline-refused", detail);
+                ++g_hookInstallFailures;
+            }
         }
     } else {
         char detail[256] = {};
         std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
         AuditEvent("api.install", "inline-missing", detail);
+        ++g_hookInstallFailures;
     }
 
     const int iatCount = PatchAllModules(dllName, functionName, detour, original);
@@ -1606,7 +1655,7 @@ unsigned __int64 __cdecl XgetbvDetour(unsigned int index) {
     return value;
 }
 
-void InstallManifestEntry(const std::string& line) {
+bool InstallManifestEntry(const std::string& line) {
     // module|sha256|rva|kind|prologue_hex
     std::vector<std::string> fields;
     size_t start = 0;
@@ -1619,7 +1668,8 @@ void InstallManifestEntry(const std::string& line) {
     }
     if (fields.size() < 5) {
         AuditEvent("cpu.manifest", "invalid-line", line.c_str());
-        return;
+        ++g_hookInstallFailures;
+        return false;
     }
 
     const std::wstring modulePath = Utf8ToWide(fields[0]);
@@ -1631,27 +1681,32 @@ void InstallManifestEntry(const std::string& line) {
     std::string actualHash;
     if (!ComputeFileSha256(modulePath, actualHash)) {
         AuditEvent("cpu.manifest", "hash-unreadable", fields[0].c_str());
-        return;
+        ++g_hookInstallFailures;
+        return false;
     }
     if (_stricmp(actualHash.c_str(), expectedHash.c_str()) != 0) {
         AuditEvent("cpu.manifest", "hash-mismatch", fields[0].c_str());
-        return;
+        ++g_hookInstallFailures;
+        return false;
     }
 
     HMODULE module = FindModuleByPath(modulePath);
     if (!module) {
         AuditEvent("cpu.manifest", "module-not-loaded", fields[0].c_str());
-        return;
+        ++g_hookInstallFailures;
+        return false;
     }
 
     BYTE* target = reinterpret_cast<BYTE*>(module) + rva;
     if (!HookEngine::IsExecutableAddress(target)) {
         AuditEvent("cpu.manifest", "target-not-executable", fields[0].c_str(), rva, true);
-        return;
+        ++g_hookInstallFailures;
+        return false;
     }
     if (prologue.empty() || std::memcmp(target, prologue.data(), prologue.size()) != 0) {
         AuditEvent("cpu.manifest", "prologue-mismatch", fields[0].c_str(), rva, true);
-        return;
+        ++g_hookInstallFailures;
+        return false;
     }
 
     void* detour = nullptr;
@@ -1660,15 +1715,19 @@ void InstallManifestEntry(const std::string& line) {
     else if (kind == "xgetbv") detour = reinterpret_cast<void*>(&XgetbvDetour);
     else {
         AuditEvent("cpu.manifest", "unknown-kind", kind.c_str());
-        return;
+        ++g_hookInstallFailures;
+        return false;
     }
 
     void* trampoline = nullptr;
     std::string error;
     if (HookEngine::Install(target, detour, &trampoline, &error)) {
         AuditEvent("cpu.install", "installed", kind.c_str(), rva, true);
+        return true;
     } else {
         AuditEvent("cpu.install", "refused", error.c_str(), rva, true);
+        ++g_hookInstallFailures;
+        return false;
     }
 }
 
@@ -1717,31 +1776,32 @@ bool NativeCleanNetworkEnabled() {
 }
 
 bool InstallApiHooks() {
-    InstallOne("iphlpapi.dll", "GetAdaptersAddresses", reinterpret_cast<void*>(&HookGetAdaptersAddresses),
-               reinterpret_cast<void**>(&g_origGetAdaptersAddresses));
-    InstallOne("iphlpapi.dll", "GetAdaptersInfo", reinterpret_cast<void*>(&HookGetAdaptersInfo),
-               reinterpret_cast<void**>(&g_origGetAdaptersInfo));
-    InstallOne("kernel32.dll", "GetVolumeInformationW", reinterpret_cast<void*>(&HookGetVolumeInformationW),
-               reinterpret_cast<void**>(&g_origGetVolumeInformation));
-    InstallOne("kernel32.dll", "GetSystemFirmwareTable", reinterpret_cast<void*>(&HookGetSystemFirmwareTable),
-               reinterpret_cast<void**>(&g_origGetSystemFirmwareTable));
+    g_hookInstallFailures.store(0);
+    InstallInlineThenIat("iphlpapi.dll", "GetAdaptersAddresses", reinterpret_cast<void*>(&HookGetAdaptersAddresses),
+                         reinterpret_cast<void**>(&g_origGetAdaptersAddresses));
+    InstallInlineThenIat("iphlpapi.dll", "GetAdaptersInfo", reinterpret_cast<void*>(&HookGetAdaptersInfo),
+                         reinterpret_cast<void**>(&g_origGetAdaptersInfo));
+    InstallInlineThenIat("kernel32.dll", "GetVolumeInformationW", reinterpret_cast<void*>(&HookGetVolumeInformationW),
+                         reinterpret_cast<void**>(&g_origGetVolumeInformation));
+    InstallInlineThenIat("kernel32.dll", "GetSystemFirmwareTable", reinterpret_cast<void*>(&HookGetSystemFirmwareTable),
+                         reinterpret_cast<void**>(&g_origGetSystemFirmwareTable));
     InstallInlineThenIat("ntdll.dll", "NtQuerySystemInformation",
                          reinterpret_cast<void*>(&HookNtQuerySystemInformation),
                          reinterpret_cast<void**>(&g_origNtQuerySystemInformation));
-    InstallOne("kernel32.dll", "DeviceIoControl", reinterpret_cast<void*>(&HookDeviceIoControl),
-               reinterpret_cast<void**>(&g_origDeviceIoControl));
-    InstallOne("kernel32.dll", "GetComputerNameW", reinterpret_cast<void*>(&HookGetComputerNameW),
-               reinterpret_cast<void**>(&g_origGetComputerName));
-    InstallOne("kernel32.dll", "GetComputerNameExW", reinterpret_cast<void*>(&HookGetComputerNameExW),
-               reinterpret_cast<void**>(&g_origGetComputerNameEx));
-    InstallOne("advapi32.dll", "GetUserNameW", reinterpret_cast<void*>(&HookGetUserNameW),
-               reinterpret_cast<void**>(&g_origGetUserName));
-    InstallOne("advapi32.dll", "RegGetValueW", reinterpret_cast<void*>(&HookRegGetValueW),
-               reinterpret_cast<void**>(&g_origRegGetValue));
-    InstallOne("advapi32.dll", "RegQueryValueExW", reinterpret_cast<void*>(&HookRegQueryValueExW),
-               reinterpret_cast<void**>(&g_origRegQueryValueEx));
-    InstallOne("hid.dll", "HidD_GetSerialNumberString", reinterpret_cast<void*>(&HookHidD_GetSerialNumberString),
-               reinterpret_cast<void**>(&g_origHidGetSerial));
+    InstallInlineThenIat("kernel32.dll", "DeviceIoControl", reinterpret_cast<void*>(&HookDeviceIoControl),
+                         reinterpret_cast<void**>(&g_origDeviceIoControl));
+    InstallInlineThenIat("kernel32.dll", "GetComputerNameW", reinterpret_cast<void*>(&HookGetComputerNameW),
+                         reinterpret_cast<void**>(&g_origGetComputerName));
+    InstallInlineThenIat("kernel32.dll", "GetComputerNameExW", reinterpret_cast<void*>(&HookGetComputerNameExW),
+                         reinterpret_cast<void**>(&g_origGetComputerNameEx));
+    InstallInlineThenIat("advapi32.dll", "GetUserNameW", reinterpret_cast<void*>(&HookGetUserNameW),
+                         reinterpret_cast<void**>(&g_origGetUserName));
+    InstallInlineThenIat("advapi32.dll", "RegGetValueW", reinterpret_cast<void*>(&HookRegGetValueW),
+                         reinterpret_cast<void**>(&g_origRegGetValue));
+    InstallInlineThenIat("advapi32.dll", "RegQueryValueExW", reinterpret_cast<void*>(&HookRegQueryValueExW),
+                         reinterpret_cast<void**>(&g_origRegQueryValueEx));
+    InstallInlineThenIat("hid.dll", "HidD_GetSerialNumberString", reinterpret_cast<void*>(&HookHidD_GetSerialNumberString),
+                         reinterpret_cast<void**>(&g_origHidGetSerial));
     InstallInlineThenIat("setupapi.dll", "SetupDiGetDevicePropertyW",
                          reinterpret_cast<void*>(&HookSetupDiGetDevicePropertyW),
                          reinterpret_cast<void**>(&g_origSetupDiGetDeviceProperty));
@@ -1751,50 +1811,57 @@ bool InstallApiHooks() {
     InstallInlineThenIat("setupapi.dll", "SetupDiGetDeviceInstanceIdW",
                          reinterpret_cast<void*>(&HookSetupDiGetDeviceInstanceIdW),
                          reinterpret_cast<void**>(&g_origSetupDiGetInstanceId));
-    InstallOne("kernel32.dll", "GetVolumeInformationByHandleW",
-               reinterpret_cast<void*>(&HookGetVolumeInformationByHandleW),
-               reinterpret_cast<void**>(&g_origGetVolumeInformationByHandle));
-    InstallOne("kernel32.dll", "GetFileInformationByHandle",
-               reinterpret_cast<void*>(&HookGetFileInformationByHandle),
-               reinterpret_cast<void**>(&g_origGetFileInformationByHandle));
+    InstallInlineThenIat("kernel32.dll", "GetVolumeInformationByHandleW",
+                         reinterpret_cast<void*>(&HookGetVolumeInformationByHandleW),
+                         reinterpret_cast<void**>(&g_origGetVolumeInformationByHandle));
+    InstallInlineThenIat("kernel32.dll", "GetFileInformationByHandle",
+                         reinterpret_cast<void*>(&HookGetFileInformationByHandle),
+                         reinterpret_cast<void**>(&g_origGetFileInformationByHandle));
     InstallInlineThenIat("ntdll.dll", "NtQueryVolumeInformationFile",
                          reinterpret_cast<void*>(&HookNtQueryVolumeInformationFile),
                          reinterpret_cast<void**>(&g_origNtQueryVolumeInformationFile));
     InstallInlineThenIat("ntdll.dll", "NtDeviceIoControlFile",
                          reinterpret_cast<void*>(&HookNtDeviceIoControlFile),
                          reinterpret_cast<void**>(&g_origNtDeviceIoControlFile));
-    InstallOne("iphlpapi.dll", "GetIfTable2", reinterpret_cast<void*>(&HookGetIfTable2),
-               reinterpret_cast<void**>(&g_origGetIfTable2));
-    InstallOne("iphlpapi.dll", "GetIfEntry2", reinterpret_cast<void*>(&HookGetIfEntry2),
-               reinterpret_cast<void**>(&g_origGetIfEntry2));
-    InstallOne("iphlpapi.dll", "GetIfTable", reinterpret_cast<void*>(&HookGetIfTable),
-               reinterpret_cast<void**>(&g_origGetIfTable));
-    InstallOne("advapi32.dll", "RegEnumValueW", reinterpret_cast<void*>(&HookRegEnumValueW),
-               reinterpret_cast<void**>(&g_origRegEnumValue));
-    InstallOne("kernel32.dll", "K32EnumDeviceDrivers", reinterpret_cast<void*>(&HookEnumDeviceDrivers),
-               reinterpret_cast<void**>(&g_origEnumDeviceDrivers));
-    InstallOne("psapi.dll", "EnumDeviceDrivers", reinterpret_cast<void*>(&HookEnumDeviceDrivers),
-               reinterpret_cast<void**>(&g_origEnumDeviceDrivers));
-    InstallOne("setupapi.dll", "SetupDiGetClassDevsW", reinterpret_cast<void*>(&HookSetupDiGetClassDevsW),
-               reinterpret_cast<void**>(&g_origSetupDiGetClassDevs));
-    InstallOne("kernel32.dll", "CreateFileW", reinterpret_cast<void*>(&HookCreateFileW),
-               reinterpret_cast<void**>(&g_origCreateFile));
-    InstallOne("kernel32.dll", "CreateFileA", reinterpret_cast<void*>(&HookCreateFileA),
-               reinterpret_cast<void**>(&g_origCreateFileA));
-    InstallOne("kernel32.dll", "CreateFile2", reinterpret_cast<void*>(&HookCreateFile2),
-               reinterpret_cast<void**>(&g_origCreateFile2));
+    InstallInlineThenIat("iphlpapi.dll", "GetIfTable2", reinterpret_cast<void*>(&HookGetIfTable2),
+                         reinterpret_cast<void**>(&g_origGetIfTable2));
+    InstallInlineThenIat("iphlpapi.dll", "GetIfEntry2", reinterpret_cast<void*>(&HookGetIfEntry2),
+                         reinterpret_cast<void**>(&g_origGetIfEntry2));
+    InstallInlineThenIat("iphlpapi.dll", "GetIfTable", reinterpret_cast<void*>(&HookGetIfTable),
+                         reinterpret_cast<void**>(&g_origGetIfTable));
+    InstallInlineThenIat("advapi32.dll", "RegEnumValueW", reinterpret_cast<void*>(&HookRegEnumValueW),
+                         reinterpret_cast<void**>(&g_origRegEnumValue));
+    InstallInlineThenIat("kernel32.dll", "K32EnumDeviceDrivers", reinterpret_cast<void*>(&HookEnumDeviceDrivers),
+                         reinterpret_cast<void**>(&g_origEnumDeviceDrivers));
+    InstallInlineThenIat("psapi.dll", "EnumDeviceDrivers", reinterpret_cast<void*>(&HookEnumDeviceDrivers),
+                         reinterpret_cast<void**>(&g_origEnumDeviceDrivers));
+    InstallInlineThenIat("setupapi.dll", "SetupDiGetClassDevsW", reinterpret_cast<void*>(&HookSetupDiGetClassDevsW),
+                         reinterpret_cast<void**>(&g_origSetupDiGetClassDevs));
+    InstallInlineThenIat("kernel32.dll", "CreateFileW", reinterpret_cast<void*>(&HookCreateFileW),
+                         reinterpret_cast<void**>(&g_origCreateFile));
+    InstallInlineThenIat("kernel32.dll", "CreateFileA", reinterpret_cast<void*>(&HookCreateFileA),
+                         reinterpret_cast<void**>(&g_origCreateFileA));
+    InstallInlineThenIat("kernel32.dll", "CreateFile2", reinterpret_cast<void*>(&HookCreateFile2),
+                         reinterpret_cast<void**>(&g_origCreateFile2));
     InstallInlineThenIat("ntdll.dll", "NtCreateFile", reinterpret_cast<void*>(&HookNtCreateFile),
                          reinterpret_cast<void**>(&g_origNtCreateFile));
-    InstallOne("kernel32.dll", "GetOverlappedResult", reinterpret_cast<void*>(&HookGetOverlappedResult),
-               reinterpret_cast<void**>(&g_origGetOverlappedResult));
-    InstallOne("kernel32.dll", "GetOverlappedResultEx", reinterpret_cast<void*>(&HookGetOverlappedResultEx),
-               reinterpret_cast<void**>(&g_origGetOverlappedResultEx));
-    InstallOne("kernel32.dll", "GetQueuedCompletionStatus", reinterpret_cast<void*>(&HookGetQueuedCompletionStatus),
-               reinterpret_cast<void**>(&g_origGetQueuedCompletionStatus));
-    InstallOne("kernel32.dll", "GetQueuedCompletionStatusEx", reinterpret_cast<void*>(&HookGetQueuedCompletionStatusEx),
-               reinterpret_cast<void**>(&g_origGetQueuedCompletionStatusEx));
-    AuditEvent("api.install", "complete");
-    return true;
+    InstallInlineThenIat("kernel32.dll", "GetOverlappedResult", reinterpret_cast<void*>(&HookGetOverlappedResult),
+                         reinterpret_cast<void**>(&g_origGetOverlappedResult));
+    InstallInlineThenIat("kernel32.dll", "GetOverlappedResultEx", reinterpret_cast<void*>(&HookGetOverlappedResultEx),
+                         reinterpret_cast<void**>(&g_origGetOverlappedResultEx));
+    InstallInlineThenIat("kernel32.dll", "GetQueuedCompletionStatus", reinterpret_cast<void*>(&HookGetQueuedCompletionStatus),
+                         reinterpret_cast<void**>(&g_origGetQueuedCompletionStatus));
+    InstallInlineThenIat("kernel32.dll", "GetQueuedCompletionStatusEx", reinterpret_cast<void*>(&HookGetQueuedCompletionStatusEx),
+                         reinterpret_cast<void**>(&g_origGetQueuedCompletionStatusEx));
+    const unsigned int failures = g_hookInstallFailures.load();
+    char detail[64] = {};
+    std::snprintf(detail, sizeof(detail), "failures=%u", failures);
+    AuditEvent("api.install", "complete", detail, failures, true);
+    return failures == 0;
+}
+
+unsigned int NativeHookInstallFailures() {
+    return g_hookInstallFailures.load();
 }
 
 void InstallCpuHooksFromManifest() {
@@ -1807,9 +1874,23 @@ void InstallCpuHooksFromManifest() {
     std::vector<std::string> lines;
     if (!ReadManifestLines(manifestPath, lines)) {
         AuditEvent("cpu.manifest", "unreadable");
+        ++g_hookInstallFailures;
         return;
     }
-    for (const std::string& line : lines) InstallManifestEntry(line);
+    if (lines.empty()) {
+        AuditEvent("cpu.manifest", "empty");
+        ++g_hookInstallFailures;
+        return;
+    }
+    unsigned int installed = 0;
+    for (const std::string& line : lines) {
+        if (InstallManifestEntry(line)) ++installed;
+    }
+    char detail[64] = {};
+    std::snprintf(detail, sizeof(detail), "entries=%u installed=%u",
+                  static_cast<unsigned int>(lines.size()), installed);
+    AuditEvent("cpu.manifest", installed == lines.size() ? "complete" : "failed", detail,
+               installed, installed != lines.size());
 }
 
 void ScanCpuCandidates() {

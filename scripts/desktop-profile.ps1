@@ -64,6 +64,18 @@ function Get-Sha256 {
     }
 }
 
+function Get-DeclaredSha256 {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "SHA-256 manifest is missing: $Path"
+    }
+    $matches = [regex]::Matches((Get-Content -LiteralPath $Path -Raw), '(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])')
+    if ($matches.Count -ne 1) {
+        throw "SHA-256 manifest must contain exactly one digest: $Path"
+    }
+    return $matches[0].Value.ToUpperInvariant()
+}
+
 function Read-FileValue {
     param([string]$Path, [string]$Default = '')
     if (Test-Path -LiteralPath $Path -PathType Leaf) {
@@ -510,11 +522,25 @@ function Initialize-ProfileLayout {
 function Sync-NativeLayer {
     $source = Join-Path (Split-Path $PSScriptRoot -Parent) 'native\dist'
     $target = Join-Path $script:OriginalUserProfile '.cac\native'
-    if (-not (Test-Path -LiteralPath $source -PathType Container)) { return }
+    if (-not (Test-Path -LiteralPath $source -PathType Container)) {
+        throw "Native layer directory is missing: $source"
+    }
+    $required = @('NativeBridge.dll', 'cac-native-launch.exe', 'NativeBridge.sha256', 'cac-native-launch.sha256')
+    foreach ($name in $required) {
+        $path = Join-Path $source $name
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Native layer artifact is missing: $path"
+        }
+    }
+    $sourceDllHash = Get-Sha256 (Join-Path $source 'NativeBridge.dll')
+    $sourceDllDeclared = Get-DeclaredSha256 (Join-Path $source 'NativeBridge.sha256')
+    $sourceLauncherHash = Get-Sha256 (Join-Path $source 'cac-native-launch.exe')
+    $sourceLauncherDeclared = Get-DeclaredSha256 (Join-Path $source 'cac-native-launch.sha256')
+    if ($sourceDllHash -ne $sourceDllDeclared) { throw "NativeBridge.dll SHA-256 mismatch: $source" }
+    if ($sourceLauncherHash -ne $sourceLauncherDeclared) { throw "cac-native-launch.exe SHA-256 mismatch: $source" }
     New-Item -ItemType Directory -Path $target -Force | Out-Null
-    foreach ($name in @('NativeBridge.dll', 'cac-native-launch.exe', 'NativeBridge.sha256')) {
+    foreach ($name in $required) {
         $from = Join-Path $source $name
-        if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
         $to = Join-Path $target $name
         $needsCopy = -not (Test-Path -LiteralPath $to -PathType Leaf)
         if (-not $needsCopy) {
@@ -524,6 +550,12 @@ function Sync-NativeLayer {
             Copy-Item -LiteralPath $from -Destination $to -Force
             Write-Host "  [SYNC] $name" -ForegroundColor DarkGray
         }
+    }
+    if ((Get-Sha256 (Join-Path $target 'NativeBridge.dll')) -ne $sourceDllHash -or
+        (Get-Sha256 (Join-Path $target 'cac-native-launch.exe')) -ne $sourceLauncherHash -or
+        (Get-DeclaredSha256 (Join-Path $target 'NativeBridge.sha256')) -ne $sourceDllHash -or
+        (Get-DeclaredSha256 (Join-Path $target 'cac-native-launch.sha256')) -ne $sourceLauncherHash) {
+        throw "Native layer synchronization failed integrity verification: $target"
     }
 }
 
@@ -764,7 +796,6 @@ function Start-ClaudeDesktop {
 
         if (-not $mitmReady) {
             Stop-TrackedProcess -Process $mitmProcess
-            Stop-ProfileProcesses -Paths $Paths
             Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
             return [pscustomobject]@{
@@ -794,7 +825,6 @@ function Start-ClaudeDesktop {
         }
         if (-not $caInstalled) {
             Stop-TrackedProcess -Process $mitmProcess
-            Stop-ProfileProcesses -Paths $Paths
             Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
             return [pscustomobject]@{
@@ -816,7 +846,6 @@ function Start-ClaudeDesktop {
         Write-Host "          Close all Claude Desktop windows manually, then retry." -ForegroundColor Yellow
         Write-Host "          This script does not terminate existing user sessions." -ForegroundColor Yellow
         Stop-TrackedProcess -Process $mitmProcess
-        Stop-ProfileProcesses -Paths $Paths
         if ($mitmPidFile) { Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue }
         if ($mitmProcessPidFile) { Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue }
         return [pscustomobject]@{
@@ -835,7 +864,6 @@ function Start-ClaudeDesktop {
 
     if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
         Stop-TrackedProcess -Process $mitmProcess
-        Stop-ProfileProcesses -Paths $Paths
         if ($mitmPidFile) { Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue }
         if ($mitmProcessPidFile) { Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue }
         return [pscustomobject]@{
@@ -874,7 +902,7 @@ function Start-ClaudeDesktop {
             (Test-Path -LiteralPath $nativeDll -PathType Leaf)) {
             $nativeUsed = $true
         } else {
-            Write-Host "[WARN] Native launcher or NativeBridge.dll is missing; launching directly." -ForegroundColor Yellow
+            throw "Native injection requested but the verified Native layer is unavailable: $nativeDir"
         }
     }
 
@@ -985,7 +1013,6 @@ function Start-ClaudeDesktop {
     }
     if ($UseFingerprint -and -not $processId -and $mitmProcess) {
         Stop-TrackedProcess -Process $mitmProcess
-        Stop-ProfileProcesses -Paths $Paths
         Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
     }

@@ -6,23 +6,23 @@
 
 | Surface | Mechanism | Default |
 |---|---|---|
-| `GetAdaptersAddresses` / `GetAdaptersInfo` | IAT patch, fallback inline hook | on |
-| `GetVolumeInformationW` | IAT patch | on |
-| `GetSystemFirmwareTable('RSMB')` | IAT patch + in-place SMBIOS rewrite | on |
-| `NtQuerySystemInformation` class 76 | IAT patch + SMBIOS rewrite | on |
+| `GetAdaptersAddresses` / `GetAdaptersInfo` | inline-primary + IAT/delay patch | on |
+| `GetVolumeInformationW` | inline-primary + IAT/delay patch | on |
+| `GetSystemFirmwareTable('RSMB')` | inline-primary + IAT/delay patch + in-place SMBIOS rewrite | on |
+| `NtQuerySystemInformation` class 76 | inline-primary + IAT/delay patch + SMBIOS rewrite | on |
 | `DeviceIoControl` `IOCTL_STORAGE_QUERY_PROPERTY` | IAT/inline; immediate serial rewrite; pending requests tracked for completion | on |
 | `NtDeviceIoControlFile` | inline + IAT; storage serial rewrite, SMART/firmware cleared; `STATUS_PENDING` is audited as unhandled | on |
-| `GetVolumeInformationByHandleW` / `GetFileInformationByHandle` / `NtQueryVolumeInformationFile` | IAT/inline + volume serial rewrite | on |
-| `GetComputerNameW` / `GetComputerNameExW` | IAT patch | on |
-| `GetUserNameW` | IAT/delay patch | on |
-| `RegGetValueW` / `RegQueryValueExW` (MachineGuid/BIOS/CPU values) | IAT/delay patch | on |
-| `HidD_GetSerialNumberString` | IAT/delay patch | on |
+| `GetVolumeInformationByHandleW` / `GetFileInformationByHandle` / `NtQueryVolumeInformationFile` | inline-primary + IAT/delay patch + volume serial rewrite | on |
+| `GetComputerNameW` / `GetComputerNameExW` | inline-primary + IAT/delay patch | on |
+| `GetUserNameW` | inline-primary + IAT/delay patch | on |
+| `RegGetValueW` / `RegQueryValueExW` (MachineGuid/BIOS/CPU values) | inline-primary + IAT/delay patch | on |
+| `HidD_GetSerialNumberString` | inline-primary + IAT/delay patch | on |
 | `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | inline-primary with IAT/delay fallback; profile pass-through, empty policy clears output | profile |
-| `GetIfTable2` / `GetIfEntry2` / `GetIfTable` | IAT patch + MAC rewrite | on |
-| `RegEnumValueW` | IAT/delay patch + value rewrite | on |
-| `EnumDeviceDrivers` / `K32EnumDeviceDrivers` | IAT/delay patch; empty policy hides the list | on |
-| `SetupDiGetClassDevsW` | IAT/delay patch; empty policy hides disk/display/net/system classes | on |
-| `CreateFileW` / `CreateFileA` / `CreateFile2` raw device paths | IAT/inline fallback; empty policy denies `\\.\PhysicalDrive*` and related native paths | on |
+| `GetIfTable2` / `GetIfEntry2` / `GetIfTable` | inline-primary + IAT/delay patch + MAC rewrite | on |
+| `RegEnumValueW` | inline-primary + IAT/delay patch + value rewrite | on |
+| `EnumDeviceDrivers` / `K32EnumDeviceDrivers` | inline-primary + IAT/delay patch; empty policy hides the list | on |
+| `SetupDiGetClassDevsW` | inline-primary + IAT/delay patch; empty policy hides disk/display/net/system classes | on |
+| `CreateFileW` / `CreateFileA` / `CreateFile2` raw device paths | inline-primary + IAT/delay patch; empty policy denies `\\.\PhysicalDrive*` and related native paths | on |
 | `NtCreateFile` raw native paths | inline + IAT; empty policy denies physical-disk, volume and firmware device paths | on |
 | `GetOverlappedResult*` / `GetQueuedCompletionStatus*` | completion evidence and tracked storage-buffer sanitization | on |
 | `CreateProcessW` / `CreateProcessInternalW` / `NtCreateUserProcess` | inline + IAT; inject same-image children at creation | on |
@@ -36,7 +36,7 @@
 | `CPUID` / `XGETBV` | inline hook at verified function entry | manifest required |
 | Kernel, NDIS, WFP, driver objects, physical hardware | not implemented | — |
 
-Delay imports are resolved by loading the target DLL, resolving the real export, and replacing the delay IAT slot with the hook. `LoadLibraryA`/`GetProcAddress` are called from the bridge init thread, not from DllMain. Export forwarders such as the x64 `kernel32!CreateFile2` form are followed to the real implementation before an inline hook is attempted. If a prologue cannot be decoded safely, the audit records `inline-refused` or `not-imported`; that event is partial evidence, never a successful install. SMBIOS string replacement keeps the original byte length and pads with spaces, so structure offsets and the string-set layout stay valid. UUID and processor ID are fixed-size fields.
+Delay imports are resolved by loading the target DLL, resolving the real export, and replacing the delay IAT slot with the hook. Critical network, storage, registry, identity, SetupDi and completion APIs use inline-first installation so direct `GetProcAddress` callers are covered when the prologue is recognized; IAT and delay-IAT slots are then patched for imported callers. `LoadLibraryA`/`GetProcAddress` are called from the bridge init thread, not from DllMain. Export forwarders such as the x64 `kernel32!CreateFile2` form are followed to the real implementation before an inline hook is attempted. If a prologue cannot be decoded safely, the audit records `inline-refused` or `not-imported`; that event is partial evidence, never a successful install, and the bridge does not signal ready. SMBIOS string replacement keeps the original byte length and pads with spaces, so structure offsets and the string-set layout stay valid. UUID and processor ID are fixed-size fields.
 
 ## Read policy
 
@@ -152,10 +152,10 @@ cpu.xgetbv            observed index
 - `DeviceIoControl` rewrite only handles the supported storage serial queries; other IOCTLs are observed and passed through.
 - An overlapped `DeviceIoControl` request is sanitized only when the bridge tracks the request and later observes completion through `GetOverlappedResult*` or IOCP. A `NtDeviceIoControlFile` request that returns `STATUS_PENDING` has no safe completion context in this bridge and is recorded as `unhandled`/PARTIAL.
 - `GetSystemFirmwareTable` patches the returned buffer, not the firmware.
-- A process that resolves APIs dynamically and bypasses the IAT is covered only by the inline fallback when its prologue is recognized.
+- A process that resolves APIs dynamically and bypasses the IAT is covered by inline-primary only for the listed critical APIs; unsupported ANSI variants, unknown exports and unrecognized prologues remain outside the userland coverage matrix.
 - CPU hooks are opt-in and hash-bound; no unsigned heuristic patch is applied by default.
 - SetupDi calls use the inline path first and the IAT/delay path as fallback. The empty policy clears the supported output buffers, but it does not create a coherent synthetic PnP device graph or change kernel PnP state. Any refused or missing install is recorded as FAIL/PARTIAL by the audit scripts.
-- Same-image renderer/utility injection is a process-lifecycle feature, not proof that every child, COM server, broker, GPU process, or native helper was intercepted. Missing child evidence remains NOT_OBSERVED/PARTIAL.
+- Same-image renderer/utility injection is a process-lifecycle feature. Each intercepted child must report `native.bridge=ready`; failed or timed-out child injection is terminated. This still is not proof that every external COM server, broker or native helper was intercepted. Missing child evidence remains NOT_OBSERVED/PARTIAL.
 - The bridge does not isolate or rewrite CPUID/SMBIOS/NDIS/WFP/driver-object/physical-hardware reads that bypass the covered userland APIs. The audit never treats a Node or Native userland hook as hardware isolation.
 
 ## Claude Desktop 5.1231.2

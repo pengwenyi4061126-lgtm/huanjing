@@ -7,7 +7,8 @@ param(
     [switch]$RequireChild,
     [switch]$RequireCpuManifest,
     [switch]$RequireRendererUtility,
-    [switch]$Strict
+    [switch]$Strict,
+    [switch]$AllowPartial
 )
 
 $ErrorActionPreference = 'Stop'
@@ -179,8 +180,12 @@ if ($result.status -eq 'FAIL') {
     Write-Host ("[FAIL] Desktop NativeBridge session failed: {0}" -f ($failureReasons -join ', ')) -ForegroundColor Red
     exit 1
 }
-if ($result.status -eq 'PARTIAL') {
+if ($result.status -eq 'PARTIAL' -and -not $AllowPartial) {
     Write-Host ("[PARTIAL] Desktop NativeBridge evidence is incomplete: {0}" -f ($partialReasons -join ', ')) -ForegroundColor Yellow
+    exit 1
+}
+if ($result.status -eq 'PARTIAL') {
+    Write-Host ("[PARTIAL] Desktop NativeBridge evidence is incomplete (allowed): {0}" -f ($partialReasons -join ', ')) -ForegroundColor Yellow
     exit 0
 }
 Write-Host "[PASS] Desktop NativeBridge session is complete for $Profile" -ForegroundColor Green

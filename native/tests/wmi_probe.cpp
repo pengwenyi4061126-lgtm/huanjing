@@ -51,6 +51,45 @@ std::wstring QueryFirst(IWbemServices* service, const wchar_t* query, const wcha
     return result;
 }
 
+std::wstring QueryFirstEnumerated(IWbemServices* service, const wchar_t* query,
+                                  const wchar_t* property) {
+    IEnumWbemClassObject* enumerator = nullptr;
+    const HRESULT queryResult = service->ExecQuery(
+        const_cast<BSTR>(L"WQL"), const_cast<BSTR>(query),
+        WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, &enumerator);
+    if (FAILED(queryResult) || !enumerator) return L"<query-error>";
+
+    IWbemClassObject* object = nullptr;
+    ULONG returned = 0;
+    std::wstring result = L"<none>";
+    if (SUCCEEDED(enumerator->Next(5000, 1, &object, &returned)) && returned == 1 && object) {
+        if (SUCCEEDED(object->BeginEnumeration(WBEM_FLAG_NONSYSTEM_ONLY))) {
+            while (true) {
+                BSTR name = nullptr;
+                VARIANT value;
+                VariantInit(&value);
+                const HRESULT hr = object->Next(0, &name, &value, nullptr, nullptr);
+                if (hr == WBEM_S_FALSE || hr == WBEM_S_NO_MORE_DATA) {
+                    VariantClear(&value);
+                    if (name) SysFreeString(name);
+                    break;
+                }
+                if (SUCCEEDED(hr) && name && _wcsicmp(name, property) == 0 &&
+                    value.vt == VT_BSTR && value.bstrVal) {
+                    result.assign(value.bstrVal, SysStringLen(value.bstrVal));
+                }
+                VariantClear(&value);
+                if (name) SysFreeString(name);
+                if (FAILED(hr)) break;
+            }
+            object->EndEnumeration();
+        }
+        object->Release();
+    }
+    enumerator->Release();
+    return result;
+}
+
 class AsyncSink : public IWbemObjectSink {
 public:
     AsyncSink() : refs_(1), event_(CreateEventW(nullptr, TRUE, FALSE, nullptr)) {}
@@ -167,6 +206,8 @@ int wmain() {
     std::printf("wmi_state=ok\n");
     std::printf("wmi_bios_serial=%s\n",
                 WideToUtf8(QueryFirst(service, L"SELECT SerialNumber FROM Win32_BIOS", L"SerialNumber")).c_str());
+    std::printf("wmi_enum_bios_serial=%s\n",
+                WideToUtf8(QueryFirstEnumerated(service, L"SELECT * FROM Win32_BIOS", L"SerialNumber")).c_str());
     std::printf("wmi_uuid=%s\n",
                 WideToUtf8(QueryFirst(service, L"SELECT UUID FROM Win32_ComputerSystemProduct", L"UUID")).c_str());
     std::printf("wmi_disk_serial=%s\n",

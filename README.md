@@ -2,7 +2,7 @@
 
 Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征，遥测正常流转。
 
-当前版本：`1.0.40`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+当前版本：`1.0.41`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
 ## 功能
 
@@ -111,7 +111,7 @@ Windows 版本的隔离边界是**进程级 Profile 隔离 + Node 用户态 Hook
 
 ### NativeBridge 用户态层
 
-`native/` 下是独立编译的 x64 DLL 和注入器。构建与清单生成见 [native/README.md](native/README.md)。构建产物同步到 `%USERPROFILE%\.cac\native\` 后，wrapper 会在目标为 `.exe` 时改用 `cac-native-launch.exe` 启动并注入 `NativeBridge.dll`；产物缺失时自动回退到原启动路径。
+`native/` 下是独立编译的 x64 DLL 和注入器。构建与清单生成见 [native/README.md](native/README.md)。构建产物同步到 `%USERPROFILE%\.cac\native\` 后，Desktop 的 `-Inject` 模式改用 `cac-native-launch.exe` 启动并注入 `NativeBridge.dll`；产物缺失、哈希不一致、DLL 注入失败或 `native.bridge=ready` 超时都会拒绝启动，不会回退到未注入进程。Code Profile 的非 Native 启动仍使用普通 wrapper 路径。
 
 Native 层始终只做用户态返回值和用户态指令入口处理。它不会加载驱动、不会修改 NDIS/WFP，也不会改变物理硬件；内核设备对象和物理层仍是同一台机器。
 
@@ -119,10 +119,14 @@ Native 层始终只做用户态返回值和用户态指令入口处理。它不�
 
 ```powershell
 npm run audit:release
-npm run audit:native
-npm run audit:desktop -- -Profile profile-a -RequireChild
-npm run audit:desktop -- -Profile profile-a -RequireChild -RequireRendererUtility
+npm run audit:native -- -EnvName profile-a
+npm run audit:desktop -- -Profile profile-a -RequireChild -RequireRendererUtility -AllowPartial
+npm run audit:desktop -- -Profile profile-b -RequireChild -RequireRendererUtility -AllowPartial
 ```
+
+`audit:desktop` 默认对未观察到的 WMI、异步 DeviceIoControl 或 CPU manifest 返回非零；`-AllowPartial` 只允许查看当前会话证据，不会把未观察到的路径标记为已覆盖。完整验收仍以 `desktop-native-check.json` 的 `status=PASS` 为准。
+
+`audit:native` 只读取 `%USERPROFILE%\.cac\envs\<name>` 下的 Claude Code 证据；Claude Desktop 必须使用 `audit:desktop`，两者的日志目录和结论不能混用。
 
 Native 读取策略默认为 `profile`，保证返回值具有一致的 Profile 语义。将当前 Profile 的 `native_read_policy` 写为 `empty` 后，NativeBridge 会对已覆盖的设备身份读取返回空字符串、零序列号、无固件数据、无 WMI 属性或无设备枚举结果；`cpuid_mode` 默认为 `neutral`，在 `empty` 策略下自动改为 `empty`。`empty` 模式作用于主进程、renderer/utility 子进程和 WMI 同步查询；内核回调、NDIS/WFP 过滤器和物理固件仍不在覆盖范围。
 
@@ -149,7 +153,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Actio
 
 ### Desktop 子进程注入与沙箱
 
-`-Inject` 模式通过 `CreateProcessW`、`CreateProcessInternalW` 和 `NtCreateUserProcess` 三条创建路径注入子进程，并由启动器轮询补注入遗漏的后代进程。Chromium 的 GPU/renderer 在启用 ACG/CIG 后会拒绝加载未签名 DLL，因此 Native 模式会追加：
+`-Inject` 模式通过 `CreateProcessW`、`CreateProcessInternalW` 和 `NtCreateUserProcess` 三条创建路径注入子进程，并由启动器轮询补注入遗漏的后代进程。每次子进程注入都必须收到对应 `native.bridge=ready` 信号；注入失败或 ready 超时会终止该子进程，不会放行未覆盖的 renderer/utility。Chromium 的 GPU/renderer 在启用 ACG/CIG 后会拒绝加载未签名 DLL，因此 Native 模式会追加：
 
 ```text
 --no-sandbox --disable-gpu-sandbox
@@ -214,7 +218,7 @@ CA 安装/删除已改为静默自动化：`cert-silent.ps1` 检测标准安全�
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action remove-ca -Profile work
 ```
 
-不传 `-Profile` 时会清理当前用户证书存储中 Subject 含 `mitmproxy` 的证书；传入 `-Profile` 时只按该 Profile 的 CA 文件指纹删除。Windows CurrentUser Root 本身是用户级共享证书存储，因此 Profile 隔离依赖“独立 CA 文件 + 精确指纹删除”，不能宣称证书存储是内核级隔离。
+`remove-ca` 必须传入 `-Profile`，只按该 Profile 的 CA 文件指纹删除；缺少 Profile、CA 文件缺失或指纹无效都会拒绝执行，避免误删其他 Profile 的证书。Windows CurrentUser Root 本身是用户级共享证书存储，因此 Profile 隔离依赖“独立 CA 文件 + 精确指纹删除”，不能宣称证书存储是内核级隔离。
 
 ### 内核 / NDIS / WFP / 物理硬件边界
 

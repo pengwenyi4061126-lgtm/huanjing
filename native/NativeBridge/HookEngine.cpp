@@ -88,11 +88,25 @@ int DecodePrologueInstruction(const BYTE* p, int available) {
     if (available >= 4 && p[0] == 0x48 && p[1] == 0x89 &&
         (p[2] & 0xC0) == 0x40 && (p[2] & 0x07) != 0x04) return 4;
 
+    // REX.W mov r/m64, r64 used by Windows unwind prologues, including
+    // 49 89 5B 08 / 49 89 73 18. Only register and base+disp forms are
+    // accepted; RIP-relative forms are deliberately excluded.
+    if (available >= 3 && (p[0] & 0xF8) == 0x48 && p[1] == 0x89) {
+        const BYTE modrm = p[2];
+        const int mod = modrm >> 6;
+        const int rm = modrm & 7;
+        if (mod == 3) return 3;
+        if (mod == 1) return rm == 4 ? 5 : 4;
+        if (mod == 2) return rm == 4 ? 8 : 7;
+    }
+
     // mov rax/rbx, rsp
     if (available >= 3 && p[0] == 0x48 && p[1] == 0x8B && (p[2] == 0xC4 || p[2] == 0xDC)) return 3;
 
-    // lea rsp, [rsp+disp8]
-    if (available >= 5 && p[0] == 0x48 && p[1] == 0x8D && p[2] == 0x64 && p[3] == 0x24) return 5;
+    // lea r64, [rsp+disp8]. HidD_GetSerialNumberString and other Win32
+    // entry points use this stack-relative form in their prologue.
+    if (available >= 5 && p[0] == 0x48 && p[1] == 0x8D &&
+        (p[2] & 0xC7) == 0x44 && p[3] == 0x24) return 5;
 
     // and qword ptr [rsp+disp8], imm8
     if (available >= 6 && p[0] == 0x48 && p[1] == 0x83 && p[2] == 0x64 && p[3] == 0x24) return 6;
@@ -134,6 +148,14 @@ bool IsExecutableAddress(const void* address) {
     const DWORD protect = info.Protect & 0xFF;
     return protect == PAGE_EXECUTE || protect == PAGE_EXECUTE_READ ||
            protect == PAGE_EXECUTE_READWRITE || protect == PAGE_EXECUTE_WRITECOPY;
+}
+
+void* FindTrampoline(void* target) {
+    if (!target) return nullptr;
+    for (const HookRecord& record : g_hooks) {
+        if (record.target == target) return record.trampoline;
+    }
+    return nullptr;
 }
 
 bool Install(void* target, void* detour, void** trampoline, std::string* error) {

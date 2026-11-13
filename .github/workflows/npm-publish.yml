@@ -26,15 +26,32 @@ jobs:
           else
             echo "package.json already at $VERSION"
           fi
-          CURRENT_CAC_VERSION=$(grep -E '^CAC_VERSION=' src/utils.sh | cut -d'"' -f2)
+          CURRENT_CAC_VERSION=$(python3 - <<'PY'
+          import re
+          print(re.search(r'\$CAC_VERSION\s*=\s*"([^"]+)"', open("cac.ps1", encoding="utf-8-sig").read()).group(1))
+          PY
+          )
           if [[ "$CURRENT_CAC_VERSION" != "$VERSION" ]]; then
-            sed -i "s/^CAC_VERSION=.*/CAC_VERSION=\"$VERSION\"/" src/utils.sh
+            python3 - "$VERSION" <<'PY'
+            import pathlib
+            import re
+            import sys
+
+            path = pathlib.Path("cac.ps1")
+            text = path.read_text(encoding="utf-8-sig")
+            text = re.sub(r'\$CAC_VERSION\s*=\s*"[^"]+"', f'$CAC_VERSION = "{sys.argv[1]}"', text, count=1)
+            path.write_text(text, encoding="utf-8")
+            PY
           else
-            echo "src/utils.sh already at $VERSION"
+            echo "cac.ps1 already at $VERSION"
           fi
 
       - name: Build
         run: bash build.sh
+
+      - name: Verify Windows package and Native artifacts
+        shell: pwsh
+        run: ./scripts/release-check.ps1
 
       - name: Publish
         run: |

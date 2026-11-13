@@ -88,13 +88,19 @@ function Get-HostNetworkEvidence {
 }
 
 function Test-TcpEndpoint([string]$HostName, [int]$Port) {
+    $tcp = $null
+    $async = $null
     try {
         $tcp = New-Object System.Net.Sockets.TcpClient
         $async = $tcp.BeginConnect($HostName, $Port, $null, $null)
-        $ok = $async.AsyncWaitHandle.WaitOne(5000)
-        $tcp.Close()
-        return $ok
+        if (-not $async.AsyncWaitHandle.WaitOne(5000)) { return $false }
+        $tcp.EndConnect($async)
+        return $tcp.Connected
     } catch { return $false }
+    finally {
+        if ($async -and $async.AsyncWaitHandle) { $async.AsyncWaitHandle.Close() }
+        if ($tcp) { $tcp.Dispose() }
+    }
 }
 
 function Invoke-NodeEnvProbe([System.Collections.IDictionary]$Environment, [string]$HostName) {
@@ -172,6 +178,15 @@ $paths = Ensure-ProfileLayout $EnvName
 $proxyPath = Join-Path $paths.Root "proxy"
 $proxy = Read-FileValue $proxyPath
 $proxyConfigured = -not [string]::IsNullOrWhiteSpace($proxy)
+$proxyError = $null
+if ($proxyConfigured) {
+    $normalizedProxy = Parse-Proxy $proxy
+    if ([string]::IsNullOrWhiteSpace($normalizedProxy)) {
+        $proxyError = "代理地址无效"
+    } else {
+        $proxy = $normalizedProxy
+    }
+}
 $audit = [ordered]@{
     schema = 2
     profile = $EnvName
@@ -189,12 +204,21 @@ Write-Host ""
 Write-Host "Network isolation check — $EnvName" -ForegroundColor Cyan
 Write-Host "  Profile: $($paths.Root)" -ForegroundColor DarkGray
 
-if (-not $proxyConfigured) {
+if ($proxyError) {
+    Write-Result "FAIL" "proxy" $proxyError
+    $audit.checks.proxy = "INVALID"
+    $audit.checks.policy = "INVALID_PROXY"
+    $failed = $true
+} elseif (-not $proxyConfigured) {
     Write-Result "INFO" "proxy" "Profile 未配置代理；代理可达性不适用"
     $audit.checks.proxy = "NOT_CONFIGURED"
-    $audit.checks.policy = "NO_PROXY_REQUESTED"
+    $audit.checks.policy = if ($RequireProxy) { "PROXY_REQUIRED_MISSING" } else { "NO_PROXY_REQUESTED" }
     $audit.checks.socket = "NOT_CONFIGURED"
     $audit.checks.dns = "NOT_CONFIGURED"
+    if ($RequireProxy) {
+        Write-Result "FAIL" "proxy-policy" "已要求代理，但 Profile 没有配置代理"
+        $failed = $true
+    }
 } else {
     $audit.checks.policy = "PROXY_REQUESTED"
     try { $proxyUri = [Uri]$proxy } catch { $proxyUri = $null }
@@ -246,16 +270,22 @@ if (-not $proxyConfigured) {
     } else {
         Write-Result "INFO" "socket" "未找到 curl.exe，跳过外部代理探针"
         $audit.checks.socket = "CURL_UNAVAILABLE"
+        if ($RequireProxy) { $failed = $true }
     }
 }
 
-$envValues = Get-ProfileEnvironment $paths
-$probeHost = "example.com"
-try { $probeHost = ([Uri]$ProbeUrl).Host } catch { }
-$probe = Invoke-NodeEnvProbe $envValues $probeHost
+$probe = $null
+if (-not $proxyError) {
+    $envValues = Get-ProfileEnvironment $paths
+    $probeHost = "example.com"
+    try { $probeHost = ([Uri]$ProbeUrl).Host } catch { }
+    $probe = Invoke-NodeEnvProbe $envValues $probeHost
+}
 if ($null -eq $probe) {
-    Write-Result "FAIL" "child-env" "无法启动 Node 环境探针"
-    $audit.checks.childEnv = "PROBE_FAILED"
+    $childDetail = if ($proxyError) { "代理配置无效，跳过 Node 环境探针" } else { "无法启动 Node 环境探针" }
+    Write-Result "FAIL" "child-env" $childDetail
+    $audit.checks.childEnv = if ($proxyError) { "SKIPPED_INVALID_PROXY" } else { "PROBE_FAILED" }
+    $failed = $true
 } else {
     $proxyValues = @($probe.http, $probe.https, $probe.all) | Where-Object { $_ }
     $proxyConsistent = $false

@@ -196,6 +196,7 @@ $wmiProfile = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (J
 if ($wmiBaseline.wmi_state -eq "ok") {
     Assert-True ($wmiProfile.wmi_state -eq "ok") "WMI connect succeeds through wrapper"
     Assert-True ($wmiProfile.wmi_bios_serial -eq $identity.system_serial) "WMI BIOS serial matches profile"
+    Assert-True ($wmiProfile.wmi_enum_bios_serial -eq $identity.system_serial) "WMI property enumeration serial matches profile"
     Assert-True ($wmiProfile.wmi_uuid -eq $identity.uuid) "WMI system UUID matches profile"
     Assert-True ($wmiProfile.wmi_disk_serial -eq $identity.disk_serial) "WMI disk serial matches profile"
     Assert-True ($wmiProfile.wmi_mac -eq $identity.mac_address) "WMI MAC matches profile"
@@ -280,8 +281,9 @@ $manifest = @(
     ("{0}|{1}|0x{2:X}|cpuid|{3}" -f $cpuProbe, $cpuHash, $cpuIdRva, $cpuPrologue),
     ("{0}|{1}|0x{2:X}|xgetbv|{3}" -f $cpuProbe, $cpuHash, $xgetbvRva, $xgetbvPrologue)
 )
-[IO.File]::WriteAllText((Join-Path $profile "cpu-manifest.txt"), ($manifest -join "`r`n") + "`r`n", $utf8)
-$env:CAC_NATIVE_MANIFEST = Join-Path $profile "cpu-manifest.txt"
+$cpuManifestPath = Join-Path $profile "cpu-manifest.txt"
+[IO.File]::WriteAllText($cpuManifestPath, ($manifest -join "`r`n") + "`r`n", $utf8)
+$env:CAC_NATIVE_MANIFEST = $cpuManifestPath
 
 $cpuBaseline = Parse-ProbeOutput @(& $cpuProbe 2>&1)
 $cpuInjected = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") $cpuProbe 2>&1)
@@ -296,6 +298,9 @@ Assert-True (@($auditLines | Where-Object { $_ -match '"surface":"cpu.cpuid"' })
 
 Write-Host "Strict empty-read policy" -ForegroundColor Cyan
 Remove-Item Env:CAC_NATIVE_CPUID_TEST -ErrorAction SilentlyContinue
+# The manifest above is bound to cpu_probe.exe only. Do not carry it into the
+# other probes, otherwise the ready gate correctly rejects the wrong module.
+Remove-Item Env:CAC_NATIVE_MANIFEST -ErrorAction SilentlyContinue
 $env:CAC_NATIVE_READ_POLICY = "empty"
 $env:CAC_NATIVE_CPUID_MODE = "empty"
 $emptyInjected = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "hook_probe.exe") 2>&1)
@@ -337,6 +342,7 @@ Assert-True ($childEmpty.child_mac -eq "none") "empty policy propagates to child
 if ($wmiBaseline.wmi_state -eq "ok") {
     $wmiEmpty = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "wmi_probe.exe") 2>&1)
     Assert-True ($wmiEmpty.wmi_bios_serial -eq "") "empty policy clears WMI BIOS serial"
+    Assert-True ($wmiEmpty.wmi_enum_bios_serial -eq "") "empty policy clears WMI property enumeration serial"
     Assert-True ($wmiEmpty.wmi_uuid -eq "") "empty policy clears WMI UUID"
     Assert-True ($wmiEmpty.wmi_disk_serial -in @("", "<none>")) "empty policy clears WMI disk serial"
     Assert-True ($wmiEmpty.wmi_mac -in @("", "<none>")) "empty policy clears WMI MAC"
@@ -350,13 +356,15 @@ Assert-True ($netEmpty.ifinfo_count -eq "0") "empty policy hides all GetInterfac
 Assert-True ($netEmpty.winhttp_access -eq "1") "empty policy forces WinHTTP direct"
 Assert-True ($netEmpty.reg_proxy_enable -eq "0") "empty policy hides registry proxy flag"
 
+$env:CAC_NATIVE_MANIFEST = $cpuManifestPath
 $emptyCpu = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "cpu_probe.exe") 2>&1)
 Assert-True ($emptyCpu.test_leaf -eq "00000000") "empty policy clears arbitrary CPUID leaf"
 Assert-True ($emptyCpu.hypervisor -eq "0") "empty policy clears CPUID hypervisor bit"
 Assert-True ($emptyCpu.hypervisor_max -eq "00000000") "empty policy clears hypervisor leaves"
 Assert-True ($emptyCpu.xcr0 -eq "0000000000000000") "empty policy clears XGETBV"
 
-Remove-Item -LiteralPath $env:CAC_NATIVE_MANIFEST -Force -ErrorAction SilentlyContinue
+Remove-Item Env:CAC_NATIVE_MANIFEST -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $cpuManifestPath -Force -ErrorAction SilentlyContinue
 
 if ($failures.Count -gt 0) {
     Write-Host ""

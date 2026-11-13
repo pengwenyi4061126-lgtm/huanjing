@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main, master]
   pull_request:
-    branches: [master]
+    branches: [main, master]
 
 jobs:
   shellcheck:
@@ -36,10 +36,14 @@ jobs:
       - name: Check version metadata sync
         run: |
           PKG_VERSION=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')
-          SRC_VERSION=$(grep -E '^CAC_VERSION=' src/utils.sh | cut -d'"' -f2)
-          BUILT_VERSION=$(grep -E '^CAC_VERSION=' cac | cut -d'"' -f2)
-          if [[ "$PKG_VERSION" != "$SRC_VERSION" || "$PKG_VERSION" != "$BUILT_VERSION" ]]; then
-            echo "::error::Version mismatch: package.json=$PKG_VERSION src/utils.sh=$SRC_VERSION cac=$BUILT_VERSION"
+          PS_VERSION=$(python3 - <<'PY'
+          import re
+          print(re.search(r'\$CAC_VERSION\s*=\s*"([^"]+)"', open("cac.ps1", encoding="utf-8-sig").read()).group(1))
+          PY
+          )
+          BIN_TARGET=$(python3 -c 'import json; print(json.load(open("package.json"))["bin"]["cac"])')
+          if [[ "$PKG_VERSION" != "$PS_VERSION" || "$BIN_TARGET" != "cac.cmd" ]]; then
+            echo "::error::Windows metadata mismatch: package.json=$PKG_VERSION cac.ps1=$PS_VERSION bin=$BIN_TARGET"
             exit 1
           fi
           echo "✓ Version metadata synced at $PKG_VERSION"

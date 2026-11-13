@@ -147,27 +147,64 @@ function Get-NativeLayerStatus {
 
 function Parse-Proxy {
     param([string]$Raw)
-    if ($Raw -match "^(http|https|socks5h?)://") { return $Raw }
-    $parts = $Raw -split ":"
-    if ($parts.Count -ge 4) {
-        return "http://$($parts[2]):$($parts[3])@$($parts[0]):$($parts[1])"
-    } elseif ($parts.Count -ge 2) {
-        return "http://$($parts[0]):$($parts[1])"
+    $value = ([string]$Raw).Trim()
+    if ([string]::IsNullOrWhiteSpace($value)) { return $null }
+    $allowedSchemes = @('http', 'https', 'socks5', 'socks5h')
+    if ($value -match '^[a-z][a-z0-9+.-]*://') {
+        try {
+            $uri = [Uri]$value
+            if ($uri.Scheme -in $allowedSchemes -and $uri.Host -and $uri.Port -gt 0 -and $uri.Port -le 65535) {
+                return $value
+            }
+        } catch { }
+        return $null
+    }
+
+    # Legacy input: user:password:host:port. Passwords containing ':' are
+    # accepted by using the final field as the port and the last ':' before it
+    # as the host separator.
+    if ($value -match '^(?<user>[^:]+):(?<password>.+):(?<host>\[[^\]]+\]|[^:]+):(?<port>\d+)$') {
+        $port = [int]$Matches.port
+        if ($port -gt 0 -and $port -le 65535) {
+            $user = [Uri]::EscapeDataString($Matches.user)
+            $password = [Uri]::EscapeDataString($Matches.password)
+            return "http://$user`:$password@$($Matches.host):$port"
+        }
+        return $null
+    }
+    if ($value -match '^(?<user>[^:]+):(?<password>[^@]+)@(?<host>\[[^\]]+\]|[^:]+):(?<port>\d+)$') {
+        $port = [int]$Matches.port
+        if ($port -gt 0 -and $port -le 65535) {
+            $user = [Uri]::EscapeDataString($Matches.user)
+            $password = [Uri]::EscapeDataString($Matches.password)
+            return "http://$user`:$password@$($Matches.host):$port"
+        }
+        return $null
+    }
+    if ($value -match '^(?<host>\[[^\]]+\]|[^:]+):(?<port>\d+)$') {
+        $port = [int]$Matches.port
+        if ($port -gt 0 -and $port -le 65535) { return "http://$($Matches.host):$port" }
     }
     return $null
 }
 
 function Test-ProxyReachable {
     param([string]$ProxyUrl)
-    $hp = ($ProxyUrl -replace ".*@", "" -replace ".*://", "") -split ":"
-    if ($hp.Count -lt 2) { return $false }
+    try { $uri = [Uri]$ProxyUrl } catch { return $false }
+    if (-not $uri.IsAbsoluteUri -or [string]::IsNullOrWhiteSpace($uri.Host) -or $uri.Port -le 0) { return $false }
+    $tcp = $null
+    $async = $null
     try {
         $tcp = New-Object System.Net.Sockets.TcpClient
-        $result = $tcp.BeginConnect($hp[0], [int]$hp[1], $null, $null)
-        $ok = $result.AsyncWaitHandle.WaitOne(5000)
-        $tcp.Close()
-        return $ok
+        $async = $tcp.BeginConnect($uri.DnsSafeHost, $uri.Port, $null, $null)
+        if (-not $async.AsyncWaitHandle.WaitOne(5000)) { return $false }
+        $tcp.EndConnect($async)
+        return $tcp.Connected
     } catch { return $false }
+    finally {
+        if ($async -and $async.AsyncWaitHandle) { $async.AsyncWaitHandle.Close() }
+        if ($tcp) { $tcp.Dispose() }
+    }
 }
 
 function Get-NpmGlobalPrefix {
@@ -378,10 +415,21 @@ function Get-ProfileEnvironment {
     $hookPath = Join-Path $CAC_DIR "fingerprint-hook.js"
     $hookPathForNode = $hookPath -replace '\\', '/'
     $hookAuditPath = $Paths.HookAuditPath
+    $homeRoot = [System.IO.Path]::GetPathRoot($Paths.HomeDir)
+    if ($homeRoot -notmatch '^[A-Za-z]:\\$') {
+        throw "Unable to derive isolated HOMEDRIVE/HOMEPATH for $($Paths.HomeDir)"
+    }
+    $homeDrive = $homeRoot.Substring(0, 2)
+    $homePath = $Paths.HomeDir.Substring(2)
+    if ([string]::IsNullOrWhiteSpace($homePath)) {
+        throw "Unable to derive isolated HOMEDRIVE/HOMEPATH for $($Paths.HomeDir)"
+    }
     $values = [ordered]@{
         CLAUDE_CONFIG_DIR = $Paths.ConfigDir
         HOME              = $Paths.HomeDir
         USERPROFILE       = $Paths.HomeDir
+        HOMEDRIVE         = $homeDrive
+        HOMEPATH          = $homePath
         APPDATA           = $Paths.AppData
         LOCALAPPDATA      = $Paths.LocalAppData
         TEMP              = $Paths.TempDir
@@ -423,6 +471,11 @@ function Get-ProfileEnvironment {
     }
     if ($tz) { $values.TZ = $tz }
     if ($proxy) {
+        $normalizedProxy = Parse-Proxy $proxy
+        if ([string]::IsNullOrWhiteSpace($normalizedProxy)) {
+            throw "Invalid proxy configuration in $($Paths.Root): $proxy"
+        }
+        $proxy = $normalizedProxy
         $values.HTTPS_PROXY = $proxy
         $values.HTTP_PROXY = $proxy
         $values.ALL_PROXY = $proxy

@@ -1,7 +1,9 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include <bcrypt.h>
+#include <sddl.h>
 
+#include <cwchar>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -10,6 +12,7 @@
 #include <vector>
 
 #pragma comment(lib, "bcrypt.lib")
+#pragma comment(lib, "advapi32.lib")
 
 #if __has_include("expected_dll_hash.h")
 #include "expected_dll_hash.h"
@@ -57,6 +60,13 @@ std::wstring ExecutableDirectory() {
     return result.substr(0, slash);
 }
 
+std::wstring NormalizePath(const std::wstring& path) {
+    wchar_t buffer[32768] = {};
+    const DWORD length = GetFullPathNameW(path.c_str(), static_cast<DWORD>(_countof(buffer)), buffer, nullptr);
+    if (length == 0 || length >= _countof(buffer)) return path;
+    return std::wstring(buffer, length);
+}
+
 bool InjectDll(HANDLE process, const std::wstring& dllPath, std::string* error) {
     const size_t bytes = (dllPath.size() + 1) * sizeof(wchar_t);
     void* remote = VirtualAllocEx(process, nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
@@ -87,16 +97,70 @@ bool InjectDll(HANDLE process, const std::wstring& dllPath, std::string* error) 
         VirtualFreeEx(process, remote, 0, MEM_RELEASE);
         return false;
     }
-    WaitForSingleObject(thread, 20000);
-    DWORD moduleBase = 0;
-    GetExitCodeThread(thread, &moduleBase);
+    const DWORD wait = WaitForSingleObject(thread, 20000);
     CloseHandle(thread);
     VirtualFreeEx(process, remote, 0, MEM_RELEASE);
-    if (moduleBase == 0) {
-        *error = "LoadLibraryW returned NULL in target";
+    if (wait != WAIT_OBJECT_0) {
+        *error = "injection timed out";
+        return false;
+    }
+    // The thread exit code is a 32-bit value even on x64 and is not a safe
+    // way to validate an HMODULE. NativeBridge's ready event is the authority.
+    return true;
+}
+
+HANDLE CreateReadyEvent(DWORD processId, bool* alreadyExists) {
+    wchar_t name[96] = {};
+    std::swprintf(name, _countof(name), L"Local\\CACNativeBridgeReady_%lu",
+                  static_cast<unsigned long>(processId));
+    if (alreadyExists) *alreadyExists = false;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:(A;;0x00100003;;;WD)", SDDL_REVISION_1, &descriptor, nullptr)) {
+        return nullptr;
+    }
+    SECURITY_ATTRIBUTES attributes = {};
+    attributes.nLength = sizeof(attributes);
+    attributes.lpSecurityDescriptor = descriptor;
+    SetLastError(ERROR_SUCCESS);
+    HANDLE event = CreateEventW(&attributes, TRUE, FALSE, name);
+    const DWORD createError = GetLastError();
+    LocalFree(descriptor);
+    if (event) {
+        if (alreadyExists) *alreadyExists = (createError == ERROR_ALREADY_EXISTS);
+        return event;
+    }
+    if (createError == ERROR_ACCESS_DENIED) {
+        event = OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, name);
+        if (event && alreadyExists) *alreadyExists = true;
+    }
+    return event;
+}
+
+bool InjectAndWaitForReady(HANDLE process, DWORD processId, const std::wstring& dllPath,
+                           std::string* error) {
+    bool alreadyExists = false;
+    HANDLE ready = CreateReadyEvent(processId, &alreadyExists);
+    if (!ready) {
+        if (error) *error = "ready event creation failed";
+        return false;
+    }
+    const bool injected = alreadyExists || InjectDll(process, dllPath, error);
+    const bool readySignaled = injected && WaitForSingleObject(ready, 20000) == WAIT_OBJECT_0;
+    CloseHandle(ready);
+    if (!injected) return false;
+    if (!readySignaled) {
+        if (error) *error = "NativeBridge ready signal was not received";
         return false;
     }
     return true;
+}
+
+bool TerminateAndWait(HANDLE process) {
+    if (!process) return false;
+    const bool terminated = TerminateProcess(process, 4) != FALSE;
+    const DWORD wait = WaitForSingleObject(process, 5000);
+    return terminated && wait == WAIT_OBJECT_0;
 }
 
 bool ComputeFileSha256(const std::wstring& path, std::string& hex) {
@@ -229,15 +293,17 @@ bool QueryImagePath(DWORD processId, std::wstring& path) {
     return true;
 }
 
-bool IsModuleLoaded(DWORD processId, const wchar_t* moduleName) {
+bool IsModuleLoaded(DWORD processId, const std::wstring& modulePath) {
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, processId);
     if (snapshot == INVALID_HANDLE_VALUE) return false;
+    const std::wstring expected = NormalizePath(modulePath);
     MODULEENTRY32W entry = {};
     entry.dwSize = sizeof(entry);
     bool found = false;
     if (Module32FirstW(snapshot, &entry)) {
         do {
-            if (_wcsicmp(entry.szModule, moduleName) == 0) {
+            const std::wstring loaded = NormalizePath(entry.szExePath);
+            if (_wcsicmp(loaded.c_str(), expected.c_str()) == 0) {
                 found = true;
                 break;
             }
@@ -334,11 +400,11 @@ DWORD WINAPI MonitorThread(LPVOID parameter) {
             std::wstring image;
             if (!QueryImagePath(processId, image)) continue;
             if (_wcsicmp(image.c_str(), context->exePath.c_str()) != 0) continue;
-            if (IsModuleLoaded(processId, L"NativeBridge.dll")) {
+            if (IsModuleLoaded(processId, context->dllPath)) {
                 handled.insert(processId);
                 continue;
             }
-            HANDLE process = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
+            HANDLE process = OpenProcess(PROCESS_TERMINATE | PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
                                              PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ |
                                              SYNCHRONIZE,
                                          FALSE, processId);
@@ -349,16 +415,15 @@ DWORD WINAPI MonitorThread(LPVOID parameter) {
                 continue;
             }
             std::string error;
-            if (InjectDll(process, context->dllPath, &error)) {
+            if (InjectAndWaitForReady(process, processId, context->dllPath, &error)) {
                 handled.insert(processId);
                 AppendAudit(context->auditPath, "launcher-injected", processId, nullptr);
             } else {
-                const int attempt = ++attempts[processId];
-                const ULONGLONG delay = static_cast<ULONGLONG>(100 + attempt * 100);
-                retryAfter[processId] = now + (delay > 2000 ? 2000 : delay);
-                if (attempt == 1 || (attempt % 10) == 0) {
-                    AppendAudit(context->auditPath, "launcher-failed", processId, error.c_str());
-                }
+                handled.insert(processId);
+                const bool stopped = TerminateAndWait(process);
+                std::string detail = error.empty() ? "NativeBridge ready signal was not received" : error;
+                if (!stopped) detail += "; terminate-failed";
+                AppendAudit(context->auditPath, "launcher-failed", processId, detail.c_str());
             }
             CloseHandle(process);
         }
@@ -437,20 +502,23 @@ int wmain(int argc, wchar_t** argv) {
         return 1;
     }
 
-    wchar_t eventName[96] = {};
-    std::swprintf(eventName, _countof(eventName), L"Local\\CACNativeBridgeReady_%lu",
-                  static_cast<unsigned long>(process.dwProcessId));
-    HANDLE ready = CreateEventW(nullptr, TRUE, FALSE, eventName);
-
     SetEnvironmentVariableW(L"CAC_NATIVE_DLL", dllPath.c_str());
     std::string error;
-    if (InjectDll(process.hProcess, dllPath, &error)) {
-        if (ready) WaitForSingleObject(ready, 20000);
-    } else {
+    const bool injected = InjectAndWaitForReady(process.hProcess, process.dwProcessId, dllPath, &error);
+    if (!injected) {
         std::fwprintf(stderr, L"[cac-native] injection failed: %hs\n", error.c_str());
     }
 
-    if (ready) CloseHandle(ready);
+    if (!injected) {
+        std::fwprintf(stderr, L"[cac-native] NativeBridge ready signal was not received; refusing unhooked start\n");
+        if (!TerminateAndWait(process.hProcess)) {
+            std::fwprintf(stderr, L"[cac-native] failed to terminate unhooked target\n");
+        }
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return 4;
+    }
+
     ResumeThread(process.hThread);
 
     std::wstring auditPath;

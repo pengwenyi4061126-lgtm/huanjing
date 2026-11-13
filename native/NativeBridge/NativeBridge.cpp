@@ -22,15 +22,23 @@ const char* ProcessTypeDetail() {
     return "process=main";
 }
 
-void SignalReady() {
+bool SignalReady() {
     wchar_t name[96] = {};
     std::swprintf(name, _countof(name), L"Local\\CACNativeBridgeReady_%lu",
                   static_cast<unsigned long>(GetCurrentProcessId()));
     HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, name);
-    if (event) {
-        SetEvent(event);
-        CloseHandle(event);
+    if (!event) {
+        AuditEvent("native.bridge", "ready-signal-failed", "OpenEventW", GetLastError(), true);
+        return false;
     }
+    const BOOL signaled = SetEvent(event);
+    const DWORD error = signaled ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(event);
+    if (!signaled) {
+        AuditEvent("native.bridge", "ready-signal-failed", "SetEvent", error, true);
+        return false;
+    }
+    return true;
 }
 
 DWORD WINAPI InitializeThread(LPVOID) {
@@ -38,7 +46,7 @@ DWORD WINAPI InitializeThread(LPVOID) {
     AuditInit(identity.profileDir);
     AuditEvent("native.bridge", "attach", ProcessTypeDetail());
 
-    InstallApiHooks();
+    const bool apiReady = InstallApiHooks();
     InstallChildInjection();
     InstallWmiHooks();
     InstallNetworkHooks();
@@ -49,8 +57,16 @@ DWORD WINAPI InitializeThread(LPVOID) {
         ScanCpuCandidates();
     }
 
+    const unsigned int failures = NativeHookInstallFailures();
+    if (!apiReady || failures != 0) {
+        char detail[96] = {};
+        std::snprintf(detail, sizeof(detail), "required-hook-failures=%u", failures);
+        AuditEvent("native.bridge", "failed", detail, failures, true);
+        return 0;
+    }
+
+    if (!SignalReady()) return 0;
     AuditEvent("native.bridge", "ready");
-    SignalReady();
     return 0;
 }
 

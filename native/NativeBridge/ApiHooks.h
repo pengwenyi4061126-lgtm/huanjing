@@ -2,6 +2,10 @@
 
 bool InstallApiHooks();
 
+// Number of required userland hook installs that failed in this process.
+// The bridge does not signal ready while this is non-zero.
+unsigned int NativeHookInstallFailures();
+
 // Shared IAT/delay/inline hook installer used by the optional child-injection
 // and WMI layers. Returns the same audit trail as InstallApiHooks().
 void InstallHookShared(const char* dllName, const char* functionName, void* detour,
