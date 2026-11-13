@@ -1,0 +1,18 @@
+{
+  "mode": "signed-only",
+  "loader": "scm",
+  "manualMapper": "rejected",
+  "vulnerableDriver": "rejected",
+  "dsePatch": "rejected",
+  "patchGuardPatch": "rejected",
+  "physicalHardwareSpoofing": "not-supported",
+  "perProfileHardwareView": "not-proven",
+  "ndis": "separate-component",
+  "wfp": "separate-component",
+  "audit": "required-before-load",
+  "controlPlane": "implemented",
+  "driver": "CacKernel.sys",
+  "protocolVersion": 1,
+  "install": "native/kernel/install-driver.ps1",
+  "capability": "control-plane-only"
+}

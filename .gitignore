@@ -20,6 +20,8 @@ claude.exe
 
 # native build artifacts (native/dist binaries are packaging inputs)
 native/obj/
+native/kernel/bin/
+native/kernel/obj/
 native/tests/bin/
 native/tests/profile/
 native/tests/smoke-profile/

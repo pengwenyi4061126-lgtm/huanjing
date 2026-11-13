@@ -1,5 +1,7 @@
 # NativeBridge (x64, userland only)
 
+The kernel boundary is documented separately in [kernel/README.md](kernel/README.md). WDK availability does not mean that a driver is installed. The project accepts only a signed KMDF/WDM driver through an SCM/INF path; manual mappers and vulnerable-driver loaders are not product dependencies.
+
 `NativeBridge.dll` is injected into the Claude process before its main thread resumes. It applies profile-scoped return-value hooks and an optional, hash-bound CPU hook set.
 
 ## What it covers

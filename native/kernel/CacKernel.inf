@@ -1,0 +1,31 @@
+; Legacy INF for the CAC kernel control-plane driver.
+;
+; The verified installation path in this repository is install-driver.ps1
+; using the Service Control Manager (sc.exe create/start). This INF is kept
+; as the declarative service definition for packaging and for environments
+; that still permit legacy DefaultInstall processing.
+
+[Version]
+Signature="$Windows NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=11/13/2026,1.0.0
+
+[DefaultInstall.NTamd64]
+CopyFiles=CacKernel.CopyFiles
+AddService=CacKernel.Service
+
+[CacKernel.CopyFiles]
+CacKernel.sys,,,2
+
+[CacKernel.Service]
+DisplayName=%ServiceName%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\CacKernel.sys
+
+[Strings]
+ProviderName="CAC Project"
+ServiceName="CAC Kernel Boundary"

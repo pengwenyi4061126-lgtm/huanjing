@@ -15,7 +15,7 @@
 | P1 | 网络检查只看环境变量 | 增加 DNS、路由、直连 socket 和代理继承证据，明确不修改系统路由 | 无代理结果为 `NOT_CONFIGURED` |
 | P1 | 发布入口和版本漂移 | `cac.ps1`/README 更新到 1.0.41，npm `bin` 指向 `cac.cmd`，CI/发布流程改读 Windows 版本源 | npm dry-run 显示 `cac-windows@1.0.41` |
 | P2 | Cookies/登录态没有真实账号证据 | 当前报告只记录路径和哈希，不再宣称登录隔离完成 | 需登录后补 Cookie/Token/DPAPI 读取审计 |
-| P2 | WDK/内核边界缺失 | 保持明确标记为未实现，不用用户态 hook 冒充 NDIS/WFP/物理硬件隔离 | Native README 和审计表均标记 `NOT_IMPLEMENTED` |
+| P2 | WDK/内核边界缺失 | 实现签名 WDM 控制面 `CacKernel.sys`：5 个窄 IOCTL、per-PID 策略、128 条审计环、SCM 安装/卸载、哈希与签名校验；保留 `audit:kernel` 证据门并拒绝手动映射器和易受攻击驱动 | 本机 `RUNNING_VERIFIED` / `CONTROL_PLANE_ONLY`；NDIS/WFP/物理硬件仍未实现 |
 
 ## 当前验收命令
 
@@ -23,6 +23,10 @@
 Set-Location E:\环境\huanjing
 npm run audit:release
 npm run audit:profiles
+npm run kernel:build
+npm run kernel:install -- -Force
+npm run audit:kernel -- -Strict
+npm run kernel:smoke
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/tests/run-smoke.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-profile.ps1 -Action ab -Inject -WaitSeconds 15
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-native-check.ps1 -Profile profile-a -RequireChild -RequireRendererUtility -AllowPartial

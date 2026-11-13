@@ -113,7 +113,26 @@ Windows 版本的隔离边界是**进程级 Profile 隔离 + Node 用户态 Hook
 
 `native/` 下是独立编译的 x64 DLL 和注入器。构建与清单生成见 [native/README.md](native/README.md)。构建产物同步到 `%USERPROFILE%\.cac\native\` 后，Desktop 的 `-Inject` 模式改用 `cac-native-launch.exe` 启动并注入 `NativeBridge.dll`；产物缺失、哈希不一致、DLL 注入失败或 `native.bridge=ready` 超时都会拒绝启动，不会回退到未注入进程。Code Profile 的非 Native 启动仍使用普通 wrapper 路径。
 
-Native 层始终只做用户态返回值和用户态指令入口处理。它不会加载驱动、不会修改 NDIS/WFP，也不会改变物理硬件；内核设备对象和物理层仍是同一台机器。
+Native 层始终只做用户态返回值和用户态指令入口处理。内核边界在 [native/kernel/](native/kernel/) 单独实现：`CacKernel.sys` 是签名 WDM 控制面，提供 5 个窄 IOCTL、per-PID 策略表和 128 条审计环，通过 SCM 安装。当前本机验收状态为 `RUNNING_VERIFIED` / `CONTROL_PLANE_ONLY`；它不 hook SSDT/IDT、不修改 NDIS/WFP，也不伪造 CPUID、SMBIOS、物理网卡、磁盘或固件。手动映射器和易受攻击驱动加载器仍被拒绝。
+
+内核控制面命令：
+
+```powershell
+npm run kernel:build
+npm run kernel:install -- -Force
+npm run audit:kernel -- -Strict
+npm run kernel:smoke
+npm run kernel:uninstall
+```
+
+控制客户端：
+
+```powershell
+native/kernel/bin/cac-kernelctl.exe ping
+native/kernel/bin/cac-kernelctl.exe register --pid 1234 --profile profile-a --flags 1
+native/kernel/bin/cac-kernelctl.exe query --pid 1234
+native/kernel/bin/cac-kernelctl.exe audit --max 32
+```
 
 发布前一致性检查：
 
@@ -122,6 +141,8 @@ npm run audit:release
 npm run audit:native -- -EnvName profile-a
 npm run audit:desktop -- -Profile profile-a -RequireChild -RequireRendererUtility -AllowPartial
 npm run audit:desktop -- -Profile profile-b -RequireChild -RequireRendererUtility -AllowPartial
+npm run audit:kernel
+npm run audit:kernel -- -Strict
 ```
 
 `audit:desktop` 默认对未观察到的 WMI、异步 DeviceIoControl 或 CPU manifest 返回非零；`-AllowPartial` 只允许查看当前会话证据，不会把未观察到的路径标记为已覆盖。完整验收仍以 `desktop-native-check.json` 的 `status=PASS` 为准。
