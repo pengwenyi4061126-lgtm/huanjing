@@ -26,6 +26,52 @@ function Redact-Proxy([string]$Value) {
     } catch { return "(invalid)" }
 }
 
+function Hash-Text([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
+    $hash = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($hash.ComputeHash($bytes))).Replace('-', '').ToUpperInvariant()
+    } finally {
+        $hash.Dispose()
+    }
+}
+
+function Get-HostNetworkEvidence {
+    $adapters = @()
+    $routes = @()
+    try {
+        $adapters = @(Get-NetAdapter -ErrorAction Stop | Select-Object -First 128 | ForEach-Object {
+            [ordered]@{
+                nameHash = Hash-Text ([string]$_.Name)
+                descriptionHash = Hash-Text ([string]$_.InterfaceDescription)
+                status = [string]$_.Status
+                macHash = Hash-Text ([string]$_.MacAddress)
+                virtualName = [bool](([string]$_.Name + ' ' + [string]$_.InterfaceDescription) -match
+                    '(?i)vmware|virtualbox|hyper-v|wintun|wireguard|tailscale|zerotier|openvpn|clash|mihomo|tunnel')
+            }
+        })
+    } catch {
+        $adapters = @([ordered]@{ error = $_.Exception.Message })
+    }
+    try {
+        $routes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | Select-Object -First 32 | ForEach-Object {
+            [ordered]@{
+                interfaceIndex = [int]$_.ifIndex
+                nextHop = [string]$_.NextHop
+                routeMetric = [int]$_.RouteMetric
+                policyStore = [string]$_.PolicyStore
+            }
+        })
+    } catch {
+        $routes = @([ordered]@{ error = $_.Exception.Message })
+    }
+    return [ordered]@{
+        adapters = $adapters
+        defaultRoutes = $routes
+    }
+}
+
 function Test-TcpEndpoint([string]$HostName, [int]$Port) {
     try {
         $tcp = New-Object System.Net.Sockets.TcpClient
@@ -105,6 +151,7 @@ $audit = [ordered]@{
     profileRoot = $paths.Root
     checkedUtc = [DateTime]::UtcNow.ToString("o")
     proxy = Redact-Proxy $proxy
+    hostNetwork = Get-HostNetworkEvidence
     checks = [ordered]@{}
 }
 $failed = $false

@@ -9,6 +9,7 @@
 #include <cwchar>
 #include <new>
 #include <string>
+#include <vector>
 
 #include "ApiHooks.h"
 #include "Audit.h"
@@ -315,6 +316,68 @@ private:
     bool classLoaded_ = false;
 };
 
+class WmiSink : public IWbemObjectSink, public RefCounted {
+public:
+    explicit WmiSink(IWbemObjectSink* inner) : inner_(inner) {
+        if (inner_) inner_->AddRef();
+    }
+    ~WmiSink() override { if (inner_) inner_->Release(); }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_IWbemObjectSink) {
+            *ppv = static_cast<IWbemObjectSink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return inner_->QueryInterface(riid, ppv);
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return RefCounted::AddRef(); }
+    ULONG STDMETHODCALLTYPE Release() override { return RefCounted::Release(); }
+
+    HRESULT STDMETHODCALLTYPE Indicate(LONG count, IWbemClassObject** objects) override {
+        if (!inner_ || count <= 0 || !objects) return inner_ ? inner_->Indicate(count, objects) : E_POINTER;
+        std::vector<IWbemClassObject*> forwarded;
+        std::vector<WmiObject*> wrappers;
+        forwarded.reserve(static_cast<size_t>(count));
+        wrappers.reserve(static_cast<size_t>(count));
+        for (LONG index = 0; index < count; ++index) {
+            IWbemClassObject* raw = objects[index];
+            if (!raw || IsVirtualNetworkObject(raw)) continue;
+            raw->AddRef();
+            WmiObject* wrapper = new (std::nothrow) WmiObject(raw);
+            if (!wrapper) {
+                raw->Release();
+                for (WmiObject* previous : wrappers) previous->Release();
+                return E_OUTOFMEMORY;
+            }
+            wrappers.push_back(wrapper);
+            forwarded.push_back(wrapper);
+        }
+        HRESULT hr = S_OK;
+        if (!forwarded.empty()) {
+            hr = inner_->Indicate(static_cast<LONG>(forwarded.size()), forwarded.data());
+        }
+        for (WmiObject* wrapper : wrappers) wrapper->Release();
+        AuditEventRateLimited("wmi.sink", "async-filtered", nullptr,
+                              static_cast<unsigned long long>(forwarded.size()), true);
+        return hr;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetStatus(LONG flags, HRESULT result, BSTR message,
+                                        IWbemClassObject* param) override {
+        return inner_ ? inner_->SetStatus(flags, result, message, param) : E_POINTER;
+    }
+
+private:
+    IWbemObjectSink* inner_;
+};
+
+WmiSink* WrapSink(IWbemObjectSink* sink) {
+    if (!sink) return nullptr;
+    return new (std::nothrow) WmiSink(sink);
+}
+
 class WmiEnum : public IEnumWbemClassObject, public RefCounted {
 public:
     explicit WmiEnum(IEnumWbemClassObject* inner) : inner_(inner) {}
@@ -371,8 +434,11 @@ public:
         return S_FALSE;
     }
     HRESULT STDMETHODCALLTYPE NextAsync(ULONG count, IWbemObjectSink* sink) override {
-        AuditEventRateLimited("wmi.enum", "async-unwrapped");
-        return inner_->NextAsync(count, sink);
+        WmiSink* wrapped = WrapSink(sink);
+        if (sink && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->NextAsync(count, wrapped ? static_cast<IWbemObjectSink*>(wrapped) : sink);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE Clone(IEnumWbemClassObject** enumerator) override {
         if (!enumerator) return E_POINTER;
@@ -434,8 +500,12 @@ public:
     }
     HRESULT STDMETHODCALLTYPE GetObjectAsync(const BSTR path, long flags, IWbemContext* context,
                                              IWbemObjectSink* handler) override {
-        AuditEventRateLimited("wmi.services", "async-unwrapped");
-        return inner_->GetObjectAsync(path, flags, context, handler);
+        WmiSink* wrapped = WrapSink(handler);
+        if (handler && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->GetObjectAsync(path, flags, context,
+                                            wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE PutClass(IWbemClassObject* object, long flags, IWbemContext* context,
                                        IWbemCallResult** result) override {
@@ -443,7 +513,12 @@ public:
     }
     HRESULT STDMETHODCALLTYPE PutClassAsync(IWbemClassObject* object, long flags, IWbemContext* context,
                                             IWbemObjectSink* handler) override {
-        return inner_->PutClassAsync(object, flags, context, handler);
+        WmiSink* wrapped = WrapSink(handler);
+        if (handler && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->PutClassAsync(object, flags, context,
+                                           wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE DeleteClass(const BSTR name, long flags, IWbemContext* context,
                                           IWbemCallResult** result) override {
@@ -451,7 +526,12 @@ public:
     }
     HRESULT STDMETHODCALLTYPE DeleteClassAsync(const BSTR name, long flags, IWbemContext* context,
                                                IWbemObjectSink* handler) override {
-        return inner_->DeleteClassAsync(name, flags, context, handler);
+        WmiSink* wrapped = WrapSink(handler);
+        if (handler && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->DeleteClassAsync(name, flags, context,
+                                              wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE CreateClassEnum(const BSTR superclass, long flags, IWbemContext* context,
                                               IEnumWbemClassObject** enumerator) override {
@@ -463,7 +543,12 @@ public:
     }
     HRESULT STDMETHODCALLTYPE CreateClassEnumAsync(const BSTR superclass, long flags,
                                                    IWbemContext* context, IWbemObjectSink* handler) override {
-        return inner_->CreateClassEnumAsync(superclass, flags, context, handler);
+        WmiSink* wrapped = WrapSink(handler);
+        if (handler && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->CreateClassEnumAsync(superclass, flags, context,
+                                                  wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE PutInstance(IWbemClassObject* instance, long flags, IWbemContext* context,
                                           IWbemCallResult** result) override {
@@ -471,7 +556,12 @@ public:
     }
     HRESULT STDMETHODCALLTYPE PutInstanceAsync(IWbemClassObject* instance, long flags,
                                                IWbemContext* context, IWbemObjectSink* handler) override {
-        return inner_->PutInstanceAsync(instance, flags, context, handler);
+        WmiSink* wrapped = WrapSink(handler);
+        if (handler && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->PutInstanceAsync(instance, flags, context,
+                                              wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE DeleteInstance(const BSTR path, long flags, IWbemContext* context,
                                              IWbemCallResult** result) override {
@@ -479,7 +569,12 @@ public:
     }
     HRESULT STDMETHODCALLTYPE DeleteInstanceAsync(const BSTR path, long flags, IWbemContext* context,
                                                   IWbemObjectSink* handler) override {
-        return inner_->DeleteInstanceAsync(path, flags, context, handler);
+        WmiSink* wrapped = WrapSink(handler);
+        if (handler && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->DeleteInstanceAsync(path, flags, context,
+                                                 wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE CreateInstanceEnum(const BSTR filter, long flags, IWbemContext* context,
                                                  IEnumWbemClassObject** enumerator) override {
@@ -491,7 +586,12 @@ public:
     }
     HRESULT STDMETHODCALLTYPE CreateInstanceEnumAsync(const BSTR filter, long flags,
                                                       IWbemContext* context, IWbemObjectSink* handler) override {
-        return inner_->CreateInstanceEnumAsync(filter, flags, context, handler);
+        WmiSink* wrapped = WrapSink(handler);
+        if (handler && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->CreateInstanceEnumAsync(filter, flags, context,
+                                                     wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE ExecQuery(const BSTR language, const BSTR query, long flags,
                                         IWbemContext* context, IEnumWbemClassObject** enumerator) override {
@@ -503,8 +603,12 @@ public:
     }
     HRESULT STDMETHODCALLTYPE ExecQueryAsync(const BSTR language, const BSTR query, long flags,
                                              IWbemContext* context, IWbemObjectSink* handler) override {
-        AuditEventRateLimited("wmi.services", "query-async-unwrapped");
-        return inner_->ExecQueryAsync(language, query, flags, context, handler);
+        WmiSink* wrapped = WrapSink(handler);
+        if (handler && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->ExecQueryAsync(language, query, flags, context,
+                                            wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE ExecNotificationQuery(const BSTR language, const BSTR query, long flags,
                                                     IWbemContext* context,
@@ -518,7 +622,12 @@ public:
     HRESULT STDMETHODCALLTYPE ExecNotificationQueryAsync(const BSTR language, const BSTR query,
                                                          long flags, IWbemContext* context,
                                                          IWbemObjectSink* handler) override {
-        return inner_->ExecNotificationQueryAsync(language, query, flags, context, handler);
+        WmiSink* wrapped = WrapSink(handler);
+        if (handler && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->ExecNotificationQueryAsync(language, query, flags, context,
+                                                        wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE ExecMethod(const BSTR path, const BSTR method, long flags,
                                          IWbemContext* context, IWbemClassObject* inParams,
@@ -532,7 +641,12 @@ public:
     HRESULT STDMETHODCALLTYPE ExecMethodAsync(const BSTR path, const BSTR method, long flags,
                                               IWbemContext* context, IWbemClassObject* inParams,
                                               IWbemObjectSink* handler) override {
-        return inner_->ExecMethodAsync(path, method, flags, context, inParams, handler);
+        WmiSink* wrapped = WrapSink(handler);
+        if (handler && !wrapped) return E_OUTOFMEMORY;
+        HRESULT hr = inner_->ExecMethodAsync(path, method, flags, context, inParams,
+                                             wrapped ? static_cast<IWbemObjectSink*>(wrapped) : handler);
+        if (wrapped) wrapped->Release();
+        return hr;
     }
 
 private:

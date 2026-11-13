@@ -39,10 +39,25 @@ function Get-MitmCa {
         Where-Object { $_.Subject -match 'mitmproxy' })
 }
 
+function Get-CertificateThumbprintFromFile {
+    param([string]$Path)
+    try {
+        $certificate = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Path)
+        return $certificate.Thumbprint.Replace(' ', '').ToUpperInvariant()
+    } catch {
+        return $null
+    }
+}
+
 function Install-MitmCa {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
-    if ((Get-MitmCa).Count -gt 0) { return $true }
+    $expectedThumbprint = Get-CertificateThumbprintFromFile -Path $Path
+    if ([string]::IsNullOrWhiteSpace($expectedThumbprint)) { return $false }
+    $existing = @(Get-MitmCa | Where-Object {
+        $_.Thumbprint.Replace(' ', '').ToUpperInvariant() -eq $expectedThumbprint
+    })
+    if ($existing.Count -gt 0) { return $true }
     $process = Start-Process -FilePath 'certutil.exe' `
         -ArgumentList @('-user', '-addstore', 'Root', $Path) `
         -PassThru -WindowStyle Hidden
@@ -54,11 +69,21 @@ function Install-MitmCa {
     if (-not $process.HasExited) {
         try { $process.Kill() } catch { }
     }
-    return ((Get-MitmCa).Count -gt 0)
+    return (@(Get-MitmCa | Where-Object {
+        $_.Thumbprint.Replace(' ', '').ToUpperInvariant() -eq $expectedThumbprint
+    }).Count -gt 0)
 }
 
 function Remove-MitmCa {
-    $certs = @(Get-MitmCa)
+    param([string]$Path)
+    $thumbprint = $null
+    if (-not [string]::IsNullOrWhiteSpace($Path)) {
+        $thumbprint = Get-CertificateThumbprintFromFile -Path $Path
+    }
+    $certs = @(Get-MitmCa | Where-Object {
+        [string]::IsNullOrWhiteSpace($thumbprint) -or
+        $_.Thumbprint.Replace(' ', '').ToUpperInvariant() -eq $thumbprint
+    })
     if ($certs.Count -eq 0) { return $true }
     foreach ($cert in $certs) {
         $process = Start-Process -FilePath 'certutil.exe' `
@@ -73,5 +98,10 @@ function Remove-MitmCa {
             try { $process.Kill() } catch { }
         }
     }
-    return ((Get-MitmCa).Count -eq 0)
+    if ([string]::IsNullOrWhiteSpace($thumbprint)) {
+        return ((Get-MitmCa).Count -eq 0)
+    }
+    return (@(Get-MitmCa | Where-Object {
+        $_.Thumbprint.Replace(' ', '').ToUpperInvariant() -eq $thumbprint
+    }).Count -eq 0)
 }

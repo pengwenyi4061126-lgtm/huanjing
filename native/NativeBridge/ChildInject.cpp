@@ -19,9 +19,16 @@ typedef BOOL (WINAPI* PFN_CreateProcessW)(LPCWSTR, LPWSTR, LPSECURITY_ATTRIBUTES
 typedef BOOL (WINAPI* PFN_CreateProcessInternalW)(HANDLE, LPCWSTR, LPWSTR, LPSECURITY_ATTRIBUTES,
                                                   LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCWSTR,
                                                   LPSTARTUPINFOW, LPPROCESS_INFORMATION, PHANDLE);
+typedef BOOL (WINAPI* PFN_CreateProcessAsUserW)(HANDLE, LPCWSTR, LPWSTR, LPSECURITY_ATTRIBUTES,
+                                                LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCWSTR,
+                                                LPSTARTUPINFOW, LPPROCESS_INFORMATION);
+typedef BOOL (WINAPI* PFN_CreateProcessWithTokenW)(HANDLE, DWORD, LPCWSTR, LPWSTR, DWORD, LPVOID,
+                                                   LPCWSTR, LPSTARTUPINFOW, LPPROCESS_INFORMATION);
 
 PFN_CreateProcessW g_origCreateProcessW = nullptr;
 PFN_CreateProcessInternalW g_origCreateProcessInternalW = nullptr;
+PFN_CreateProcessAsUserW g_origCreateProcessAsUserW = nullptr;
+PFN_CreateProcessWithTokenW g_origCreateProcessWithTokenW = nullptr;
 thread_local bool g_inProcessCreation = false;
 
 typedef NTSTATUS (NTAPI* PFN_NtCreateUserProcess)(PHANDLE, PHANDLE, ACCESS_MASK, ACCESS_MASK,
@@ -232,6 +239,68 @@ BOOL WINAPI HookCreateProcessInternalW(HANDLE token, LPCWSTR application, LPWSTR
     return TRUE;
 }
 
+BOOL WINAPI HookCreateProcessAsUserW(HANDLE token, LPCWSTR application, LPWSTR commandLine,
+                                     LPSECURITY_ATTRIBUTES processAttributes,
+                                     LPSECURITY_ATTRIBUTES threadAttributes, BOOL inheritHandles,
+                                     DWORD creationFlags, LPVOID environment, LPCWSTR currentDirectory,
+                                     LPSTARTUPINFOW startupInfo, LPPROCESS_INFORMATION processInformation) {
+    if (!g_origCreateProcessAsUserW) return FALSE;
+    if (g_inProcessCreation) {
+        return g_origCreateProcessAsUserW(token, application, commandLine, processAttributes,
+                                          threadAttributes, inheritHandles, creationFlags, environment,
+                                          currentDirectory, startupInfo, processInformation);
+    }
+    std::wstring dllPath;
+    const bool inject = PrepareInjection(application, commandLine, dllPath);
+    bool forcedSuspend = false;
+    DWORD effectiveFlags = creationFlags;
+    if (inject && !(effectiveFlags & CREATE_SUSPENDED)) {
+        effectiveFlags |= CREATE_SUSPENDED;
+        forcedSuspend = true;
+    }
+    const bool previous = g_inProcessCreation;
+    g_inProcessCreation = true;
+    const BOOL created = g_origCreateProcessAsUserW(token, application, commandLine, processAttributes,
+                                                    threadAttributes, inheritHandles, effectiveFlags,
+                                                    environment, currentDirectory, startupInfo,
+                                                    processInformation);
+    g_inProcessCreation = previous;
+    if (!created) return FALSE;
+    FinishInjection(dllPath, inject, forcedSuspend, processInformation);
+    if (inject) AuditEventRateLimited("native.child", "entry", "CreateProcessAsUserW");
+    return TRUE;
+}
+
+BOOL WINAPI HookCreateProcessWithTokenW(HANDLE token, DWORD logonFlags, LPCWSTR application,
+                                        LPWSTR commandLine, DWORD creationFlags, LPVOID environment,
+                                        LPCWSTR currentDirectory, LPSTARTUPINFOW startupInfo,
+                                        LPPROCESS_INFORMATION processInformation) {
+    if (!g_origCreateProcessWithTokenW) return FALSE;
+    if (g_inProcessCreation) {
+        return g_origCreateProcessWithTokenW(token, logonFlags, application, commandLine,
+                                             creationFlags, environment, currentDirectory,
+                                             startupInfo, processInformation);
+    }
+    std::wstring dllPath;
+    const bool inject = PrepareInjection(application, commandLine, dllPath);
+    bool forcedSuspend = false;
+    DWORD effectiveFlags = creationFlags;
+    if (inject && !(effectiveFlags & CREATE_SUSPENDED)) {
+        effectiveFlags |= CREATE_SUSPENDED;
+        forcedSuspend = true;
+    }
+    const bool previous = g_inProcessCreation;
+    g_inProcessCreation = true;
+    const BOOL created = g_origCreateProcessWithTokenW(token, logonFlags, application, commandLine,
+                                                       effectiveFlags, environment, currentDirectory,
+                                                       startupInfo, processInformation);
+    g_inProcessCreation = previous;
+    if (!created) return FALSE;
+    FinishInjection(dllPath, inject, forcedSuspend, processInformation);
+    if (inject) AuditEventRateLimited("native.child", "entry", "CreateProcessWithTokenW");
+    return TRUE;
+}
+
 std::wstring UnicodeValue(const UNICODE_STRING& value) {
     if (!value.Buffer || value.Length == 0) return std::wstring();
     return std::wstring(value.Buffer, value.Length / sizeof(wchar_t));
@@ -289,6 +358,12 @@ void InstallChildInjection() {
     InstallHookInlinePrimary("kernel32.dll", "CreateProcessInternalW",
                              reinterpret_cast<void*>(&HookCreateProcessInternalW),
                              reinterpret_cast<void**>(&g_origCreateProcessInternalW));
+    InstallHookInlinePrimary("advapi32.dll", "CreateProcessAsUserW",
+                             reinterpret_cast<void*>(&HookCreateProcessAsUserW),
+                             reinterpret_cast<void**>(&g_origCreateProcessAsUserW));
+    InstallHookInlinePrimary("advapi32.dll", "CreateProcessWithTokenW",
+                             reinterpret_cast<void*>(&HookCreateProcessWithTokenW),
+                             reinterpret_cast<void**>(&g_origCreateProcessWithTokenW));
     InstallHookInlinePrimary("ntdll.dll", "NtCreateUserProcess",
                              reinterpret_cast<void*>(&HookNtCreateUserProcess),
                              reinterpret_cast<void**>(&g_origNtCreateUserProcess));

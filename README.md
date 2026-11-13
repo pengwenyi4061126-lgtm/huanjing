@@ -2,7 +2,7 @@
 
 Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征，遥测正常流转。
 
-当前版本：`1.0.38`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+当前版本：`1.0.39`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
 ## 功能
 
@@ -115,6 +115,14 @@ Windows 版本的隔离边界是**进程级 Profile 隔离 + Node 用户态 Hook
 
 Native 层始终只做用户态返回值和用户态指令入口处理。它不会加载驱动、不会修改 NDIS/WFP，也不会改变物理硬件；内核设备对象和物理层仍是同一台机器。
 
+发布前一致性检查：
+
+```powershell
+npm run audit:release
+npm run audit:native
+npm run audit:desktop -- -Profile profile-a -RequireChild
+```
+
 Native 读取策略默认为 `profile`，保证返回值具有一致的 Profile 语义。将当前 Profile 的 `native_read_policy` 写为 `empty` 后，NativeBridge 会对已覆盖的设备身份读取返回空字符串、零序列号、无固件数据、无 WMI 属性或无设备枚举结果；`cpuid_mode` 默认为 `neutral`，在 `empty` 策略下自动改为 `empty`。`empty` 模式作用于主进程、renderer/utility 子进程和 WMI 同步查询；内核回调、NDIS/WFP 过滤器和物理固件仍不在覆盖范围。
 
 启用某个 Code Profile 的严格空值策略：
@@ -185,7 +193,7 @@ Claude Desktop 拒绝 `--remote-debugging-port` / `--remote-debugging-pipe` / `-
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Fingerprint
 ```
 
-启动器会生成 `fingerprint.json`，启动 `mitmdump`，安装 mitmproxy CA 到 CurrentUser Root，并给 Claude 加 `--proxy-server=http://127.0.0.1:<port>`。登录页和 hCaptcha iframe 的 HTML 会注入 `fingerprint-shim.js`。
+启动器会生成 Profile 内的 `fingerprint.json`，使用 Profile 专属的 `mitmproxy` `confdir` 启动 `mitmdump`，安装该 Profile CA 到 CurrentUser Root，并给 Claude 加 `--proxy-server=http://127.0.0.1:<port>`。登录页和 hCaptcha iframe 的 HTML 会注入 `fingerprint-shim.js`。证书校验按当前 Profile CA 的 SHA-1 指纹匹配，不按宽泛 Subject 匹配。
 
 实测：
 
@@ -202,8 +210,10 @@ probe {"hc":24,"tz":"Asia/Shanghai","offset":-480,"persona":true}
 CA 安装/删除已改为静默自动化：`cert-silent.ps1` 检测标准安全警告窗口并自动确认，不再需要手动点击。删除命令：
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action remove-ca
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action remove-ca -Profile work
 ```
+
+不传 `-Profile` 时会清理当前用户证书存储中 Subject 含 `mitmproxy` 的证书；传入 `-Profile` 时只按该 Profile 的 CA 文件指纹删除。Windows CurrentUser Root 本身是用户级共享证书存储，因此 Profile 隔离依赖“独立 CA 文件 + 精确指纹删除”，不能宣称证书存储是内核级隔离。
 
 ### 内核 / NDIS / WFP / 物理硬件边界
 

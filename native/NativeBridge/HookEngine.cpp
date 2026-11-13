@@ -48,6 +48,10 @@ int DecodePrologueInstruction(const BYTE* p, int available) {
     // endbr64
     if (available >= 4 && p[0] == 0xF3 && p[1] == 0x0F && p[2] == 0x1E && p[3] == 0xFA) return 4;
 
+    // x64 RIP-relative import/export forwarder: jmp qword ptr [rip+disp32]
+    if (available >= 6 && p[0] == 0xFF && p[1] == 0x25) return 6;
+    if (available >= 7 && p[0] == 0x48 && p[1] == 0xFF && p[2] == 0x25) return 7;
+
     // REX.W mov [rsp+disp8], r64  (48/4C 89 /r, mod=01, rm=100)
     if (available >= 5 && (p[0] == 0x48 || p[0] == 0x4C) && p[1] == 0x89 &&
         (p[2] & 0xC7) == 0x44 && p[3] == 0x24) {
@@ -74,9 +78,13 @@ int DecodePrologueInstruction(const BYTE* p, int available) {
     if (available >= 4 && p[0] == 0x48 && p[1] == 0x83 && p[2] == 0xEC) return 4;
     if (available >= 7 && p[0] == 0x48 && p[1] == 0x81 && p[2] == 0xEC) return 7;
 
-    // push r64 with or without REX
-    if (available >= 2 && p[0] == 0x40 && p[1] >= 0x50 && p[1] <= 0x57) return 2;
+    // push r64 with a REX prefix
+    if (available >= 2 && (p[0] & 0xF8) == 0x40 && p[1] >= 0x50 && p[1] <= 0x57) return 2;
     if (p[0] >= 0x50 && p[0] <= 0x57) return 1;
+
+    // REX.W mov r64, r/m64 with a register or simple disp8 memory operand.
+    if (available >= 4 && p[0] == 0x48 && p[1] == 0x89 &&
+        (p[2] & 0xC0) == 0x40 && (p[2] & 0x07) != 0x04) return 4;
 
     // mov rax/rbx, rsp
     if (available >= 3 && p[0] == 0x48 && p[1] == 0x8B && (p[2] == 0xC4 || p[2] == 0xDC)) return 3;
@@ -87,9 +95,8 @@ int DecodePrologueInstruction(const BYTE* p, int available) {
     // and qword ptr [rsp+disp8], imm8
     if (available >= 6 && p[0] == 0x48 && p[1] == 0x83 && p[2] == 0x64 && p[3] == 0x24) return 6;
 
-    // mov r10, rcx and friends (hotpatch prologues)
-    if (available >= 3 && p[0] == 0x4C && p[1] == 0x8B &&
-        (p[2] == 0xD1 || p[2] == 0xD9 || p[2] == 0xDC)) {
+    // mov r64, r/m64 register prologues (including mov r8, rax)
+    if (available >= 3 && p[0] == 0x4C && p[1] == 0x8B && (p[2] & 0xC0) == 0xC0) {
         return 3;
     }
 

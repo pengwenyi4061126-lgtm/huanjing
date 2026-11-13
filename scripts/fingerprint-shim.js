@@ -143,9 +143,21 @@
     if (persona.hardwareConcurrency) getter(nav, 'hardwareConcurrency', Number(persona.hardwareConcurrency));
     if (persona.deviceMemory) getter(nav, 'deviceMemory', Number(persona.deviceMemory));
     if (persona.platform) getter(nav, 'platform', String(persona.platform));
+    if (persona.maxTouchPoints != null) getter(nav, 'maxTouchPoints', Number(persona.maxTouchPoints));
+    getter(nav, 'webdriver', false);
     if (persona.languages && persona.languages.length) {
       getter(nav, 'language', String(persona.languages[0]));
       getter(nav, 'languages', Object.freeze(persona.languages.map(String)));
+    }
+    if (persona.connection) {
+      const connection = Object.assign({
+        effectiveType: '4g',
+        rtt: 50,
+        downlink: 10,
+        saveData: false,
+        onchange: null,
+      }, persona.connection);
+      getter(nav, 'connection', connection);
     }
     if (persona.ua) getter(nav, 'userAgent', String(persona.ua));
     if (persona.uaBrands && persona.uaBrands.length) {
@@ -172,6 +184,10 @@
         if (persona.screen[key] != null) getter(screenProto, key, Number(persona.screen[key]));
       }
       if (persona.screen.dpr != null) getter(Window.prototype, 'devicePixelRatio', Number(persona.screen.dpr));
+      if (persona.screen.width != null) getter(Window.prototype, 'innerWidth', Number(persona.screen.width));
+      if (persona.screen.height != null) getter(Window.prototype, 'innerHeight', Number(persona.screen.height));
+      if (persona.screen.width != null) getter(Window.prototype, 'outerWidth', Number(persona.screen.width));
+      if (persona.screen.height != null) getter(Window.prototype, 'outerHeight', Number(persona.screen.height));
     }
   } catch (_) {}
 

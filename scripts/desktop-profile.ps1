@@ -31,6 +31,7 @@ $script:LayoutFolders = @(
     'home\AppData\Roaming\Claude',
     'home\AppData\Local\Claude-3p',
     'home\AppData\Roaming\Claude-3p',
+    'mitmproxy',
     'temp',
     'audit',
     'logs'
@@ -156,8 +157,17 @@ function Initialize-ProfilePersona {
         locale              = $locale
         languages           = @($languages)
         platform            = 'Win32'
+        maxTouchPoints      = 0
+        uaMobile            = $false
+        uaPlatform          = 'Windows'
         hardwareConcurrency = $cores
         deviceMemory        = $memoryGb
+        connection          = [ordered]@{
+            effectiveType = '4g'
+            rtt           = 50
+            downlink      = 10
+            saveData      = $false
+        }
         screen              = [ordered]@{
             width      = $width
             height     = $height
@@ -214,6 +224,7 @@ function Get-ProfilePaths {
         Temp             = (Join-Path $root 'temp')
         ClaudeDir        = (Join-Path $root 'Claude')
         Claude3pDir      = (Join-Path $root 'Claude-3p')
+        MitmDir          = (Join-Path $root 'mitmproxy')
         AuditDir         = (Join-Path $root 'audit')
         LogsDir          = (Join-Path $root 'logs')
         UserDataDir      = (Join-Path $root 'home\AppData\Roaming\Claude')
@@ -302,10 +313,34 @@ function Get-PathSummary {
 function Get-ProfileState {
     param([psobject]$Paths)
     $userData = $Paths.UserDataDir
+    $trackedPaths = @(
+        $Paths.Root,
+        $Paths.Home,
+        $Paths.AppData,
+        $Paths.LocalAppData,
+        $Paths.Temp,
+        $Paths.MitmDir,
+        $userData,
+        (Join-Path $Paths.LocalAppData 'Claude-3p'),
+        (Join-Path $Paths.AppData 'Claude-3p'),
+        (Join-Path $userData 'sessions'),
+        (Join-Path $userData 'Crashpad'),
+        (Join-Path $userData 'Local State'),
+        (Join-Path $userData 'Network\Cookies')
+    ) | ForEach-Object { [System.IO.Path]::GetFullPath($_) }
+    $rootPrefix = ([System.IO.Path]::GetFullPath($Paths.Root)).TrimEnd('\') + '\'
+    $outsideRoot = @($trackedPaths | Where-Object {
+        -not $_.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase) -and
+        -not [string]::Equals($_, $Paths.Root, [StringComparison]::OrdinalIgnoreCase)
+    })
     return [ordered]@{
+        root             = [System.IO.Path]::GetFullPath($Paths.Root)
+        trackedPaths     = @($trackedPaths)
+        outsideRootPaths = @($outsideRoot)
         userData        = Get-PathSummary $userData
         claude3pLocal   = Get-PathSummary (Join-Path $Paths.LocalAppData 'Claude-3p')
         claude3pRoaming = Get-PathSummary (Join-Path $Paths.AppData 'Claude-3p')
+        mitmproxy       = Get-PathSummary $Paths.MitmDir
         sessions        = Get-PathSummary (Join-Path $userData 'sessions')
         crashpad        = Get-PathSummary (Join-Path $userData 'Crashpad')
         config          = Get-PathSummary (Join-Path $userData 'claude_desktop_config.json')
@@ -489,6 +524,44 @@ function Start-ClaudeDesktop {
     $mitmPort = $null
     $mitmPidFile = $null
     $personaPath = $null
+
+    # Fail before starting MITM or touching the profile when the Desktop process
+    # is already active or the requested WindowsApps path is unavailable. The
+    # second check below remains for races between preflight and CreateProcess.
+    $preflightRunning = @(Get-ClaudeDesktopProcesses -ExePath $ExePath)
+    if ($preflightRunning.Count -gt 0) {
+        Write-Host "[BLOCKED] Claude Desktop is already running." -ForegroundColor Yellow
+        foreach ($process in $preflightRunning) {
+            Write-Host ("          PID {0}" -f $process.Id) -ForegroundColor DarkGray
+        }
+        return [pscustomobject]@{
+            started        = $false
+            blocked        = $true
+            error          = $null
+            mode           = $null
+            processId      = $null
+            launchFile     = $null
+            arguments      = $null
+            userDataDir    = $Paths.UserDataDir
+            nativeRequested = $UseInject
+            nativeUsed     = $false
+        }
+    }
+    if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
+        return [pscustomobject]@{
+            started        = $false
+            blocked        = $false
+            error          = "Executable not found: $ExePath"
+            mode           = $null
+            processId      = $null
+            launchFile     = $null
+            arguments      = $null
+            userDataDir    = $Paths.UserDataDir
+            nativeRequested = $UseInject
+            nativeUsed     = $false
+        }
+    }
+
     if ($UseFingerprint) {
         $mitm = (Get-Command mitmdump -ErrorAction SilentlyContinue).Source
         if (-not $mitm) {
@@ -519,8 +592,10 @@ function Start-ClaudeDesktop {
             $env:CAC_SHIM = $shim
             $env:CAC_MITM_LOG = Join-Path $Paths.LogsDir 'mitm-fingerprint.log'
             $env:CAC_MITM_PIDFILE = $mitmPidFile
-            $mitmProcess = Start-Process -FilePath $mitm `
-                -ArgumentList @('-q', '-s', $addon, '--listen-port', "$mitmPort") `
+        New-Item -ItemType Directory -Path $Paths.MitmDir -Force | Out-Null
+        $mitmProcess = Start-Process -FilePath $mitm `
+            -ArgumentList @('-q', '-s', $addon, '--listen-port', "$mitmPort",
+                '--set', "confdir=$($Paths.MitmDir)") `
                 -PassThru -WindowStyle Hidden
         } finally {
             foreach ($name in $saved.Keys) {
@@ -538,7 +613,7 @@ function Start-ClaudeDesktop {
                 Start-Sleep -Milliseconds 200
             }
         } while ((Get-Date) -lt $deadline)
-        $ca = Join-Path $env:USERPROFILE '.mitmproxy\mitmproxy-ca-cert.cer'
+        $ca = Join-Path $Paths.MitmDir 'mitmproxy-ca-cert.cer'
         if (Test-Path -LiteralPath $ca -PathType Leaf) {
             [void](Install-MitmCa -Path $ca)
         }
@@ -975,12 +1050,17 @@ function Invoke-AbAction {
         $pathsDiffer = -not [string]::Equals([string]$antA.path, [string]$antB.path, [StringComparison]::OrdinalIgnoreCase)
         $hashesDiffer = -not [string]::Equals([string]$antA.sha256, [string]$antB.sha256, [StringComparison]::OrdinalIgnoreCase)
     }
-    $passed = ($bothExist -and $pathsDiffer -and $hashesDiffer)
-
     $stopAClean = ($null -eq $stopA) -or (@($stopA.remainingPids).Count -eq 0)
     $stopBClean = ($null -eq $stopB) -or (@($stopB.remainingPids).Count -eq 0)
     $stateA = Get-ProfileState -Paths $pathsA
     $stateB = Get-ProfileState -Paths $pathsB
+    $trackedA = @($stateA.trackedPaths)
+    $trackedB = @($stateB.trackedPaths)
+    $pathOverlap = @($trackedA | Where-Object { $trackedB -contains $_ })
+    $pathBoundaryOk = ($pathOverlap.Count -eq 0 -and
+        @($stateA.outsideRootPaths).Count -eq 0 -and
+        @($stateB.outsideRootPaths).Count -eq 0)
+    $passed = ($bothExist -and $pathsDiffer -and $hashesDiffer -and $pathBoundaryOk)
 
     $launchAEvidence = $null
     if ($null -ne $launchA) { $launchAEvidence = ConvertTo-LaunchEvidence -Launch $launchA -StopResult $stopA }
@@ -1011,11 +1091,13 @@ function Invoke-AbAction {
             bothExist    = [bool]$bothExist
             pathsDiffer  = [bool]$pathsDiffer
             hashesDiffer = [bool]$hashesDiffer
+            pathBoundaryOk = [bool]$pathBoundaryOk
+            pathOverlap = @($pathOverlap)
             stopAClean   = [bool]$stopAClean
             stopBClean   = [bool]$stopBClean
         }
         result       = $(if ($passed -and $stopAClean -and $stopBClean) { 'PASS' } else { 'FAIL' })
-        note         = 'Only ant-did metadata (path, length, LastWriteTime, SHA-256) is recorded; file contents are never printed.'
+        note         = 'Records ant-did metadata and verifies that the sensitive Desktop paths for profile-a/profile-b are disjoint and remain under their own roots. It does not prove kernel or DPAPI isolation.'
     }
 
     $evidencePath = Join-Path $pathsA.AuditDir 'desktop-ab.json'
@@ -1027,6 +1109,7 @@ function Invoke-AbAction {
     Write-AntDidInfo -Info $antB
     Write-Host ("[AB] bothExist={0} pathsDiffer={1} hashesDiffer={2}" -f
         $bothExist, $pathsDiffer, $hashesDiffer)
+    Write-Host ("[AB] pathBoundaryOk={0} overlap={1}" -f $pathBoundaryOk, $pathOverlap.Count)
     Write-Host "  evidence: $evidencePath" -ForegroundColor DarkGray
 
     Write-Host ("[AB] profile-a userData: exists={0} files={1} bytes={2}" -f
@@ -1081,8 +1164,16 @@ function Invoke-CleanupAction {
 }
 
 function Invoke-RemoveCaAction {
-    if (Remove-MitmCa) {
-        Write-Host "[CA] mitmproxy root certificate removed" -ForegroundColor Green
+    $caPath = $null
+    if ($Profile -and (Test-ProfileName $Profile)) {
+        $caPath = Join-Path (Get-ProfilePaths -Name $Profile).MitmDir 'mitmproxy-ca-cert.cer'
+    }
+    if (Remove-MitmCa -Path $caPath) {
+        if ($caPath) {
+            Write-Host "[CA] Profile mitmproxy root certificate removed: $caPath" -ForegroundColor Green
+        } else {
+            Write-Host "[CA] mitmproxy root certificates removed" -ForegroundColor Green
+        }
         return 0
     }
     Write-Host "[CA] mitmproxy root certificate is still present" -ForegroundColor Red

@@ -18,12 +18,13 @@ add_library(NativeBridge SHARED
 )
 target_compile_definitions(NativeBridge PRIVATE _WIN32_WINNT=0x0A00 WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 target_compile_options(NativeBridge PRIVATE /guard:cf)
-target_link_options(NativeBridge PRIVATE /guard:cf)
+target_link_options(NativeBridge PRIVATE /guard:cf /Brepro)
 target_link_libraries(NativeBridge PRIVATE iphlpapi bcrypt wbemuuid ole32 oleaut32)
 
 add_executable(cac-native-launch Launcher/main.cpp)
 target_compile_definitions(cac-native-launch PRIVATE _WIN32_WINNT=0x0A00 WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 target_include_directories(cac-native-launch PRIVATE "${CMAKE_SOURCE_DIR}/obj")
+target_link_options(cac-native-launch PRIVATE /Brepro)
 target_link_libraries(cac-native-launch PRIVATE bcrypt)
 
 set_target_properties(NativeBridge cac-native-launch PROPERTIES

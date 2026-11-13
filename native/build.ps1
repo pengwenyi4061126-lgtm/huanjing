@@ -52,7 +52,7 @@ try {
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
         $dllSources `
         "/Fo$obj\" "/Fe:$dist\NativeBridge.dll" `
-        /link /DLL /guard:cf iphlpapi.lib bcrypt.lib wbemuuid.lib ole32.lib oleaut32.lib
+        /link /DLL /guard:cf /Brepro iphlpapi.lib bcrypt.lib wbemuuid.lib ole32.lib oleaut32.lib
     if ($LASTEXITCODE -ne 0) { throw "NativeBridge.dll build failed ($LASTEXITCODE)" }
 
     $dllPath = Join-Path $dist "NativeBridge.dll"
@@ -66,7 +66,7 @@ try {
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
         "/I$obj" `
         (Join-Path $root "Launcher\main.cpp") `
-        "/Fo$obj\" "/Fe:$dist\cac-native-launch.exe" /link /guard:cf
+        "/Fo$obj\" "/Fe:$dist\cac-native-launch.exe" /link /guard:cf /Brepro
     if ($LASTEXITCODE -ne 0) { throw "cac-native-launch.exe build failed ($LASTEXITCODE)" }
 } finally {
     Pop-Location

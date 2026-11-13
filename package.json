@@ -1,6 +1,6 @@
 {
   "name": "cac-windows",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "description": "Claude Code Windows privacy tool — binary patches to remove Chinese identity markers.",
   "bin": {
     "cac": "cac"
@@ -17,12 +17,14 @@
     "scripts/network-check.ps1",
     "scripts/profile-check.ps1",
     "scripts/native-boundary-check.ps1",
+    "scripts/desktop-native-check.ps1",
     "scripts/desktop-profile.ps1",
     "scripts/fingerprint-shim.js",
     "scripts/fingerprint-cdp.js",
     "scripts/fingerprint-test.js",
     "scripts/mitm_fingerprint.py",
     "scripts/cert-silent.ps1",
+    "scripts/release-check.ps1",
     "scripts/cleanup.ps1",
     "fingerprint-hook.js",
     "native/README.md",
@@ -40,7 +42,11 @@
     "LICENSE"
   ],
   "scripts": {
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "audit:release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/release-check.ps1",
+    "audit:profiles": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/profile-check.ps1",
+    "audit:native": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/native-boundary-check.ps1",
+    "audit:desktop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-native-check.ps1"
   },
   "keywords": [
     "claude",

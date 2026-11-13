@@ -76,6 +76,11 @@ $nativeEvidence = [ordered]@{
     events = 0
     surfaces = @()
     apiInstalled = $false
+    apiInstallComplete = $false
+    apiInstallFailures = 0
+    apiInstallNotImported = 0
+    apiInstallFailureDetails = @()
+    apiInstallHealthy = $false
     cpuidHooked = $false
     xgetbvHooked = $false
     delayImports = $false
@@ -113,9 +118,46 @@ if ($EnvName -and (Test-ProfileName $EnvName)) {
         $nativeEvents = @(Get-Content -LiteralPath $nativeEvidence.path -ErrorAction SilentlyContinue |
             ForEach-Object { try { $_ | ConvertFrom-Json } catch { $null } } |
             Where-Object { $null -ne $_ })
+        $attachIndexes = @()
+        for ($index = 0; $index -lt $nativeEvents.Count; $index++) {
+            if ($nativeEvents[$index].surface -eq 'native.bridge' -and
+                $nativeEvents[$index].action -eq 'attach') {
+                $attachIndexes += $index
+            }
+        }
+        $sessionStart = if ($attachIndexes.Count -gt 0) {
+            [int]$attachIndexes[$attachIndexes.Count - 1]
+        } else { 0 }
+        $childEvents = @($nativeEvents | Where-Object {
+            $_.surface -eq 'native.child' -and $_.action -in @('injected', 'launcher-injected')
+        })
+        if ($childEvents.Count -gt 0) {
+            $lastChild = $childEvents[$childEvents.Count - 1]
+            $rootPid = [uint32]$lastChild.pid
+            $rootAttachIndexes = @($attachIndexes | Where-Object {
+                [uint32]$nativeEvents[[int]$_].pid -eq $rootPid
+            })
+            if ($rootAttachIndexes.Count -gt 0) {
+                $sessionStart = [int]$rootAttachIndexes[$rootAttachIndexes.Count - 1]
+            }
+        }
+        $nativeEvents = @($nativeEvents | Select-Object -Skip $sessionStart)
         $nativeEvidence.events = $nativeEvents.Count
         $nativeEvidence.surfaces = @($nativeEvents | Select-Object -ExpandProperty surface -Unique)
-        $nativeEvidence.apiInstalled = @($nativeEvents | Where-Object { $_.surface -eq "api.install" -and $_.action -eq "complete" }).Count -gt 0
+        $nativeEvidence.apiInstallComplete = @($nativeEvents | Where-Object { $_.surface -eq "api.install" -and $_.action -eq "complete" }).Count -gt 0
+        $failureEvents = @($nativeEvents | Where-Object {
+                $_.surface -eq "api.install" -and $_.action -in @("refused", "missing", "inline-refused", "inline-missing")
+            })
+        $nativeEvidence.apiInstallFailures = $failureEvents.Count
+        $nativeEvidence.apiInstallFailureDetails = @($failureEvents | ForEach-Object {
+                [ordered]@{ action = $_.action; detail = $_.detail }
+            })
+        $nativeEvidence.apiInstallNotImported = @($nativeEvents | Where-Object {
+                $_.surface -eq "api.install" -and $_.action -eq "not-imported"
+            }).Count
+        $nativeEvidence.apiInstallHealthy = $nativeEvidence.apiInstallComplete -and
+            $nativeEvidence.apiInstallFailures -eq 0
+        $nativeEvidence.apiInstalled = $nativeEvidence.apiInstallHealthy
         $nativeEvidence.cpuidHooked = @($nativeEvents | Where-Object { $_.surface -eq "cpu.install" -and $_.action -eq "installed" -and $_.detail -eq "cpuid" }).Count -gt 0
         $nativeEvidence.xgetbvHooked = @($nativeEvents | Where-Object { $_.surface -eq "cpu.install" -and $_.action -eq "installed" -and $_.detail -eq "xgetbv" }).Count -gt 0
         $nativeEvidence.delayImports = @($nativeEvents | Where-Object { $_.surface -eq "api.install" -and $_.detail -match 'delay=[1-9]' }).Count -gt 0
@@ -158,7 +200,11 @@ try {
 
 $researchRoot = "E:\claude"
 $nativeUserlandState = "NOT_INSTALLED"
-if ($nativeEvidence.apiInstalled) { $nativeUserlandState = "INSTALLED" }
+if ($nativeEvidence.apiInstallComplete -and $nativeEvidence.apiInstallFailures -gt 0) {
+    $nativeUserlandState = "PARTIAL_FAILURE"
+} elseif ($nativeEvidence.apiInstallHealthy) {
+    $nativeUserlandState = "INSTALLED_WITHOUT_FAILURES"
+}
 $cpuidState = "NOT_COLLECTED"
 if ($nativeEvidence.cpuidHooked) { $cpuidState = "HOOKED_MANIFEST_BOUND" }
 $xgetbvState = "NOT_COLLECTED"
@@ -189,6 +235,11 @@ $evidence = [ordered]@{
         nodeHookPresent = $hookEvidence.present
         nodeHookIsHardwareProof = $false
         nativeUserland = $nativeUserlandState
+        apiInstallComplete = $nativeEvidence.apiInstallComplete
+        apiInstallHealthy = $nativeEvidence.apiInstallHealthy
+        apiInstallFailures = $nativeEvidence.apiInstallFailures
+        apiInstallNotImported = $nativeEvidence.apiInstallNotImported
+        apiInstallFailureDetails = $nativeEvidence.apiInstallFailureDetails
         cpuid = $cpuidState
         xgetbv = $xgetbvState
         deviceIoControl = $deviceIoState
@@ -260,3 +311,7 @@ Write-Host ("  WMI/COM: {0}" -f $(if ($nativeEvidence.wmiWrapped) { "WRAPPED" } 
 Write-Host ("  Network mode: {0} (clean events: {1})" -f $nativeEvidence.networkMode, $nativeEvidence.networkCleanEvents) -ForegroundColor Yellow
 Write-Host "  Evidence: $outPath" -ForegroundColor DarkGray
 Write-Host ""
+if ($EnvName -and $nativeEvidence.present -and $nativeEvidence.apiInstallFailures -gt 0) {
+    Write-Host ("[FAIL] Native API installation reported {0} refused/missing hook(s)." -f $nativeEvidence.apiInstallFailures) -ForegroundColor Red
+    exit 1
+}

@@ -1103,7 +1103,9 @@ void InstallOne(const char* dllName, const char* functionName, void* detour, voi
 
     void* target = ResolveExport(dllName, functionName);
     if (!target) {
-        AuditEvent("api.install", "missing", dllName);
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
+        AuditEvent("api.install", "missing", detail);
         return;
     }
     void* trampoline = nullptr;
@@ -1112,7 +1114,9 @@ void InstallOne(const char* dllName, const char* functionName, void* detour, voi
         if (original && *original == nullptr) *original = trampoline;
         AuditEvent("api.install", "inline", functionName);
     } else {
-        AuditEvent("api.install", "refused", error.c_str());
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s: %s", dllName, functionName, error.c_str());
+        AuditEvent("api.install", "refused", detail);
     }
 }
 
@@ -1129,10 +1133,14 @@ void InstallInlineThenIat(const char* dllName, const char* functionName, void* d
             if (original) *original = trampoline;
             AuditEvent("api.install", "inline-primary", functionName);
         } else {
-            AuditEvent("api.install", "inline-refused", error.c_str());
+            char detail[256] = {};
+            std::snprintf(detail, sizeof(detail), "%s!%s: %s", dllName, functionName, error.c_str());
+            AuditEvent("api.install", "inline-refused", detail);
         }
     } else {
-        AuditEvent("api.install", "inline-missing", functionName);
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
+        AuditEvent("api.install", "inline-missing", detail);
     }
 
     const int iatCount = PatchAllModules(dllName, functionName, detour, original);
