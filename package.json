@@ -1,6 +1,6 @@
 {
   "name": "cac-windows",
-  "version": "1.0.37",
+  "version": "1.0.38",
   "description": "Claude Code Windows privacy tool — binary patches to remove Chinese identity markers.",
   "bin": {
     "cac": "cac"
@@ -22,6 +22,7 @@
     "scripts/fingerprint-cdp.js",
     "scripts/fingerprint-test.js",
     "scripts/mitm_fingerprint.py",
+    "scripts/cert-silent.ps1",
     "scripts/cleanup.ps1",
     "fingerprint-hook.js",
     "native/README.md",

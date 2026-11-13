@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$CAC_VERSION = "1.0.37"
+$CAC_VERSION = "1.0.38"
 $SUPPORTED_CC = "2.1.294"
 
 $scriptDir = Split-Path $MyInvocation.MyCommand.Definition -Parent

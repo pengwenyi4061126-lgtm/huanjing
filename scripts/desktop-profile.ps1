@@ -10,7 +10,7 @@
 #   powershell -NoProfile -File .\desktop-profile.ps1 -Action cleanup -Profile work
 
 param(
-    [ValidateSet('create','list','launch','status','ab','cleanup')][string]$Action = 'status',
+    [ValidateSet('create','list','launch','status','ab','cleanup','remove-ca')][string]$Action = 'status',
     [string]$Profile,
     [string]$Exe = 'C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\claude.exe',
     [switch]$Inject,
@@ -19,6 +19,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'cert-silent.ps1')
 
 $script:OriginalUserProfile = $env:USERPROFILE
 $script:DesktopRoot = [System.IO.Path]::GetFullPath((Join-Path $script:OriginalUserProfile '.cac\desktop'))
@@ -539,7 +540,7 @@ function Start-ClaudeDesktop {
         } while ((Get-Date) -lt $deadline)
         $ca = Join-Path $env:USERPROFILE '.mitmproxy\mitmproxy-ca-cert.cer'
         if (Test-Path -LiteralPath $ca -PathType Leaf) {
-            & certutil -user -addstore Root $ca 2>&1 | Out-Null
+            [void](Install-MitmCa -Path $ca)
         }
     }
 
@@ -1079,6 +1080,15 @@ function Invoke-CleanupAction {
     return 0
 }
 
+function Invoke-RemoveCaAction {
+    if (Remove-MitmCa) {
+        Write-Host "[CA] mitmproxy root certificate removed" -ForegroundColor Green
+        return 0
+    }
+    Write-Host "[CA] mitmproxy root certificate is still present" -ForegroundColor Red
+    return 1
+}
+
 $exitCode = 0
 try {
     switch ($Action) {
@@ -1088,6 +1098,7 @@ try {
         'launch'  { $exitCode = Invoke-LaunchAction }
         'ab'      { $exitCode = Invoke-AbAction }
         'cleanup' { $exitCode = Invoke-CleanupAction }
+        'remove-ca' { $exitCode = Invoke-RemoveCaAction }
     }
 } catch {
     Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red

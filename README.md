@@ -2,7 +2,7 @@
 
 Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征，遥测正常流转。
 
-当前版本：`1.0.37`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+当前版本：`1.0.38`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
 ## 功能
 
@@ -198,6 +198,12 @@ probe {"hc":24,"tz":"Asia/Shanghai","offset":-480,"persona":true}
 `fingerprint.json` 可编辑 timezone / locale / screen / webgl / canvasNoise / audioNoise。`-Inject` 与 `-Fingerprint` 可同时使用。
 
 安全提示：`-Fingerprint` 会安装 mitmproxy CA 到当前用户 Root 存储，并用 `--proxy-server` 接管 Claude 的 Chromium 流量；不使用该开关时不安装 CA、不改代理。
+
+CA 安装/删除已改为静默自动化：`cert-silent.ps1` 检测标准安全警告窗口并自动确认，不再需要手动点击。删除命令：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action remove-ca
+```
 
 ### 内核 / NDIS / WFP / 物理硬件边界
 
