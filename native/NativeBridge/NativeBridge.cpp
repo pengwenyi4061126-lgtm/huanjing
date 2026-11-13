@@ -24,23 +24,33 @@ const char* ProcessTypeDetail() {
     return "process=main";
 }
 
-bool SignalReady() {
+bool SignalBridgeEvent(const wchar_t* kind) {
     wchar_t name[96] = {};
-    std::swprintf(name, _countof(name), L"Local\\CACNativeBridgeReady_%lu",
+    std::swprintf(name, _countof(name), L"Local\\CACNativeBridge%s_%lu", kind,
                   static_cast<unsigned long>(GetCurrentProcessId()));
     HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, name);
     if (!event) {
-        AuditEvent("native.bridge", "ready-signal-failed", "OpenEventW", GetLastError(), true);
         return false;
     }
     const BOOL signaled = SetEvent(event);
     const DWORD error = signaled ? ERROR_SUCCESS : GetLastError();
     CloseHandle(event);
     if (!signaled) {
-        AuditEvent("native.bridge", "ready-signal-failed", "SetEvent", error, true);
         return false;
     }
     return true;
+}
+
+bool SignalReady() {
+    if (!SignalBridgeEvent(L"Ready")) {
+        AuditEvent("native.bridge", "ready-signal-failed", "SetEvent", GetLastError(), true);
+        return false;
+    }
+    return true;
+}
+
+void SignalFailure() {
+    (void)SignalBridgeEvent(L"Failed");
 }
 
 DWORD WINAPI InitializeThread(LPVOID) {
@@ -57,12 +67,14 @@ DWORD WINAPI InitializeThread(LPVOID) {
     const bool kernelPolicyReady = RegisterCurrentProcessKernelPolicy();
     if (!kernelPolicyReady && KernelPolicyRequired()) {
         AuditEvent("native.bridge", "failed", "kernel-policy-required", 0, false);
+        SignalFailure();
         return 0;
     }
 
     const bool wfpReady = InstallWfpBoundary();
     if (!wfpReady && WfpPolicyRequired()) {
         AuditEvent("native.bridge", "failed", "wfp-policy-required", 0, false);
+        SignalFailure();
         return 0;
     }
 
@@ -76,10 +88,14 @@ DWORD WINAPI InitializeThread(LPVOID) {
         char detail[96] = {};
         std::snprintf(detail, sizeof(detail), "required-hook-failures=%u", failures);
         AuditEvent("native.bridge", "failed", detail, failures, true);
+        SignalFailure();
         return 0;
     }
 
-    if (!SignalReady()) return 0;
+    if (!SignalReady()) {
+        SignalFailure();
+        return 0;
+    }
     AuditEvent("native.bridge", "ready");
     return 0;
 }
@@ -90,7 +106,11 @@ BOOL WINAPI DllMain(HMODULE module, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(module);
         HANDLE thread = CreateThread(nullptr, 0, InitializeThread, nullptr, 0, nullptr);
-        if (thread) CloseHandle(thread);
+        if (thread) {
+            CloseHandle(thread);
+        } else {
+            SignalFailure();
+        }
     }
     return TRUE;
 }

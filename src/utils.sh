@@ -104,8 +104,8 @@ _get_real_cmd() {
 }
 
 # host:port:user:pass → http://user:pass@host:port
-# socks5://host:port:user:pass → socks5://user:pass@host:port
-# or pass a standard URL directly (http://, https://, socks5://)
+# socks5[ h ]://host:port:user:pass → socks5[ h ]://user:pass@host:port
+# or pass a standard URL directly (http://, https://, socks5://, socks5h://)
 _parse_proxy() {
     local raw="$1"
     local proto rest
@@ -113,8 +113,8 @@ _parse_proxy() {
     [[ -n "$raw" ]] || return 0
 
     # Normalize protocol-prefixed legacy form:
-    #   socks5://host:port:user:pass -> socks5://user:pass@host:port
-    if [[ "$raw" =~ ^(http|https|socks5):// ]]; then
+    #   socks5h://host:port:user:pass -> socks5h://user:pass@host:port
+    if [[ "$raw" =~ ^(http|https|socks5|socks5h):// ]]; then
         proto="${raw%%://*}"
         rest="${raw#*://}"
         if [[ "$rest" != *"@"* ]] && [[ "$rest" == *:*:* ]]; then
@@ -150,11 +150,11 @@ _parse_proxy() {
 _curl_proxy_url() {
     local normalized
     normalized=$(_parse_proxy "$1")
-    if [[ "$normalized" =~ ^socks5:// ]]; then
-        echo "socks5h://${normalized#socks5://}"
-    else
-        echo "$normalized"
-    fi
+    case "$normalized" in
+        socks5://*)  echo "socks5h://${normalized#socks5://}" ;;
+        socks5h://*) echo "$normalized" ;;
+        *)           echo "$normalized" ;;
+    esac
 }
 
 # socks5://user:pass@host:port → host:port
@@ -177,7 +177,7 @@ _proxy_reachable() {
 _auto_detect_proxy() {
     local raw="$1"
     # Has protocol prefix, return as-is
-    if [[ "$raw" =~ ^(http|https|socks5):// ]]; then
+    if [[ "$raw" =~ ^(http|https|socks5|socks5h):// ]]; then
         echo "$raw"
         return 0
     fi
@@ -193,9 +193,9 @@ _auto_detect_proxy() {
         auth_part=""
     fi
 
-    # Try in order: http → socks5 → https
+    # Try in order: http → socks5h → https
     local proto try_url
-    for proto in http socks5 https; do
+    for proto in http socks5h https; do
         try_url="${proto}://${auth_part}${host}:${port}"
         if curl --proxy "$try_url" -fsSL --connect-timeout 8 -o /dev/null https://api.ipify.org 2>/dev/null; then
             echo "$try_url"

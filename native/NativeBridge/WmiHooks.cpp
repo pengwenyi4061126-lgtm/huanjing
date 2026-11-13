@@ -432,6 +432,9 @@ public:
                 WmiObject* wrapper = new (std::nothrow) WmiObject(raw);
                 if (!wrapper) {
                     raw->Release();
+                    for (ULONG j = 0; j < kept; ++j) {
+                        if (objects[j]) objects[j]->Release();
+                    }
                     for (ULONG j = i + 1; j < fetched; ++j) {
                         if (objects[j]) objects[j]->Release();
                     }
@@ -497,7 +500,14 @@ public:
                                             IWbemCallResult** result) override {
         HRESULT hr = inner_->OpenNamespace(name, flags, context, workingNamespace, result);
         if (SUCCEEDED(hr) && workingNamespace && *workingNamespace) {
-            *workingNamespace = new (std::nothrow) WmiServices(*workingNamespace);
+            IWbemServices* raw = *workingNamespace;
+            WmiServices* wrapper = new (std::nothrow) WmiServices(raw);
+            if (!wrapper) {
+                raw->Release();
+                *workingNamespace = nullptr;
+                return E_OUTOFMEMORY;
+            }
+            *workingNamespace = wrapper;
         }
         return hr;
     }
@@ -511,7 +521,14 @@ public:
                                         IWbemClassObject** object, IWbemCallResult** result) override {
         HRESULT hr = inner_->GetObject(path, flags, context, object, result);
         if (SUCCEEDED(hr) && object && *object) {
-            *object = new (std::nothrow) WmiObject(*object);
+            IWbemClassObject* raw = *object;
+            WmiObject* wrapper = new (std::nothrow) WmiObject(raw);
+            if (!wrapper) {
+                raw->Release();
+                *object = nullptr;
+                return E_OUTOFMEMORY;
+            }
+            *object = wrapper;
         }
         return hr;
     }
@@ -560,7 +577,14 @@ public:
                                               IEnumWbemClassObject** enumerator) override {
         HRESULT hr = inner_->CreateClassEnum(superclass, flags, context, enumerator);
         if (SUCCEEDED(hr) && enumerator && *enumerator) {
-            *enumerator = new (std::nothrow) WmiEnum(*enumerator);
+            IEnumWbemClassObject* raw = *enumerator;
+            WmiEnum* wrapper = new (std::nothrow) WmiEnum(raw);
+            if (!wrapper) {
+                raw->Release();
+                *enumerator = nullptr;
+                return E_OUTOFMEMORY;
+            }
+            *enumerator = wrapper;
         }
         return hr;
     }
@@ -609,7 +633,14 @@ public:
                                                  IEnumWbemClassObject** enumerator) override {
         HRESULT hr = inner_->CreateInstanceEnum(filter, flags, context, enumerator);
         if (SUCCEEDED(hr) && enumerator && *enumerator) {
-            *enumerator = new (std::nothrow) WmiEnum(*enumerator);
+            IEnumWbemClassObject* raw = *enumerator;
+            WmiEnum* wrapper = new (std::nothrow) WmiEnum(raw);
+            if (!wrapper) {
+                raw->Release();
+                *enumerator = nullptr;
+                return E_OUTOFMEMORY;
+            }
+            *enumerator = wrapper;
         }
         return hr;
     }
@@ -628,7 +659,14 @@ public:
                                         IWbemContext* context, IEnumWbemClassObject** enumerator) override {
         HRESULT hr = inner_->ExecQuery(language, query, flags, context, enumerator);
         if (SUCCEEDED(hr) && enumerator && *enumerator) {
-            *enumerator = new (std::nothrow) WmiEnum(*enumerator);
+            IEnumWbemClassObject* raw = *enumerator;
+            WmiEnum* wrapper = new (std::nothrow) WmiEnum(raw);
+            if (!wrapper) {
+                raw->Release();
+                *enumerator = nullptr;
+                return E_OUTOFMEMORY;
+            }
+            *enumerator = wrapper;
         }
         return hr;
     }
@@ -648,7 +686,14 @@ public:
                                                     IEnumWbemClassObject** enumerator) override {
         HRESULT hr = inner_->ExecNotificationQuery(language, query, flags, context, enumerator);
         if (SUCCEEDED(hr) && enumerator && *enumerator) {
-            *enumerator = new (std::nothrow) WmiEnum(*enumerator);
+            IEnumWbemClassObject* raw = *enumerator;
+            WmiEnum* wrapper = new (std::nothrow) WmiEnum(raw);
+            if (!wrapper) {
+                raw->Release();
+                *enumerator = nullptr;
+                return E_OUTOFMEMORY;
+            }
+            *enumerator = wrapper;
         }
         return hr;
     }
@@ -669,7 +714,14 @@ public:
                                          IWbemClassObject** outParams, IWbemCallResult** result) override {
         HRESULT hr = inner_->ExecMethod(path, method, flags, context, inParams, outParams, result);
         if (SUCCEEDED(hr) && outParams && *outParams) {
-            *outParams = new (std::nothrow) WmiObject(*outParams);
+            IWbemClassObject* raw = *outParams;
+            WmiObject* wrapper = new (std::nothrow) WmiObject(raw);
+            if (!wrapper) {
+                raw->Release();
+                *outParams = nullptr;
+                return E_OUTOFMEMORY;
+            }
+            *outParams = wrapper;
         }
         return hr;
     }
@@ -743,17 +795,27 @@ public:
 
     HRESULT STDMETHODCALLTYPE CreateInstance(IUnknown* outer, REFIID riid, void** ppv) override {
         HRESULT hr = inner_->CreateInstance(outer, riid, ppv);
-        if (SUCCEEDED(hr) && ppv && *ppv) WrapLocator(riid, ppv);
+        if (SUCCEEDED(hr) && ppv && *ppv) {
+            const HRESULT wrapHr = WrapLocator(riid, ppv);
+            if (FAILED(wrapHr)) return wrapHr;
+        }
         return hr;
     }
     HRESULT STDMETHODCALLTYPE LockServer(BOOL lock) override { return inner_->LockServer(lock); }
 
 private:
-    static void WrapLocator(REFIID riid, void** ppv) {
+    static HRESULT WrapLocator(REFIID riid, void** ppv) {
+        if (!ppv || !*ppv) return E_POINTER;
         if (riid == IID_IWbemLocator) {
-            WmiLocator* wrapper = new (std::nothrow) WmiLocator(static_cast<IWbemLocator*>(*ppv));
+            IWbemLocator* raw = static_cast<IWbemLocator*>(*ppv);
+            WmiLocator* wrapper = new (std::nothrow) WmiLocator(raw);
             if (wrapper) *ppv = static_cast<IWbemLocator*>(wrapper);
-            return;
+            else {
+                raw->Release();
+                *ppv = nullptr;
+                return E_OUTOFMEMORY;
+            }
+            return S_OK;
         }
         if (riid == IID_IUnknown) {
             IUnknown* raw = static_cast<IUnknown*>(*ppv);
@@ -765,9 +827,13 @@ private:
                     *ppv = static_cast<IUnknown*>(static_cast<IWbemLocator*>(wrapper));
                 } else {
                     locator->Release();
+                    raw->Release();
+                    *ppv = nullptr;
+                    return E_OUTOFMEMORY;
                 }
             }
         }
+        return S_OK;
     }
 
     IClassFactory* inner_;
@@ -781,12 +847,18 @@ PFN_CoCreateInstance g_origCoCreateInstance = nullptr;
 PFN_CoCreateInstanceEx g_origCoCreateInstanceEx = nullptr;
 PFN_CoGetClassObject g_origCoGetClassObject = nullptr;
 
-void WrapLocatorResult(REFIID riid, void** ppv) {
-    if (!ppv || !*ppv) return;
+HRESULT WrapLocatorResult(REFIID riid, void** ppv) {
+    if (!ppv || !*ppv) return E_POINTER;
     if (riid == IID_IWbemLocator) {
-        WmiLocator* wrapper = new (std::nothrow) WmiLocator(static_cast<IWbemLocator*>(*ppv));
+        IWbemLocator* raw = static_cast<IWbemLocator*>(*ppv);
+        WmiLocator* wrapper = new (std::nothrow) WmiLocator(raw);
         if (wrapper) *ppv = static_cast<IWbemLocator*>(wrapper);
-        return;
+        else {
+            raw->Release();
+            *ppv = nullptr;
+            return E_OUTOFMEMORY;
+        }
+        return S_OK;
     }
     if (riid == IID_IUnknown) {
         IUnknown* raw = static_cast<IUnknown*>(*ppv);
@@ -798,9 +870,13 @@ void WrapLocatorResult(REFIID riid, void** ppv) {
                 *ppv = static_cast<IUnknown*>(static_cast<IWbemLocator*>(wrapper));
             } else {
                 locator->Release();
+                raw->Release();
+                *ppv = nullptr;
+                return E_OUTOFMEMORY;
             }
         }
     }
+    return S_OK;
 }
 
 HRESULT WINAPI HookCoCreateInstance(REFCLSID clsid, LPUNKNOWN outer, DWORD context, REFIID riid,
@@ -808,7 +884,8 @@ HRESULT WINAPI HookCoCreateInstance(REFCLSID clsid, LPUNKNOWN outer, DWORD conte
     HRESULT hr = g_origCoCreateInstance ? g_origCoCreateInstance(clsid, outer, context, riid, ppv)
                                         : E_NOTIMPL;
     if (SUCCEEDED(hr) && ppv && IsEqualCLSID(clsid, CLSID_WbemLocator)) {
-        WrapLocatorResult(riid, ppv);
+        const HRESULT wrapHr = WrapLocatorResult(riid, ppv);
+        if (FAILED(wrapHr)) return wrapHr;
         AuditEventRateLimited("wmi.install", "wrapped");
     }
     return hr;
@@ -823,8 +900,12 @@ HRESULT WINAPI HookCoCreateInstanceEx(REFCLSID clsid, LPUNKNOWN outer, DWORD con
         for (DWORD i = 0; i < count; ++i) {
             if (results[i].hr == S_OK && results[i].pItf && results[i].pIID) {
                 void* pointer = results[i].pItf;
-                WrapLocatorResult(*results[i].pIID, &pointer);
+                const HRESULT wrapHr = WrapLocatorResult(*results[i].pIID, &pointer);
                 results[i].pItf = static_cast<IUnknown*>(pointer);
+                if (FAILED(wrapHr)) {
+                    results[i].hr = wrapHr;
+                    hr = wrapHr;
+                }
             }
         }
         AuditEventRateLimited("wmi.install", "wrapped-ex");
@@ -838,8 +919,14 @@ HRESULT WINAPI HookCoGetClassObject(REFCLSID clsid, DWORD context, LPVOID reserv
                                         : E_NOTIMPL;
     if (SUCCEEDED(hr) && ppv && *ppv && IsEqualCLSID(clsid, CLSID_WbemLocator)) {
         if (riid == IID_IClassFactory) {
-            WmiFactory* wrapper = new (std::nothrow) WmiFactory(static_cast<IClassFactory*>(*ppv));
+            IClassFactory* raw = static_cast<IClassFactory*>(*ppv);
+            WmiFactory* wrapper = new (std::nothrow) WmiFactory(raw);
             if (wrapper) *ppv = static_cast<IClassFactory*>(wrapper);
+            else {
+                raw->Release();
+                *ppv = nullptr;
+                return E_OUTOFMEMORY;
+            }
         } else if (riid == IID_IUnknown) {
             IUnknown* raw = static_cast<IUnknown*>(*ppv);
             IClassFactory* factory = nullptr;
@@ -850,6 +937,9 @@ HRESULT WINAPI HookCoGetClassObject(REFCLSID clsid, DWORD context, LPVOID reserv
                     *ppv = static_cast<IUnknown*>(static_cast<IClassFactory*>(wrapper));
                 } else {
                     factory->Release();
+                    raw->Release();
+                    *ppv = nullptr;
+                    return E_OUTOFMEMORY;
                 }
             }
         }

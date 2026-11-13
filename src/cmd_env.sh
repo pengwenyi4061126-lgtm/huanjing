@@ -42,7 +42,7 @@ _env_cmd_create() {
     # Auto-detect proxy protocol
     local proxy_url=""
     if [[ -n "$proxy" ]]; then
-        if [[ ! "$proxy" =~ ^(http|https|socks5):// ]]; then
+        if [[ ! "$proxy" =~ ^(http|https|socks5|socks5h):// ]]; then
             printf "  $(_dim "Detecting proxy protocol ...") "
             if proxy_url=$(_auto_detect_proxy "$proxy"); then
                 echo "$(_cyan "$(echo "$proxy_url" | grep -oE '^[a-z]+' || echo "http")")"
@@ -353,7 +353,7 @@ _env_cmd_set() {
             else
                 [[ -n "$value" ]] || _die "usage: cac env set [name] proxy <url|host:port:user:pass>"
                 local proxy_url
-                if [[ ! "$value" =~ ^(http|https|socks5):// ]]; then
+                if [[ ! "$value" =~ ^(http|https|socks5|socks5h):// ]]; then
                     printf "  $(_dim "Detecting proxy protocol ...") "
                     if proxy_url=$(_auto_detect_proxy "$value"); then
                         echo "$(_cyan "$(echo "$proxy_url" | grep -oE '^[a-z]+' || echo "http")")"

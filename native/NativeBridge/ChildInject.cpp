@@ -152,9 +152,9 @@ bool InjectLibrary(HANDLE process, const std::wstring& dllPath, std::string* err
     return true;
 }
 
-HANDLE CreateReadyEvent(DWORD processId, bool* alreadyExists) {
+HANDLE CreateBridgeEvent(DWORD processId, const wchar_t* kind, bool* alreadyExists) {
     wchar_t name[96] = {};
-    std::swprintf(name, _countof(name), L"Local\\CACNativeBridgeReady_%lu",
+    std::swprintf(name, _countof(name), L"Local\\CACNativeBridge%s_%lu", kind,
                   static_cast<unsigned long>(processId));
     if (alreadyExists) *alreadyExists = false;
     PSECURITY_DESCRIPTOR descriptor = nullptr;
@@ -180,8 +180,10 @@ HANDLE CreateReadyEvent(DWORD processId, bool* alreadyExists) {
     return event;
 }
 
-bool WaitForReady(HANDLE event) {
-    return event && WaitForSingleObject(event, 20000) == WAIT_OBJECT_0;
+DWORD WaitForBridge(HANDLE ready, HANDLE failed) {
+    HANDLE events[2] = { ready, failed };
+    if (!ready || !failed) return WAIT_FAILED;
+    return WaitForMultipleObjects(_countof(events), events, FALSE, 20000);
 }
 
 bool CloseFailedChild(LPPROCESS_INFORMATION processInformation) {
@@ -248,14 +250,19 @@ bool FinishInjection(const std::wstring& dllPath, bool inject, bool forcedSuspen
 
     const DWORD processId = processInformation->dwProcessId;
     bool alreadyExists = false;
-    HANDLE ready = CreateReadyEvent(processId, &alreadyExists);
+    HANDLE ready = CreateBridgeEvent(processId, L"Ready", &alreadyExists);
+    HANDLE failed = CreateBridgeEvent(processId, L"Failed", nullptr);
     std::string error;
-    const bool injected = ready && (alreadyExists || InjectLibrary(processInformation->hProcess, dllPath, &error));
-    const bool readySignaled = injected && WaitForReady(ready);
+    const bool injected = ready && failed && (alreadyExists || InjectLibrary(processInformation->hProcess, dllPath, &error));
+    const DWORD wait = injected ? WaitForBridge(ready, failed) : WAIT_FAILED;
+    const bool readySignaled = wait == WAIT_OBJECT_0;
+    const bool failedSignaled = wait == WAIT_OBJECT_0 + 1;
     if (ready) CloseHandle(ready);
+    if (failed) CloseHandle(failed);
 
     if (!injected || !readySignaled) {
-        if (!ready) error = "ready event creation failed";
+        if (!ready || !failed) error = "bridge event creation failed";
+        else if (failedSignaled) error = "NativeBridge initialization failed";
         else if (injected) error = "NativeBridge ready signal was not received";
         AuditEvent("native.child", "failed", error.c_str(), processId, true);
         const bool stopped = CloseFailedChild(processInformation);
@@ -430,15 +437,20 @@ NTSTATUS NTAPI HookNtCreateUserProcess(PHANDLE processHandle, PHANDLE threadHand
         if (!target) target = *processHandle;
 
         bool alreadyExists = false;
-        HANDLE ready = CreateReadyEvent(processId, &alreadyExists);
+        HANDLE ready = CreateBridgeEvent(processId, L"Ready", &alreadyExists);
+        HANDLE failed = CreateBridgeEvent(processId, L"Failed", nullptr);
         std::string error;
-        const bool injected = ready && (alreadyExists || InjectLibrary(target, dllPath, &error));
-        const bool readySignaled = injected && WaitForReady(ready);
+        const bool injected = ready && failed && (alreadyExists || InjectLibrary(target, dllPath, &error));
+        const DWORD wait = injected ? WaitForBridge(ready, failed) : WAIT_FAILED;
+        const bool readySignaled = wait == WAIT_OBJECT_0;
+        const bool failedSignaled = wait == WAIT_OBJECT_0 + 1;
         if (ready) CloseHandle(ready);
+        if (failed) CloseHandle(failed);
         if (injected && readySignaled) {
             AuditEvent("native.child", "injected", "ntcreateuserprocess", processId, true);
         } else {
-            if (!ready) error = "ready event creation failed";
+            if (!ready || !failed) error = "bridge event creation failed";
+            else if (failedSignaled) error = "NativeBridge initialization failed";
             else if (injected) error = "NativeBridge ready signal was not received";
             AuditEvent("native.child", "failed", error.c_str(), processId, true);
             bool stopped = TerminateProcess(target, 4) != FALSE;

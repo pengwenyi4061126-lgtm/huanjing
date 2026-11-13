@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <vector>
 
 namespace {
@@ -170,10 +171,7 @@ bool ProfileIdentity::Load() {
 
 ProfileIdentity& ProfileIdentity::Get() {
     static ProfileIdentity instance;
-    static bool loaded = false;
-    if (!loaded) {
-        instance.Load();
-        loaded = true;
-    }
+    static std::once_flag loadOnce;
+    std::call_once(loadOnce, &ProfileIdentity::Load, &instance);
     return instance;
 }

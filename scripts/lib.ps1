@@ -247,6 +247,86 @@ function Get-EnvDir {
     return [System.IO.Path]::GetFullPath((Join-Path $ENVS_DIR $Name))
 }
 
+function Get-CacProfileMutexName {
+    param([Parameter(Mandatory = $true)][string]$ProfileRoot)
+    $fullRoot = [System.IO.Path]::GetFullPath($ProfileRoot).TrimEnd('\').ToUpperInvariant()
+    if ([string]::IsNullOrWhiteSpace($fullRoot)) { throw "Profile root is empty" }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($fullRoot))
+        $hex = ([System.BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant()
+        return "Global\cac-profile-$($hex.Substring(0, 32))"
+    } finally { $sha.Dispose() }
+}
+
+function Enter-CacProfileMutex {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProfileRoot,
+        [int]$TimeoutMilliseconds = 0
+    )
+    $name = Get-CacProfileMutexName -ProfileRoot $ProfileRoot
+    $mutex = [System.Threading.Mutex]::new($false, $name)
+    try {
+        $acquired = $false
+        try {
+            $acquired = [bool]$mutex.WaitOne($TimeoutMilliseconds)
+        } catch [System.Threading.AbandonedMutexException] {
+            $acquired = $true
+        }
+        if (-not $acquired) {
+            $mutex.Dispose()
+            return $null
+        }
+        return [pscustomobject][ordered]@{ Name = $name; Mutex = $mutex; Acquired = $true }
+    } catch {
+        try { $mutex.Dispose() } catch { }
+        throw
+    }
+}
+
+function Exit-CacProfileMutex {
+    param([object]$Lock)
+    if ($null -eq $Lock) { return }
+    try {
+        if ([bool]$Lock.Acquired) { [void]$Lock.Mutex.ReleaseMutex() }
+    } catch { }
+    finally { try { $Lock.Mutex.Dispose() } catch { } }
+}
+
+function Get-CacIsolatedHomeEnvironment {
+    param([Parameter(Mandatory = $true)][string]$HomeDir)
+    $fullHome = [System.IO.Path]::GetFullPath($HomeDir)
+    $homeRoot = [System.IO.Path]::GetPathRoot($fullHome)
+    if ([string]::IsNullOrWhiteSpace($homeRoot) -or $homeRoot -notmatch '^[A-Za-z]:\\$') {
+        throw "Unable to derive isolated HOMEDRIVE/HOMEPATH for $HomeDir"
+    }
+    $homeDrive = $homeRoot.Substring(0, 2)
+    $homePath = $fullHome.Substring(2)
+    if ([string]::IsNullOrWhiteSpace($homePath) -or
+        -not [string]::Equals(($homeDrive + $homePath).TrimEnd('\'), $fullHome.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Unable to derive isolated HOMEDRIVE/HOMEPATH for $HomeDir"
+    }
+    return [ordered]@{
+        HOME       = $fullHome
+        USERPROFILE = $fullHome
+        HOMEDRIVE  = $homeDrive
+        HOMEPATH   = $homePath
+    }
+}
+
+function Resolve-CacProxyBinding {
+    param(
+        [Parameter(Mandatory = $true)][string]$AccountKey,
+        [string]$ExplicitProxy
+    )
+    $binding = Get-CacProxyForAccount -AccountKey $AccountKey -ExplicitProxy $ExplicitProxy
+    if ($null -eq $binding -and [string]::IsNullOrWhiteSpace($ExplicitProxy)) {
+        [void](Ensure-CacProxyBinding -AccountKey $AccountKey)
+        $binding = Get-CacProxyForAccount -AccountKey $AccountKey
+    }
+    return $binding
+}
+
 function Get-ProfilePaths {
     param([string]$Name)
     $root = Get-EnvDir $Name
@@ -361,7 +441,7 @@ function Ensure-ProfileLayout {
     if ($identityChanged) {
         Set-Content -LiteralPath $paths.IdentityPath -Value ($identity | ConvertTo-Json -Depth 5) -Encoding UTF8
     }
-    [void](Get-CacProxyForAccount -AccountKey ("claude-code:{0}" -f $paths.Name) -ExplicitProxy (Read-FileValue (Join-Path $paths.Root "proxy")))
+    [void](Resolve-CacProxyBinding -AccountKey ("claude-code:{0}" -f $paths.Name) -ExplicitProxy (Read-FileValue (Join-Path $paths.Root "proxy")))
     return $paths
 }
 
@@ -398,7 +478,7 @@ function Get-ProfileEnvironment {
     [void](Sync-IdentityHook)
     $identity = Read-ProfileIdentity $Paths
     $profileProxy = Read-FileValue (Join-Path $Paths.Root "proxy")
-    $proxyBinding = Get-CacProxyForAccount -AccountKey ("claude-code:{0}" -f $Paths.Name) -ExplicitProxy $profileProxy
+    $proxyBinding = Resolve-CacProxyBinding -AccountKey ("claude-code:{0}" -f $Paths.Name) -ExplicitProxy $profileProxy
     $proxy = if ($null -ne $proxyBinding) { [string]$proxyBinding.url } else { $null }
     $tz = Read-FileValue (Join-Path $Paths.Root "tz")
     $lang = Read-FileValue (Join-Path $Paths.Root "lang") "en_US.UTF-8"
@@ -422,21 +502,16 @@ function Get-ProfileEnvironment {
     $hookPath = Join-Path $CAC_DIR "fingerprint-hook.js"
     $hookPathForNode = $hookPath -replace '\\', '/'
     $hookAuditPath = $Paths.HookAuditPath
-    $homeRoot = [System.IO.Path]::GetPathRoot($Paths.HomeDir)
-    if ($homeRoot -notmatch '^[A-Za-z]:\\$') {
-        throw "Unable to derive isolated HOMEDRIVE/HOMEPATH for $($Paths.HomeDir)"
-    }
-    $homeDrive = $homeRoot.Substring(0, 2)
-    $homePath = $Paths.HomeDir.Substring(2)
-    if ([string]::IsNullOrWhiteSpace($homePath)) {
-        throw "Unable to derive isolated HOMEDRIVE/HOMEPATH for $($Paths.HomeDir)"
+    $homeEnvironment = Get-CacIsolatedHomeEnvironment -HomeDir $Paths.HomeDir
+    if ($networkMode -eq 'enforce' -and $null -eq $proxyBinding) {
+        throw "network_mode=enforce requires a verified proxy binding for $($Paths.Name)"
     }
     $values = [ordered]@{
         CLAUDE_CONFIG_DIR = $Paths.ConfigDir
-        HOME              = $Paths.HomeDir
-        USERPROFILE       = $Paths.HomeDir
-        HOMEDRIVE         = $homeDrive
-        HOMEPATH          = $homePath
+        HOME              = $homeEnvironment.HOME
+        USERPROFILE       = $homeEnvironment.USERPROFILE
+        HOMEDRIVE         = $homeEnvironment.HOMEDRIVE
+        HOMEPATH          = $homeEnvironment.HOMEPATH
         APPDATA           = $Paths.AppData
         LOCALAPPDATA      = $Paths.LocalAppData
         TEMP              = $Paths.TempDir
@@ -715,6 +790,51 @@ function Get-CacDeclaredSha256([string]$Path) {
         return $matches[0].Value.ToUpperInvariant()
     } catch { return $null }
 }
+function Get-CacProfileMutexName([string]$ProfileRoot) {
+    $fullRoot = [System.IO.Path]::GetFullPath($ProfileRoot).TrimEnd('\').ToUpperInvariant()
+    if ([string]::IsNullOrWhiteSpace($fullRoot)) { throw "[cac] profile root is empty" }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($fullRoot))
+        $hex = ([System.BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant()
+        return "Global\cac-profile-$($hex.Substring(0, 32))"
+    } finally { $sha.Dispose() }
+}
+function Enter-CacProfileMutex([string]$ProfileRoot) {
+    $name = Get-CacProfileMutexName $ProfileRoot
+    $mutex = [System.Threading.Mutex]::new($false, $name)
+    try {
+        $acquired = $false
+        try { $acquired = [bool]$mutex.WaitOne(0) }
+        catch [System.Threading.AbandonedMutexException] { $acquired = $true }
+        if (-not $acquired) { $mutex.Dispose(); return $null }
+        return [pscustomobject][ordered]@{ Name = $name; Mutex = $mutex; Acquired = $true }
+    } catch {
+        try { $mutex.Dispose() } catch { }
+        throw
+    }
+}
+function Exit-CacProfileMutex($Lock) {
+    if ($null -eq $Lock) { return }
+    try { if ([bool]$Lock.Acquired) { [void]$Lock.Mutex.ReleaseMutex() } } catch { }
+    finally { try { $Lock.Mutex.Dispose() } catch { } }
+}
+function Resolve-CacProxyBinding([string]$AccountKey, [string]$ExplicitProxy) {
+    $binding = Get-CacProxyForAccount -AccountKey $AccountKey -ExplicitProxy $ExplicitProxy
+    if ($null -eq $binding -and [string]::IsNullOrWhiteSpace($ExplicitProxy)) {
+        [void](Ensure-CacProxyBinding -AccountKey $AccountKey)
+        $binding = Get-CacProxyForAccount -AccountKey $AccountKey
+    }
+    return $binding
+}
+function Get-CacHomeEnvironment([string]$HomeDir) {
+    $fullHome = [System.IO.Path]::GetFullPath($HomeDir)
+    $homeRoot = [System.IO.Path]::GetPathRoot($fullHome)
+    if ($homeRoot -notmatch '^[A-Za-z]:\\$') { throw "[cac] unable to derive HOMEDRIVE/HOMEPATH" }
+    $homePath = $fullHome.Substring(2)
+    if ([string]::IsNullOrWhiteSpace($homePath)) { throw "[cac] unable to derive HOMEDRIVE/HOMEPATH" }
+    return [ordered]@{ HOME = $fullHome; USERPROFILE = $fullHome; HOMEDRIVE = $homeRoot.Substring(0, 2); HOMEPATH = $homePath }
+}
 $cacHome = $env:USERPROFILE
 $d = Join-Path $cacHome ".cac"
 $proxyPoolModule = Join-Path $d "proxy-pool-lib.ps1"
@@ -729,6 +849,12 @@ if (-not (Test-Path $realFile)) { Write-Error "[cac] real claude path is missing
 $en = (Get-Content $cf -Raw).Trim()
 if ($en -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') { Write-Error "[cac] invalid active env"; exit 1 }
 $ed = Join-Path $d "envs\$en"
+$profileRoot = [System.IO.Path]::GetFullPath($ed)
+$profileLock = Enter-CacProfileMutex $profileRoot
+if ($null -eq $profileLock) {
+    Write-Error "[cac] Profile '$en' is already in use"
+    exit 1
+}
 $config = Join-Path $ed ".claude"
 $homeDir = Join-Path $ed "home"
 $appData = Join-Path $ed "AppData\Roaming"
@@ -740,6 +866,7 @@ $xdgCache = Join-Path $ed "xdg\cache"
 $credentials = Join-Path $ed "credentials"
 $logs = Join-Path $ed "logs"
 $audit = Join-Path $ed "audit"
+try {
 foreach ($dir in @($ed,$config,$homeDir,$appData,$localAppData,$cache,$temp,$xdgConfig,$xdgCache,$credentials,$logs,$audit)) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
@@ -772,17 +899,18 @@ if ($actualHash -ne ([string]$manifestData.sha256).ToUpperInvariant()) {
 
 $proxyFile = Join-Path $ed "proxy"
 $profileProxy = if (Test-Path $proxyFile) { (Get-Content $proxyFile -Raw).Trim() } else { '' }
-$proxyBinding = Get-CacProxyForAccount -AccountKey ("claude-code:{0}" -f $en) -ExplicitProxy $profileProxy
+$proxyBinding = Resolve-CacProxyBinding -AccountKey ("claude-code:{0}" -f $en) -ExplicitProxy $profileProxy
 $upstreamProxy = if ($null -ne $proxyBinding) { [string]$proxyBinding.url } else { $null }
 $relay = $null
 if ($upstreamProxy) {
-    $relay = Start-CacProxyRelay -UpstreamProxyUrl $upstreamProxy -LogsDir $logs
+    try { $relay = Start-CacProxyRelay -UpstreamProxyUrl $upstreamProxy -LogsDir $logs }
+    catch { throw "[cac] proxy relay failed closed: $($_.Exception.Message)" }
     $env:HTTPS_PROXY=$relay.url; $env:HTTP_PROXY=$relay.url; $env:ALL_PROXY=$relay.url
     $env:CAC_HTTP_PROXY_LOCAL=$relay.url
-    $env:CAC_PROXY_UPSTREAM=$upstreamProxy
+    if ($null -ne $proxyBinding -and $proxyBinding.proxyId) { $env:CAC_PROXY_ID=[string]$proxyBinding.proxyId }
     $env:CAC_PROXY_SOURCE=[string]$proxyBinding.source
 } else {
-    Remove-Item Env:HTTPS_PROXY,Env:HTTP_PROXY,Env:ALL_PROXY,Env:CAC_HTTP_PROXY_LOCAL,Env:CAC_PROXY_UPSTREAM,Env:CAC_PROXY_SOURCE -ErrorAction SilentlyContinue
+    Remove-Item Env:HTTPS_PROXY,Env:HTTP_PROXY,Env:ALL_PROXY,Env:CAC_HTTP_PROXY_LOCAL,Env:CAC_PROXY_UPSTREAM,Env:CAC_PROXY_ID,Env:CAC_PROXY_SOURCE -ErrorAction SilentlyContinue
 }
 $env:NO_PROXY = "localhost,127.0.0.1"
 $tz = Join-Path $ed "tz"
@@ -791,9 +919,12 @@ $lang = Join-Path $ed "lang"
 if (Test-Path $lang) { $env:LANG = (Get-Content $lang -Raw).Trim() } else { $env:LANG = "en_US.UTF-8" }
 
 # Bind all home/config/cache/temp surfaces to this profile before starting Claude.
+$homeEnvironment = Get-CacHomeEnvironment $homeDir
 $env:CLAUDE_CONFIG_DIR = $config
-$env:HOME = $homeDir
-$env:USERPROFILE = $homeDir
+$env:HOME = $homeEnvironment.HOME
+$env:USERPROFILE = $homeEnvironment.USERPROFILE
+$env:HOMEDRIVE = $homeEnvironment.HOMEDRIVE
+$env:HOMEPATH = $homeEnvironment.HOMEPATH
 $env:APPDATA = $appData
 $env:LOCALAPPDATA = $localAppData
 $env:TEMP = $temp
@@ -845,6 +976,9 @@ $networkMode = if (Test-Path (Join-Path $ed "network_mode")) {
 if ($networkMode -notin @("profile", "clean", "enforce")) { $networkMode = "profile" }
 if ($nativeReadPolicy -eq "empty" -and $networkMode -ne "enforce") { $networkMode = "clean" }
 if ($upstreamProxy -and $networkMode -eq "profile") { $networkMode = "enforce" }
+if ($networkMode -eq "enforce" -and -not $upstreamProxy) {
+    throw "[cac] network_mode=enforce requires a verified proxy binding"
+}
 $env:CAC_NETWORK_MODE = $networkMode
 $env:CAC_NETWORK_ENFORCE = if ($networkMode -eq "enforce") { "1" } else { "0" }
 $env:CAC_WFP_REQUIRED = if ($networkMode -eq "enforce") { "1" } else { "0" }
@@ -891,7 +1025,6 @@ $nativeLauncherHashFile = Join-Path $d "native\cac-native-launch.sha256"
 $nativeManifest = Join-Path $d "native\native-hook-manifest.txt"
 $env:CAC_NATIVE_AUDIT = Join-Path $audit "native-hook.jsonl"
 $env:CAC_KERNEL_POLICY_REQUIRED = "0"
-try {
 if ((Test-Path -LiteralPath $nativeLauncher) -and (Test-Path -LiteralPath $nativeDll) -and ($real -like "*.exe")) {
     if (-not (Test-Path -LiteralPath $nativeDllHashFile -PathType Leaf) -or
         -not (Test-Path -LiteralPath $nativeLauncherHashFile -PathType Leaf)) {
@@ -907,7 +1040,7 @@ if ((Test-Path -LiteralPath $nativeLauncher) -and (Test-Path -LiteralPath $nativ
         exit 1
     }
     $env:CAC_NATIVE_DLL = $nativeDll
-    $env:CAC_KERNEL_POLICY_REQUIRED = "1"
+    $env:CAC_KERNEL_POLICY_REQUIRED = if ($networkMode -eq "enforce") { "1" } else { "0" }
     if (Test-Path -LiteralPath $nativeManifest) { $env:CAC_NATIVE_MANIFEST = $nativeManifest }
     & $nativeLauncher $real @args
 } elseif ($networkMode -eq "enforce") {
@@ -916,10 +1049,12 @@ if ((Test-Path -LiteralPath $nativeLauncher) -and (Test-Path -LiteralPath $nativ
 } else {
     & $real @args
 }
+    $exitCode = $LASTEXITCODE
 } finally {
     Stop-CacProxyRelay $relay
+    Exit-CacProfileMutex $profileLock
 }
-exit $LASTEXITCODE
+exit $exitCode
 '@
     $ps1Path = Join-Path $binDir "claude.ps1"
     $cmdPath = Join-Path $binDir "claude.cmd"

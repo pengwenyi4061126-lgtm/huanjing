@@ -3,10 +3,12 @@
 #include <bcrypt.h>
 #include <sddl.h>
 
+#include <algorithm>
 #include <cwchar>
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <new>
 #include <set>
 #include <string>
 #include <vector>
@@ -67,6 +69,51 @@ std::wstring NormalizePath(const std::wstring& path) {
     return std::wstring(buffer, length);
 }
 
+bool BuildChildEnvironment(const std::wstring& dllPath, std::vector<wchar_t>& environment,
+                           std::string* error) {
+    LPWCH current = GetEnvironmentStringsW();
+    if (!current) {
+        if (error) *error = "GetEnvironmentStringsW failed";
+        return false;
+    }
+
+    std::vector<std::wstring> entries;
+    try {
+        for (const wchar_t* entry = current; *entry; entry += std::wcslen(entry) + 1) {
+            constexpr wchar_t kDllPrefix[] = L"CAC_NATIVE_DLL=";
+            if (_wcsnicmp(entry, kDllPrefix, _countof(kDllPrefix) - 1) == 0) continue;
+            entries.emplace_back(entry);
+        }
+    } catch (...) {
+        FreeEnvironmentStringsW(current);
+        if (error) *error = "environment allocation failed";
+        return false;
+    }
+    FreeEnvironmentStringsW(current);
+
+    try {
+        entries.emplace_back(L"CAC_NATIVE_DLL=" + dllPath);
+        std::sort(entries.begin(), entries.end(), [](const std::wstring& left, const std::wstring& right) {
+            return _wcsicmp(left.c_str(), right.c_str()) < 0;
+        });
+
+        size_t length = 1;
+        for (const std::wstring& entry : entries) length += entry.size() + 1;
+        environment.clear();
+        environment.reserve(length);
+        for (const std::wstring& entry : entries) {
+            environment.insert(environment.end(), entry.begin(), entry.end());
+            environment.push_back(L'\0');
+        }
+        environment.push_back(L'\0');
+    } catch (...) {
+        environment.clear();
+        if (error) *error = "environment block allocation failed";
+        return false;
+    }
+    return true;
+}
+
 bool InjectDll(HANDLE process, const std::wstring& dllPath, std::string* error) {
     const size_t bytes = (dllPath.size() + 1) * sizeof(wchar_t);
     void* remote = VirtualAllocEx(process, nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
@@ -109,9 +156,9 @@ bool InjectDll(HANDLE process, const std::wstring& dllPath, std::string* error) 
     return true;
 }
 
-HANDLE CreateReadyEvent(DWORD processId, bool* alreadyExists) {
+HANDLE CreateBridgeEvent(DWORD processId, const wchar_t* kind, bool* alreadyExists) {
     wchar_t name[96] = {};
-    std::swprintf(name, _countof(name), L"Local\\CACNativeBridgeReady_%lu",
+    std::swprintf(name, _countof(name), L"Local\\CACNativeBridge%s_%lu", kind,
                   static_cast<unsigned long>(processId));
     if (alreadyExists) *alreadyExists = false;
     PSECURITY_DESCRIPTOR descriptor = nullptr;
@@ -140,15 +187,35 @@ HANDLE CreateReadyEvent(DWORD processId, bool* alreadyExists) {
 bool InjectAndWaitForReady(HANDLE process, DWORD processId, const std::wstring& dllPath,
                            std::string* error) {
     bool alreadyExists = false;
-    HANDLE ready = CreateReadyEvent(processId, &alreadyExists);
+    HANDLE ready = CreateBridgeEvent(processId, L"Ready", &alreadyExists);
+    HANDLE failed = CreateBridgeEvent(processId, L"Failed", nullptr);
     if (!ready) {
         if (error) *error = "ready event creation failed";
         return false;
     }
+    if (!failed) {
+        CloseHandle(ready);
+        if (error) *error = "failure event creation failed";
+        return false;
+    }
+    if (WaitForSingleObject(failed, 0) == WAIT_OBJECT_0) {
+        CloseHandle(failed);
+        CloseHandle(ready);
+        if (error) *error = "NativeBridge initialization failure was already signaled";
+        return false;
+    }
     const bool injected = alreadyExists || InjectDll(process, dllPath, error);
-    const bool readySignaled = injected && WaitForSingleObject(ready, 20000) == WAIT_OBJECT_0;
+    HANDLE events[2] = { ready, failed };
+    const DWORD wait = injected ? WaitForMultipleObjects(_countof(events), events, FALSE, 20000) : WAIT_FAILED;
+    const bool readySignaled = wait == WAIT_OBJECT_0;
+    const bool failedSignaled = wait == WAIT_OBJECT_0 + 1;
+    CloseHandle(failed);
     CloseHandle(ready);
     if (!injected) return false;
+    if (failedSignaled) {
+        if (error) *error = "NativeBridge initialization failed";
+        return false;
+    }
     if (!readySignaled) {
         if (error) *error = "NativeBridge ready signal was not received";
         return false;
@@ -419,11 +486,17 @@ DWORD WINAPI MonitorThread(LPVOID parameter) {
                 handled.insert(processId);
                 AppendAudit(context->auditPath, "launcher-injected", processId, nullptr);
             } else {
-                handled.insert(processId);
                 const bool stopped = TerminateAndWait(process);
                 std::string detail = error.empty() ? "NativeBridge ready signal was not received" : error;
                 if (!stopped) detail += "; terminate-failed";
                 AppendAudit(context->auditPath, "launcher-failed", processId, detail.c_str());
+                if (stopped) {
+                    handled.insert(processId);
+                } else {
+                    const int attempt = ++attempts[processId];
+                    const ULONGLONG delay = static_cast<ULONGLONG>(250 + attempt * 250);
+                    retryAfter[processId] = now + (delay > 3000 ? 3000 : delay);
+                }
             }
             CloseHandle(process);
         }
@@ -491,18 +564,22 @@ int wmain(int argc, wchar_t** argv) {
     }
     std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
     mutableCommand.push_back(0);
+    std::vector<wchar_t> childEnvironment;
+    if (!BuildChildEnvironment(dllPath, childEnvironment, &integrityError)) {
+        std::fwprintf(stderr, L"[cac-native] child environment failed: %hs\n", integrityError.c_str());
+        return 4;
+    }
 
     STARTUPINFOW startup = {};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process = {};
-    if (!CreateProcessW(target.c_str(), mutableCommand.data(), nullptr, nullptr, TRUE,
-                        CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, nullptr, nullptr,
+    if (!CreateProcessW(target.c_str(), mutableCommand.data(), nullptr, nullptr, FALSE,
+                        CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, childEnvironment.data(), nullptr,
                         &startup, &process)) {
         std::fwprintf(stderr, L"[cac-native] CreateProcessW failed: %lu\n", GetLastError());
         return 1;
     }
 
-    SetEnvironmentVariableW(L"CAC_NATIVE_DLL", dllPath.c_str());
     std::string error;
     const bool injected = InjectAndWaitForReady(process.hProcess, process.dwProcessId, dllPath, &error);
     if (!injected) {
@@ -519,27 +596,52 @@ int wmain(int argc, wchar_t** argv) {
         return 4;
     }
 
-    ResumeThread(process.hThread);
+    const DWORD previousSuspendCount = ResumeThread(process.hThread);
+    if (previousSuspendCount == static_cast<DWORD>(-1)) {
+        std::fwprintf(stderr, L"[cac-native] ResumeThread failed: %lu\n", GetLastError());
+        if (!TerminateAndWait(process.hProcess)) {
+            std::fwprintf(stderr, L"[cac-native] failed to terminate after ResumeThread failure\n");
+        }
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return 4;
+    }
 
     std::wstring auditPath;
     wchar_t auditBuffer[32768] = {};
     const DWORD auditLength = GetEnvironmentVariableW(L"CAC_NATIVE_AUDIT", auditBuffer,
                                                       static_cast<DWORD>(_countof(auditBuffer)));
     if (auditLength > 0 && auditLength < _countof(auditBuffer)) auditPath.assign(auditBuffer, auditLength);
+    HANDLE monitorThread = nullptr;
     HANDLE monitorProcess = nullptr;
     if (DuplicateHandle(GetCurrentProcess(), process.hProcess, GetCurrentProcess(), &monitorProcess,
                         SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, 0)) {
-        MonitorContext* monitorContext = new MonitorContext{monitorProcess, process.dwProcessId, target,
-                                                            dllPath, auditPath};
-        HANDLE monitor = CreateThread(nullptr, 0, MonitorThread, monitorContext, 0, nullptr);
-        if (monitor) CloseHandle(monitor);
-        else {
+        MonitorContext* monitorContext = new (std::nothrow) MonitorContext{monitorProcess, process.dwProcessId, target,
+                                                                            dllPath, auditPath};
+        if (!monitorContext) {
             CloseHandle(monitorProcess);
-            delete monitorContext;
+            std::fwprintf(stderr, L"[cac-native] monitor context allocation failed\n");
+        } else {
+            monitorThread = CreateThread(nullptr, 0, MonitorThread, monitorContext, 0, nullptr);
+            if (!monitorThread) {
+                const DWORD monitorError = GetLastError();
+                CloseHandle(monitorProcess);
+                delete monitorContext;
+                std::fwprintf(stderr, L"[cac-native] monitor CreateThread failed: %lu\n", monitorError);
+            }
         }
+    } else {
+        std::fwprintf(stderr, L"[cac-native] monitor handle duplication failed: %lu\n", GetLastError());
     }
 
     WaitForSingleObject(process.hProcess, INFINITE);
+    if (monitorThread) {
+        const DWORD monitorWait = WaitForSingleObject(monitorThread, INFINITE);
+        if (monitorWait != WAIT_OBJECT_0) {
+            std::fwprintf(stderr, L"[cac-native] monitor thread wait failed: %lu\n", GetLastError());
+        }
+        CloseHandle(monitorThread);
+    }
     DWORD exitCode = 1;
     GetExitCodeProcess(process.hProcess, &exitCode);
     CloseHandle(process.hThread);

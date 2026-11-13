@@ -954,7 +954,9 @@ NTSTATUS NTAPI HookNtDeviceIoControlFile(HANDLE file, HANDLE event, PIO_APC_ROUT
         // NtDeviceIoControlFile can complete through an APC, event, or IOCP after
         // this function returns. Without a completion-context hook, clearing the
         // buffer here would be overwritten by the kernel. Keep explicit evidence
-        // instead of reporting this path as covered.
+        // instead of reporting this path as covered. This path is intentionally
+        // audit-only; smoke coverage asserts the pending audit event, not output
+        // sanitization after an asynchronous completion.
         AuditEventRateLimited("api.ntdeviceiocontrol.pending", "unhandled", nullptr, code, true);
     }
     return status;
@@ -981,8 +983,10 @@ NETIO_STATUS WINAPI HookGetIfTable2(PMIB_IF_TABLE2* table) {
         for (ULONG i = 0; i < (*table)->NumEntries; ++i) {
             MIB_IF_ROW2& row = (*table)->Table[i];
             ApplyPhysicalAddress(row.PhysicalAddress, &row.PhysicalAddressLength, IF_MAX_PHYS_ADDRESS_LENGTH);
-            ULONG permanentLength = row.PhysicalAddressLength;
-            ApplyPhysicalAddress(row.PermanentPhysicalAddress, &permanentLength, IF_MAX_PHYS_ADDRESS_LENGTH);
+            // MIB_IF_ROW2 exposes one length for both current and permanent
+            // address buffers; keep that shared length synchronized.
+            ApplyPhysicalAddress(row.PermanentPhysicalAddress, &row.PhysicalAddressLength,
+                                 IF_MAX_PHYS_ADDRESS_LENGTH);
         }
         AuditEventRateLimited("api.getiftable2", EmptyReadsEnabled() ? "empty" : "patched");
     }
@@ -997,8 +1001,8 @@ NETIO_STATUS WINAPI HookGetIfEntry2(PMIB_IF_ROW2 row) {
             return ERROR_NOT_FOUND;
         }
         ApplyPhysicalAddress(row->PhysicalAddress, &row->PhysicalAddressLength, IF_MAX_PHYS_ADDRESS_LENGTH);
-        ULONG permanentLength = row->PhysicalAddressLength;
-        ApplyPhysicalAddress(row->PermanentPhysicalAddress, &permanentLength, IF_MAX_PHYS_ADDRESS_LENGTH);
+        ApplyPhysicalAddress(row->PermanentPhysicalAddress, &row->PhysicalAddressLength,
+                             IF_MAX_PHYS_ADDRESS_LENGTH);
         AuditEventRateLimited("api.getifentry2", EmptyReadsEnabled() ? "empty" : "patched");
     }
     return status;

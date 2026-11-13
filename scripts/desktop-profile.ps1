@@ -10,13 +10,28 @@
 #   powershell -NoProfile -File .\desktop-profile.ps1 -Action cleanup -Profile work
 
 param(
-    [ValidateSet('create','list','launch','status','ab','cleanup','remove-ca')][string]$Action = 'status',
+    [ValidateSet('create','list','launch','status','ab','cleanup','remove-ca','monitor')][string]$Action = 'status',
     [string]$Profile,
     [string]$Exe = 'C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\claude.exe',
+    [string]$MitmDump,
     [switch]$Inject,
     [switch]$Fingerprint,
     [switch]$RequireKernel,
-    [int]$WaitSeconds = 30
+    [int]$WaitSeconds = 30,
+    [int]$WatchPid = 0,
+    [int]$RelayPid = 0,
+    [int]$MitmPid = 0,
+    [string]$WatchPath,
+    [string]$WatchStartUtc,
+    [string]$RelayPath,
+    [string]$RelayStartUtc,
+    [string]$MitmPath,
+    [string]$MitmStartUtc,
+    [string]$RelayPidFile,
+    [string]$MitmPidFile,
+    [string]$MitmProcessPidFile,
+    [string]$CaPath,
+    [switch]$RemoveCaAfterExit
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,6 +52,7 @@ public static class CacPathNative {
 
 $script:OriginalUserProfile = $env:USERPROFILE
 $script:DesktopRoot = [System.IO.Path]::GetFullPath((Join-Path $script:OriginalUserProfile '.cac\desktop'))
+$script:DesktopScriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Definition }
 $script:ProfilePattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 $script:LayoutFolders = @(
     'home',
@@ -367,6 +383,81 @@ function Get-ProfilePaths {
     }
 }
 
+function Get-DesktopProfileMutexName {
+    param([Parameter(Mandatory = $true)][string]$ProfileRoot)
+    $fullRoot = [System.IO.Path]::GetFullPath($ProfileRoot).TrimEnd('\').ToUpperInvariant()
+    if ([string]::IsNullOrWhiteSpace($fullRoot)) { throw 'Profile root is empty' }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($fullRoot))
+        $hex = ([System.BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant()
+        return "Global\cac-profile-$($hex.Substring(0, 32))"
+    } finally { $sha.Dispose() }
+}
+
+function Enter-DesktopProfileMutex {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProfileRoot,
+        [int]$TimeoutMilliseconds = 0
+    )
+    $mutex = New-Object System.Threading.Mutex($false, (Get-DesktopProfileMutexName $ProfileRoot))
+    try {
+        $acquired = $false
+        try { $acquired = [bool]$mutex.WaitOne($TimeoutMilliseconds) }
+        catch [System.Threading.AbandonedMutexException] { $acquired = $true }
+        if (-not $acquired) {
+            $mutex.Dispose()
+            return $null
+        }
+        return [pscustomobject][ordered]@{ Mutex = $mutex; Acquired = $true }
+    } catch {
+        try { $mutex.Dispose() } catch { }
+        throw
+    }
+}
+
+function Exit-DesktopProfileMutex {
+    param([object]$Lock)
+    if ($null -eq $Lock) { return }
+    try {
+        if ([bool]$Lock.Acquired) { [void]$Lock.Mutex.ReleaseMutex() }
+    } catch { }
+    finally { try { $Lock.Mutex.Dispose() } catch { } }
+}
+
+function Assert-DesktopNoReparsePoints {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $root = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (($root.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Refusing operation on reparse-point path: $Path"
+    }
+    if (-not $root.PSIsContainer) { return }
+
+    $pending = New-Object System.Collections.Queue
+    $pending.Enqueue($root.FullName)
+    while ($pending.Count -gt 0) {
+        $current = [string]$pending.Dequeue()
+        foreach ($child in @(Get-ChildItem -LiteralPath $current -Force -ErrorAction Stop)) {
+            if (($child.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Refusing operation because a descendant is a reparse point: $($child.FullName)"
+            }
+            if ($child.PSIsContainer) { $pending.Enqueue($child.FullName) }
+        }
+    }
+}
+
+function Resolve-DesktopProxyBinding {
+    param([Parameter(Mandatory = $true)][string]$ProfileName)
+    $accountKey = "desktop:$ProfileName"
+    $binding = Get-CacProxyForAccount -AccountKey $accountKey
+    if ($null -eq $binding) {
+        [void](Ensure-CacProxyBinding -AccountKey $accountKey)
+        $binding = Get-CacProxyForAccount -AccountKey $accountKey
+    }
+    return $binding
+}
+
 function Get-DerivedHex {
     param([string]$Seed, [int]$Length)
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -517,7 +608,7 @@ function Initialize-ProfileLayout {
     if (-not (Test-Path -LiteralPath $networkModePath -PathType Leaf)) {
         [System.IO.File]::WriteAllText($networkModePath, "profile`r`n", (New-Object System.Text.UTF8Encoding($false)))
     }
-    [void](Get-CacProxyForAccount -AccountKey ("desktop:{0}" -f $Paths.Name))
+    [void](Resolve-DesktopProxyBinding -ProfileName $Paths.Name)
     return $Paths
 }
 
@@ -631,9 +722,10 @@ function Get-ClaudeProcessRows {
                 }
             }
             $result += [pscustomobject]@{
-                Id   = [int]$row.ProcessId
-                Name = [string]$row.Name
-                Path = $processPath
+                Id          = [int]$row.ProcessId
+                Name        = [string]$row.Name
+                Path        = $processPath
+                CommandLine = [string]$row.CommandLine
             }
         }
     } catch {
@@ -642,9 +734,10 @@ function Get-ClaudeProcessRows {
                 $processPath = $null
                 try { $processPath = [string]$process.Path } catch { $processPath = $null }
                 $result += [pscustomobject]@{
-                    Id   = [int]$process.Id
-                    Name = [string]$process.ProcessName
-                    Path = $processPath
+                    Id          = [int]$process.Id
+                    Name        = [string]$process.ProcessName
+                    Path        = $processPath
+                    CommandLine = $null
                 }
             }
         } catch {
@@ -673,10 +766,277 @@ function Get-ClaudeDesktopProcesses {
     return @($result)
 }
 
+function Wait-ClaudeDesktopRoot {
+    param(
+        [string]$ExePath,
+        [System.Diagnostics.Process]$LauncherProcess,
+        [string]$AuditPath,
+        [bool]$NativeRequired,
+        [string]$ExpectedUserDataDir,
+        [DateTime]$LaunchStartedUtc,
+        [int]$TimeoutSeconds = 30
+    )
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if ($null -ne $LauncherProcess -and $LauncherProcess.HasExited -and $LauncherProcess.ExitCode -ne 0) {
+            throw "Claude Desktop launcher exited with code $($LauncherProcess.ExitCode)"
+        }
+        $candidates = @(Get-ClaudeDesktopProcesses -ExePath $ExePath)
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedUserDataDir)) {
+            $expectedMarker = $ExpectedUserDataDir.TrimEnd('\')
+            $matchedCandidates = @($candidates | Where-Object {
+                $commandLine = [string]$_.CommandLine
+                if (-not [string]::IsNullOrWhiteSpace($commandLine)) {
+                    $commandLine.IndexOf($expectedMarker, [StringComparison]::OrdinalIgnoreCase) -ge 0
+                } else {
+                    try {
+                        $process = Get-Process -Id ([int]$_.Id) -ErrorAction Stop
+                        $process.StartTime.ToUniversalTime() -ge $LaunchStartedUtc.AddSeconds(-2)
+                    } catch {
+                        $false
+                    }
+                }
+            })
+            $candidates = $matchedCandidates
+        }
+        if ($candidates.Count -gt 0) {
+            $candidate = $candidates | Sort-Object Id | Select-Object -First 1
+            if (-not $NativeRequired) {
+                return (Get-Process -Id ([int]$candidate.Id) -ErrorAction Stop)
+            }
+            $ready = $false
+            $failed = $false
+            if (Test-Path -LiteralPath $AuditPath -PathType Leaf) {
+                foreach ($line in @(Get-Content -LiteralPath $AuditPath -Tail 256 -ErrorAction SilentlyContinue)) {
+                    try {
+                        $event = $line | ConvertFrom-Json
+                        if ([int]$event.pid -ne [int]$candidate.Id -or [string]$event.surface -ne 'native.bridge') { continue }
+                        if ([string]$event.action -eq 'ready') { $ready = $true }
+                        if ([string]$event.action -eq 'failed') { $failed = $true }
+                    } catch { }
+                }
+            }
+            if ($failed) { throw "NativeBridge failed for Claude Desktop PID $($candidate.Id)" }
+            if ($ready) { return (Get-Process -Id ([int]$candidate.Id) -ErrorAction Stop) }
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    throw "Claude Desktop root process was not observed within $TimeoutSeconds seconds"
+}
+
 function ConvertTo-ProcessArgument {
     param([string]$Value)
     if ($Value -notmatch '[\s"]') { return $Value }
     return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+function Resolve-MitmdumpPath {
+    param([string]$Requested)
+    $candidates = New-Object System.Collections.Generic.List[string]
+    foreach ($candidate in @($Requested, [Environment]::GetEnvironmentVariable('CAC_MITMDUMP', 'Process'))) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) { [void]$candidates.Add($candidate.Trim().Trim('"')) }
+    }
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+        $command = Get-Command $candidate -ErrorAction SilentlyContinue
+        if ($null -ne $command -and -not [string]::IsNullOrWhiteSpace([string]$command.Source) -and
+            (Test-Path -LiteralPath $command.Source -PathType Leaf)) {
+            return [System.IO.Path]::GetFullPath($command.Source)
+        }
+    }
+    foreach ($name in @('mitmdump.exe', 'mitmdump')) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($null -ne $command -and -not [string]::IsNullOrWhiteSpace([string]$command.Source) -and
+            (Test-Path -LiteralPath $command.Source -PathType Leaf)) {
+            return [System.IO.Path]::GetFullPath($command.Source)
+        }
+    }
+    return $null
+}
+
+function Stop-DesktopLaunchResources {
+    param(
+        [psobject]$Paths,
+        [System.Diagnostics.Process]$DesktopProcess,
+        [int]$DesktopPid = 0,
+        [System.Diagnostics.Process]$MitmProcess,
+        [object]$Relay,
+        [string[]]$PidFiles,
+        [string]$CaPath,
+        [bool]$RemoveCa
+    )
+    $errors = New-Object 'System.Collections.Generic.List[string]'
+    $rootProcessId = 0
+    if ($null -ne $DesktopProcess) {
+        try { $rootProcessId = [int]$DesktopProcess.Id } catch { $rootProcessId = 0 }
+    } elseif ($DesktopPid -gt 0) {
+        $rootProcessId = $DesktopPid
+    }
+    if ($rootProcessId -gt 0 -and $null -ne $Paths) {
+        try {
+            $stop = Stop-ClaudeProcessTree -RootProcessId $rootProcessId -Paths $Paths
+            if ($stop.error) { [void]$errors.Add([string]$stop.error) }
+            if (@($stop.remainingPids).Count -gt 0) { [void]$errors.Add("Desktop processes remain: $(@($stop.remainingPids) -join ',')") }
+        } catch { [void]$errors.Add("Desktop stop failed: $($_.Exception.Message)") }
+    }
+    if ($null -ne $MitmProcess) {
+        try { Stop-TrackedProcess -Process $MitmProcess } catch { [void]$errors.Add("MITM stop failed: $($_.Exception.Message)") }
+    }
+    if ($null -ne $Relay) {
+        try { Stop-CacProxyRelay $Relay } catch { [void]$errors.Add("relay stop failed: $($_.Exception.Message)") }
+    }
+    foreach ($pidFile in @($PidFiles | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)) {
+        try {
+            if (Test-Path -LiteralPath $pidFile) { Remove-Item -LiteralPath $pidFile -Force -ErrorAction Stop }
+            if (Test-Path -LiteralPath $pidFile) { [void]$errors.Add("PID file remains: $pidFile") }
+        } catch { [void]$errors.Add("PID file cleanup failed: $pidFile : $($_.Exception.Message)") }
+    }
+    if ($RemoveCa) {
+        try {
+            if (-not (Remove-MitmCa -Path $CaPath)) { [void]$errors.Add("Profile CA remains: $CaPath") }
+        } catch { [void]$errors.Add("Profile CA rollback failed: $($_.Exception.Message)") }
+    }
+    return $errors.ToArray()
+}
+
+function Start-DesktopLifecycleMonitor {
+    param(
+        [psobject]$Paths,
+        [int]$DesktopPid,
+        [object]$Relay,
+        [System.Diagnostics.Process]$MitmProcess,
+        [string]$MitmPidFile,
+        [string]$MitmProcessPidFile,
+        [bool]$RemoveCa,
+        [string]$CaPath
+    )
+    if ($DesktopPid -le 0) { throw 'Desktop lifecycle monitor requires a root PID' }
+    $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
+    $arguments = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (ConvertTo-ProcessArgument $script:DesktopScriptPath),
+        '-Action', 'monitor', '-Profile', $Paths.Name, '-WatchPid', [string]$DesktopPid
+    )
+    $watchPath = $null
+    $watchStartUtc = $null
+    try {
+        $watchProcess = Get-Process -Id $DesktopPid -ErrorAction Stop
+        $watchPath = [string]$watchProcess.Path
+        $watchStartUtc = $watchProcess.StartTime.ToUniversalTime().ToString('o')
+    } catch {
+        throw "Desktop root identity unavailable for PID ${DesktopPid}: $($_.Exception.Message)"
+    }
+    if ([string]::IsNullOrWhiteSpace($watchPath) -or [string]::IsNullOrWhiteSpace($watchStartUtc)) {
+        throw "Desktop root identity is incomplete for PID ${DesktopPid}"
+    }
+    $arguments += @('-WatchPath', (ConvertTo-ProcessArgument $watchPath))
+    $arguments += @('-WatchStartUtc', (ConvertTo-ProcessArgument $watchStartUtc))
+    $relayPid = 0
+    $relayPidFile = $null
+    $relayPath = $null
+    $relayStartUtc = $null
+    if ($null -ne $Relay -and [bool]$Relay.owned) {
+        if ($null -eq $Relay.process) { throw 'Owned proxy relay has no process identity' }
+        $relayPid = [int]$Relay.process.Id
+        $relayPidFile = [string]$Relay.pidFile
+        try { $relayPath = [string]$Relay.process.StartInfo.FileName } catch { }
+        try { if (-not $relayPath) { $relayPath = [string]$Relay.process.Path } } catch { }
+        try { $relayStartUtc = $Relay.process.StartTime.ToUniversalTime().ToString('o') } catch { }
+        if ([string]::IsNullOrWhiteSpace($relayPath) -or [string]::IsNullOrWhiteSpace($relayStartUtc)) {
+            throw "Proxy relay identity is incomplete for PID $relayPid"
+        }
+    }
+    if ($relayPid -gt 0) { $arguments += @('-RelayPid', [string]$relayPid) }
+    if ($relayPidFile) { $arguments += @('-RelayPidFile', (ConvertTo-ProcessArgument $relayPidFile)) }
+    if ($relayPath) { $arguments += @('-RelayPath', (ConvertTo-ProcessArgument $relayPath)) }
+    if ($relayStartUtc) { $arguments += @('-RelayStartUtc', (ConvertTo-ProcessArgument $relayStartUtc)) }
+    $mitmPath = $null
+    $mitmStartUtc = $null
+    if ($null -ne $MitmProcess) {
+        $arguments += @('-MitmPid', [string]$MitmProcess.Id)
+        try { $mitmPath = [string]$MitmProcess.Path } catch { }
+        try { $mitmStartUtc = $MitmProcess.StartTime.ToUniversalTime().ToString('o') } catch { }
+        if ([string]::IsNullOrWhiteSpace($mitmPath) -or [string]::IsNullOrWhiteSpace($mitmStartUtc)) {
+            throw "MITM process identity is incomplete for PID $($MitmProcess.Id)"
+        }
+    }
+    if ($mitmPath) { $arguments += @('-MitmPath', (ConvertTo-ProcessArgument $mitmPath)) }
+    if ($mitmStartUtc) { $arguments += @('-MitmStartUtc', (ConvertTo-ProcessArgument $mitmStartUtc)) }
+    if ($MitmPidFile) { $arguments += @('-MitmPidFile', (ConvertTo-ProcessArgument $MitmPidFile)) }
+    if ($MitmProcessPidFile) { $arguments += @('-MitmProcessPidFile', (ConvertTo-ProcessArgument $MitmProcessPidFile)) }
+    if ($CaPath) { $arguments += @('-CaPath', (ConvertTo-ProcessArgument $CaPath)) }
+    if ($RemoveCa) { $arguments += '-RemoveCaAfterExit' }
+    $monitor = Start-Process -FilePath $powershell -ArgumentList $arguments -PassThru -WindowStyle Hidden -ErrorAction Stop
+    return [int]$monitor.Id
+}
+
+function Invoke-DesktopMonitorAction {
+    $errors = New-Object 'System.Collections.Generic.List[string]'
+    $paths = $null
+    $profileLock = $null
+    $rootIdentityValid = ($WatchPid -gt 0 -and
+        -not [string]::IsNullOrWhiteSpace($WatchPath) -and
+        -not [string]::IsNullOrWhiteSpace($WatchStartUtc))
+    try {
+        try { $paths = Get-ProfilePaths -Name (Resolve-ProfileName -Requested $Profile) } catch {
+            [void]$errors.Add("Desktop monitor profile resolution failed: $($_.Exception.Message)")
+        }
+        if (-not $rootIdentityValid) {
+            [void]$errors.Add("Desktop root identity is incomplete; refusing PID-only monitoring")
+        } else {
+            $tracked = Get-TrackedProcess -ProcessId $WatchPid -ExpectedPath $WatchPath -ExpectedStartUtc $WatchStartUtc
+            while ($null -ne $tracked) {
+                Start-Sleep -Milliseconds 500
+                $tracked = Get-TrackedProcess -ProcessId $WatchPid -ExpectedPath $WatchPath -ExpectedStartUtc $WatchStartUtc
+            }
+        }
+    } finally {
+        if ($null -ne $paths) {
+            try { $profileLock = Enter-DesktopProfileMutex -ProfileRoot $paths.Root } catch {
+                [void]$errors.Add("Desktop monitor mutex failed: $($_.Exception.Message)")
+            }
+            if ($null -eq $profileLock) {
+                if ($errors.Count -eq 0) { [void]$errors.Add("Desktop monitor could not acquire Profile mutex") }
+            } else {
+                try {
+                    $mitm = $null
+                    if ($MitmPid -gt 0) {
+                        if ([string]::IsNullOrWhiteSpace($MitmPath) -or [string]::IsNullOrWhiteSpace($MitmStartUtc)) {
+                            [void]$errors.Add("MITM identity is incomplete; refusing PID-only cleanup")
+                        } else {
+                            $mitm = Get-TrackedProcess -ProcessId $MitmPid -ExpectedPath $MitmPath -ExpectedStartUtc $MitmStartUtc
+                        }
+                    }
+                    $relayProcess = $null
+                    if ($RelayPid -gt 0) {
+                        if ([string]::IsNullOrWhiteSpace($RelayPath) -or [string]::IsNullOrWhiteSpace($RelayStartUtc)) {
+                            [void]$errors.Add("Relay identity is incomplete; refusing PID-only cleanup")
+                        } else {
+                            $relayProcess = Get-TrackedProcess -ProcessId $RelayPid -ExpectedPath $RelayPath -ExpectedStartUtc $RelayStartUtc
+                        }
+                    }
+                    $relay = if ($null -ne $relayProcess) {
+                        [pscustomobject]@{ owned = $true; process = $relayProcess; pidFile = $RelayPidFile }
+                    } else { $null }
+                    if ($rootIdentityValid) {
+                        $cleanupErrors = @(Stop-DesktopLaunchResources -Paths $paths -DesktopPid $WatchPid `
+                            -MitmProcess $mitm -Relay $relay `
+                            -PidFiles @($RelayPidFile, $MitmPidFile, $MitmProcessPidFile) `
+                            -CaPath $CaPath -RemoveCa ([bool]$RemoveCaAfterExit))
+                        foreach ($errorText in $cleanupErrors) { [void]$errors.Add($errorText) }
+                    } else {
+                        [void]$errors.Add('Desktop root tree cleanup skipped because root identity was not authenticated')
+                    }
+                } finally {
+                    Exit-DesktopProfileMutex $profileLock
+                }
+            }
+        }
+        foreach ($errorText in $errors) { Write-Host "[CLEANUP] $errorText" -ForegroundColor Red }
+        $script:MonitorExitCode = if ($errors.Count -gt 0) { 1 } else { 0 }
+    }
+    return $script:MonitorExitCode
 }
 
 function Start-ClaudeDesktop {
@@ -693,8 +1053,22 @@ function Start-ClaudeDesktop {
     $mitmProcessPidFile = $null
     $personaPath = $null
     $relay = $null
+    $relayPidFile = $null
     $proxyBinding = $null
+    $mitm = $null
+    $caPath = $null
+    $caInstalledByLaunch = $false
+    $startedProcess = $null
+    $launcherProcess = $null
+    $resourceTransferred = $false
+    $monitorPid = $null
+    $result = $null
+    $profileLock = $null
 
+    try {
+    $profileLock = Enter-DesktopProfileMutex -ProfileRoot $Paths.Root
+    if ($null -eq $profileLock) { throw "Profile is busy: $($Paths.Root)" }
+    Assert-DesktopNoReparsePoints -Path $Paths.Root
     # Fail before starting MITM or touching the profile when the Desktop process
     # is already active or the requested WindowsApps path is unavailable. The
     # second check below remains for races between preflight and CreateProcess.
@@ -735,23 +1109,20 @@ function Start-ClaudeDesktop {
     # Create log/mitm directories before the addon starts; otherwise a fresh
     # profile cannot publish its PID file and fail-closed monitoring breaks.
     Initialize-ProfileLayout -Paths $Paths -ForLaunch | Out-Null
+    Assert-DesktopNoReparsePoints -Path $Paths.Root
 
-    $proxyBinding = Get-CacProxyForAccount -AccountKey ("desktop:{0}" -f $Paths.Name)
+    $proxyBinding = Resolve-DesktopProxyBinding -ProfileName $Paths.Name
     if ($null -ne $proxyBinding) {
         $relay = Start-CacProxyRelay -UpstreamProxyUrl ([string]$proxyBinding.url) -LogsDir $Paths.LogsDir
+        if ([bool]$relay.owned) { $relayPidFile = [string]$relay.pidFile }
     }
 
     if ($UseFingerprint) {
-        $mitm = (Get-Command mitmdump -ErrorAction SilentlyContinue).Source
-        if (-not $mitm) {
-            $candidate = 'D:\zhibo\runtime\py312\python\Scripts\mitmdump.exe'
-            if (Test-Path -LiteralPath $candidate -PathType Leaf) { $mitm = $candidate }
-        }
+        $mitm = Resolve-MitmdumpPath -Requested $MitmDump
         $addon = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\mitm_fingerprint.py'
         $shim = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\fingerprint-shim.js'
         if (-not $mitm -or -not (Test-Path -LiteralPath $addon -PathType Leaf) -or
             -not (Test-Path -LiteralPath $shim -PathType Leaf)) {
-            Stop-CacProxyRelay $relay
             return [pscustomobject]@{
                 started = $false; blocked = $true; error = 'mitmdump or fingerprint assets missing'
                 mode = $null; processId = $null; launchFile = $null; arguments = $null
@@ -807,10 +1178,6 @@ function Start-ClaudeDesktop {
         } while ((Get-Date) -lt $deadline)
 
         if (-not $mitmReady) {
-            Stop-TrackedProcess -Process $mitmProcess
-            Stop-CacProxyRelay $relay
-            Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
             return [pscustomobject]@{
                 started = $false; blocked = $true
                 error = "MITM did not listen on 127.0.0.1:$mitmPort"
@@ -820,30 +1187,33 @@ function Start-ClaudeDesktop {
             }
         }
 
-        $ca = Join-Path $Paths.MitmDir 'mitmproxy-ca-cert.cer'
+        $caPath = Join-Path $Paths.MitmDir 'mitmproxy-ca-cert.cer'
         $caDeadline = (Get-Date).AddSeconds(5)
-        while (-not (Test-Path -LiteralPath $ca -PathType Leaf) -and (Get-Date) -lt $caDeadline) {
+        while (-not (Test-Path -LiteralPath $caPath -PathType Leaf) -and (Get-Date) -lt $caDeadline) {
             try {
                 if ($mitmProcess -and $mitmProcess.HasExited) { break }
             } catch { break }
             Start-Sleep -Milliseconds 200
         }
         $caInstalled = $false
-        if (Test-Path -LiteralPath $ca -PathType Leaf) {
+        $caThumbprint = if (Test-Path -LiteralPath $caPath -PathType Leaf) {
+            Get-CertificateThumbprintFromFile -Path $caPath
+        } else { $null }
+        $caWasPresent = ($null -ne $caThumbprint -and @(Get-MitmCa | Where-Object {
+            $_.Thumbprint.Replace(' ', '').ToUpperInvariant() -eq $caThumbprint
+        }).Count -gt 0)
+        if (Test-Path -LiteralPath $caPath -PathType Leaf) {
             try {
-                $caInstalled = [bool](Install-MitmCa -Path $ca)
+                $caInstalled = [bool](Install-MitmCa -Path $caPath)
+                $caInstalledByLaunch = $caInstalled -and -not $caWasPresent
             } catch {
                 $caInstalled = $false
             }
         }
         if (-not $caInstalled) {
-            Stop-TrackedProcess -Process $mitmProcess
-            Stop-CacProxyRelay $relay
-            Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
             return [pscustomobject]@{
                 started = $false; blocked = $true
-                error = "MITM CA installation failed for profile $($Paths.Name): $ca"
+                error = "MITM CA installation failed for profile $($Paths.Name): $caPath"
                 mode = $null; processId = $null; launchFile = $null; arguments = $null
                 userDataDir = $Paths.UserDataDir; nativeRequested = $UseInject; nativeUsed = $false
                 mitmPort = $mitmPort; fingerprintPersona = $personaPath; mitmPid = $null
@@ -859,10 +1229,6 @@ function Start-ClaudeDesktop {
         }
         Write-Host "          Close all Claude Desktop windows manually, then retry." -ForegroundColor Yellow
         Write-Host "          This script does not terminate existing user sessions." -ForegroundColor Yellow
-        Stop-TrackedProcess -Process $mitmProcess
-        Stop-CacProxyRelay $relay
-        if ($mitmPidFile) { Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue }
-        if ($mitmProcessPidFile) { Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue }
         return [pscustomobject]@{
             started        = $false
             blocked        = $true
@@ -878,10 +1244,6 @@ function Start-ClaudeDesktop {
     }
 
     if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
-        Stop-TrackedProcess -Process $mitmProcess
-        Stop-CacProxyRelay $relay
-        if ($mitmPidFile) { Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue }
-        if ($mitmProcessPidFile) { Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue }
         return [pscustomobject]@{
             started        = $false
             blocked        = $false
@@ -926,7 +1288,6 @@ function Start-ClaudeDesktop {
             (Test-Path -LiteralPath $nativeDll -PathType Leaf)) {
             $nativeUsed = $true
         } else {
-            Stop-CacProxyRelay $relay
             throw "Native injection requested but the verified Native layer is unavailable: $nativeDir"
         }
     }
@@ -948,7 +1309,6 @@ function Start-ClaudeDesktop {
         $mode = 'direct'
     }
     if ($RequireKernel -and -not $nativeUsed) {
-        Stop-CacProxyRelay $relay
         throw '-RequireKernel requires -Inject so NativeBridge can register the process policy'
     }
     if ($UseFingerprint) { $mode += '+fingerprint' }
@@ -992,7 +1352,7 @@ function Start-ClaudeDesktop {
         ALL_PROXY            = if ($null -ne $relay) { [string]$relay.url } else { '' }
         NO_PROXY             = 'localhost,127.0.0.1,::1'
         CAC_HTTP_PROXY_LOCAL = if ($null -ne $relay) { [string]$relay.url } else { '' }
-        CAC_PROXY_UPSTREAM   = if ($null -ne $proxyBinding) { [string]$proxyBinding.url } else { '' }
+        CAC_PROXY_ID         = if ($null -ne $proxyBinding) { [string]$proxyBinding.proxyId } else { '' }
         CAC_PROXY_SOURCE     = if ($null -ne $proxyBinding) { [string]$proxyBinding.source } else { '' }
     }
     $nativePolicyPath = Join-Path $Paths.Root 'native_read_policy'
@@ -1018,8 +1378,10 @@ function Start-ClaudeDesktop {
     }
     if ($environment['CAC_NATIVE_READ_POLICY'] -eq 'empty' -and $networkMode -ne 'enforce') { $networkMode = 'clean' }
     if ($null -ne $relay -and $networkMode -eq 'profile') { $networkMode = 'enforce' }
+    if ($networkMode -eq 'enforce' -and $null -eq $proxyBinding) {
+        throw 'network_mode=enforce requires a verified proxy binding'
+    }
     if ($networkMode -eq 'enforce' -and -not $nativeUsed) {
-        Stop-CacProxyRelay $relay
         throw 'network_mode=enforce requires -Inject so NativeBridge can install the per-process WFP boundary'
     }
     $environment['CAC_NETWORK_MODE'] = $networkMode
@@ -1036,11 +1398,13 @@ function Start-ClaudeDesktop {
 
     $startedProcess = $null
     $startError = $null
+    $launchStartedUtc = [DateTime]::UtcNow
     try {
         foreach ($name in $environment.Keys) {
             [Environment]::SetEnvironmentVariable($name, [string]$environment[$name], 'Process')
         }
-        $startedProcess = Start-Process -FilePath $launchFile -ArgumentList $arguments -PassThru -ErrorAction Stop
+            $launcherProcess = Start-Process -FilePath $launchFile -ArgumentList $arguments -PassThru -ErrorAction Stop
+            $startedProcess = $launcherProcess
     } catch {
         $startError = $_.Exception.Message
     } finally {
@@ -1049,17 +1413,22 @@ function Start-ClaudeDesktop {
         }
     }
 
-    $processId = $null
-    if ($null -ne $startedProcess) { $processId = [int]$startedProcess.Id }
+    if ($null -eq $launcherProcess) { throw "Claude Desktop failed to start: $startError" }
+    $desktopProcess = Wait-ClaudeDesktopRoot -ExePath $ExePath -LauncherProcess $launcherProcess `
+        -AuditPath (Join-Path $Paths.AuditDir 'native-hook.jsonl') -NativeRequired $nativeUsed `
+        -ExpectedUserDataDir $Paths.UserDataDir -LaunchStartedUtc $launchStartedUtc
+    $startedProcess = $desktopProcess
+    $processId = [int]$desktopProcess.Id
 
     if ($UseFingerprint -and $processId -and $mitmPidFile) {
         Set-Content -LiteralPath $mitmPidFile -Value "$processId" -Encoding ASCII
     }
-    if ($UseFingerprint -and -not $processId -and $mitmProcess) {
-        Stop-TrackedProcess -Process $mitmProcess
-        Remove-Item -LiteralPath $mitmPidFile -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $mitmProcessPidFile -Force -ErrorAction SilentlyContinue
-    }
+    # Always keep a lifecycle monitor so direct launches also clean detached
+    # renderer/utility processes after the Desktop root exits.
+    $monitorPid = Start-DesktopLifecycleMonitor -Paths $Paths -DesktopPid $processId `
+        -Relay $relay -MitmProcess $mitmProcess -MitmPidFile $mitmPidFile `
+        -MitmProcessPidFile $mitmProcessPidFile -RemoveCa $caInstalledByLaunch -CaPath $caPath
+    $resourceTransferred = $true
 
     return [pscustomobject]@{
         started         = ($null -ne $startedProcess)
@@ -1080,7 +1449,36 @@ function Start-ClaudeDesktop {
         proxySource     = if ($null -ne $proxyBinding) { [string]$proxyBinding.source } else { $null }
         relayPort       = if ($null -ne $relay) { [int]$relay.port } else { $null }
         relayPid        = if ($null -ne $relay -and $relay.process) { [int]$relay.process.Id } else { $null }
+        monitorPid      = $monitorPid
     }
+    } catch {
+        $result = [pscustomobject]@{
+            started         = $false
+            blocked         = $true
+            error           = $_.Exception.Message
+            mode            = $null
+            processId       = $null
+            launchFile      = $null
+            arguments       = $null
+            userDataDir     = $Paths.UserDataDir
+            nativeRequested = $UseInject
+            nativeUsed      = $false
+            cleanupErrors   = @()
+        }
+    } finally {
+        if (-not $resourceTransferred) {
+            $cleanupErrors = @(Stop-DesktopLaunchResources -Paths $Paths -DesktopProcess $startedProcess `
+                -MitmProcess $mitmProcess -Relay $relay `
+                -PidFiles @($relayPidFile, $mitmPidFile, $mitmProcessPidFile) `
+                -CaPath $caPath -RemoveCa $caInstalledByLaunch)
+            foreach ($errorText in $cleanupErrors) {
+                Write-Host "[CLEANUP] $errorText" -ForegroundColor Red
+            }
+            if ($null -ne $result) { $result.cleanupErrors = @($cleanupErrors) }
+        }
+        Exit-DesktopProfileMutex $profileLock
+    }
+    return $result
 }
 
 function Get-ProcessSnapshot {
@@ -1126,6 +1524,60 @@ function Get-ProcessTreeIds {
         }
     }
     return @($ordered)
+}
+
+function Get-ProcessIdentity {
+    param([int]$ProcessId)
+    if ($ProcessId -le 0) { return $null }
+    try {
+        $process = Get-Process -Id $ProcessId -ErrorAction Stop
+        $path = [string]$process.Path
+        if ([string]::IsNullOrWhiteSpace($path)) { return $null }
+        $startUtc = $process.StartTime.ToUniversalTime()
+        return [pscustomobject]@{
+            Id       = $ProcessId
+            Path     = $path
+            StartUtc = $startUtc
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Test-ProcessIdentity {
+    param([psobject]$Identity)
+    if ($null -eq $Identity) { return $false }
+    $current = Get-ProcessIdentity -ProcessId ([int]$Identity.Id)
+    if ($null -eq $current) { return $false }
+    if (-not [string]::Equals([string]$current.Path, [string]$Identity.Path, [StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+    return ([Math]::Abs(($current.StartUtc - $Identity.StartUtc).TotalSeconds) -le 5)
+}
+
+function Get-ClaudeRootIdentity {
+    param(
+        [int]$ProcessId,
+        [psobject]$Paths
+    )
+    $identity = Get-ProcessIdentity -ProcessId $ProcessId
+    if ($null -eq $identity) { return $null }
+    try {
+        if (-not [string]::Equals([System.IO.Path]::GetFileName($identity.Path), 'claude.exe', [StringComparison]::OrdinalIgnoreCase)) {
+            return $null
+        }
+    } catch { return $null }
+
+    if ($null -ne $Paths -and -not [string]::IsNullOrWhiteSpace([string]$Paths.UserDataDir)) {
+        $row = @(Get-ClaudeProcessRows | Where-Object { [int]$_.Id -eq $ProcessId } | Select-Object -First 1)
+        if ($row.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$row[0].CommandLine)) {
+            $marker = ([string]$Paths.UserDataDir).TrimEnd('\')
+            if ([string]$row[0].CommandLine.IndexOf($marker, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+                return $null
+            }
+        }
+    }
+    return $identity
 }
 
 function Get-ProfileProcessIds {
@@ -1250,6 +1702,27 @@ function Stop-TrackedProcess {
     try { [void]$Process.WaitForExit(3000) } catch { }
 }
 
+function Get-TrackedProcess {
+    param(
+        [int]$ProcessId,
+        [string]$ExpectedPath,
+        [string]$ExpectedStartUtc
+    )
+    if ($ProcessId -le 0 -or [string]::IsNullOrWhiteSpace($ExpectedPath) -or
+        [string]::IsNullOrWhiteSpace($ExpectedStartUtc)) { return $null }
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($null -eq $process) { return $null }
+    try {
+        $actualPath = [System.IO.Path]::GetFullPath([string]$process.Path)
+        $wantedPath = [System.IO.Path]::GetFullPath($ExpectedPath)
+        if (-not [string]::Equals($actualPath, $wantedPath, [StringComparison]::OrdinalIgnoreCase)) { return $null }
+        $expected = [DateTime]::Parse($ExpectedStartUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        $actual = $process.StartTime.ToUniversalTime()
+        if ([Math]::Abs(($actual - $expected).TotalSeconds) -gt 5) { return $null }
+    } catch { return $null }
+    return $process
+}
+
 function Get-PathMarkers {
     param([string]$Path)
     $markers = New-Object 'System.Collections.Generic.List[string]'
@@ -1285,7 +1758,17 @@ function Stop-ClaudeProcessTree {
         [psobject]$Paths
     )
 
+    $rootIdentity = Get-ClaudeRootIdentity -ProcessId $RootProcessId -Paths $Paths
+    if ($null -eq $rootIdentity) {
+        return [pscustomobject]@{
+            collectedPids = @()
+            remainingPids = @($RootProcessId)
+            error        = "Refused PID-only Desktop cleanup for root PID $RootProcessId"
+        }
+    }
+
     $collected = @()
+    $identityById = @{}
     $remaining = @()
     $deadline = [DateTime]::UtcNow.AddSeconds(8)
     do {
@@ -1297,17 +1780,24 @@ function Stop-ClaudeProcessTree {
         }
         $scan = @($scan | Where-Object { $_ -and [int]$_ -ne $PID } | Select-Object -Unique)
         foreach ($targetId in $scan) {
+            $targetIdentity = Get-ProcessIdentity -ProcessId ([int]$targetId)
+            if ($null -eq $targetIdentity) { continue }
+            if (-not $identityById.ContainsKey([int]$targetId)) {
+                $identityById[[int]$targetId] = $targetIdentity
+            }
             if (-not ($collected -contains [int]$targetId)) { $collected += [int]$targetId }
         }
 
         for ($index = $scan.Count - 1; $index -ge 0; $index--) {
             $targetId = [int]$scan[$index]
-            try { Stop-Process -Id $targetId -Force -ErrorAction Stop } catch { }
+            if ($identityById.ContainsKey($targetId) -and (Test-ProcessIdentity -Identity $identityById[$targetId])) {
+                try { Stop-Process -Id $targetId -Force -ErrorAction Stop } catch { }
+            }
         }
 
         Start-Sleep -Milliseconds 200
         $remaining = @($collected | Where-Object {
-            Get-Process -Id ([int]$_) -ErrorAction SilentlyContinue
+            $identityById.ContainsKey([int]$_) -and (Test-ProcessIdentity -Identity $identityById[[int]$_])
         } | Select-Object -Unique)
         if ($null -ne $Paths) {
             try {
@@ -1327,6 +1817,7 @@ function Stop-ClaudeProcessTree {
     return [pscustomobject]@{
         collectedPids = @($collected)
         remainingPids = @($remaining)
+        error        = $null
     }
 }
 
@@ -1433,6 +1924,10 @@ function Invoke-LaunchAction {
     Write-AntDidInfo -Info $info
     if ($null -eq $info) {
         Write-Host "[FAIL] ant-did was not created within the timeout." -ForegroundColor Red
+        $stop = Stop-ClaudeProcessTree -RootProcessId $launch.processId -Paths $paths
+        if (@($stop.remainingPids).Count -gt 0) {
+            Write-Host ("[CLEANUP] Desktop processes remain: {0}" -f (@($stop.remainingPids) -join ', ')) -ForegroundColor Red
+        }
         return 1
     }
     Write-Host "[OK] ant-did is ready." -ForegroundColor Green
@@ -1589,52 +2084,61 @@ function Invoke-AbAction {
 function Invoke-CleanupAction {
     $name = Resolve-ProfileName -Requested $Profile
     $paths = Get-ProfilePaths -Name $name
-    if (-not (Test-Path -LiteralPath $paths.Root -PathType Container)) {
-        Write-Host "[CLEANUP] not found: $($paths.Root)" -ForegroundColor Yellow
-        return 1
-    }
+    $profileLock = $null
+    try {
+        $profileLock = Enter-DesktopProfileMutex -ProfileRoot $paths.Root
+        if ($null -eq $profileLock) { throw "Profile is busy: $($paths.Root)" }
+        if (-not (Test-Path -LiteralPath $paths.Root -PathType Container)) {
+            Write-Host "[CLEANUP] not found: $($paths.Root)" -ForegroundColor Yellow
+            return 1
+        }
 
-    $baseFull = [System.IO.Path]::GetFullPath($script:DesktopRoot).TrimEnd('\')
-    $resolved = (Resolve-Path -LiteralPath $paths.Root -ErrorAction Stop).ProviderPath
-    $resolvedFull = [System.IO.Path]::GetFullPath($resolved).TrimEnd('\')
-    $basePrefix = $baseFull + '\'
-    if (-not $resolvedFull.StartsWith($basePrefix, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing cleanup outside the profile root: $resolvedFull"
-    }
-    $relative = $resolvedFull.Substring($basePrefix.Length)
-    if (-not [string]::Equals($relative, $name, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing cleanup: resolved path does not match the requested profile: $resolvedFull"
-    }
+        $baseFull = [System.IO.Path]::GetFullPath($script:DesktopRoot).TrimEnd('\')
+        $resolved = (Resolve-Path -LiteralPath $paths.Root -ErrorAction Stop).ProviderPath
+        $resolvedFull = [System.IO.Path]::GetFullPath($resolved).TrimEnd('\')
+        $basePrefix = $baseFull + '\'
+        if (-not $resolvedFull.StartsWith($basePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing cleanup outside the profile root: $resolvedFull"
+        }
+        $relative = $resolvedFull.Substring($basePrefix.Length)
+        if (-not [string]::Equals($relative, $name, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing cleanup: resolved path does not match the requested profile: $resolvedFull"
+        }
 
-    $item = Get-Item -LiteralPath $resolvedFull -Force -ErrorAction Stop
-    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw "Refusing cleanup of a reparse-point profile directory: $resolvedFull"
-    }
+        $item = Get-Item -LiteralPath $resolvedFull -Force -ErrorAction Stop
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Refusing cleanup of a reparse-point profile directory: $resolvedFull"
+        }
+        Assert-DesktopNoReparsePoints -Path $resolvedFull
 
-    $liveProcesses = @(Get-ProfileProcessIds -Paths $paths)
-    if ($liveProcesses.Count -gt 0) {
-        Write-Host ("[CLEANUP] refused: profile processes are still running: {0}" -f ($liveProcesses -join ', ')) -ForegroundColor Yellow
-        return 1
-    }
+        $liveProcesses = @(Get-ProfileProcessIds -Paths $paths)
+        if ($liveProcesses.Count -gt 0) {
+            Write-Host ("[CLEANUP] refused: profile processes are still running: {0}" -f ($liveProcesses -join ', ')) -ForegroundColor Yellow
+            return 1
+        }
 
-    $files = @(Get-ChildItem -LiteralPath $resolvedFull -Recurse -Force -File -ErrorAction SilentlyContinue)
-    $bytes = 0
-    foreach ($file in $files) { $bytes += [long]$file.Length }
+        $files = @(Get-ChildItem -LiteralPath $resolvedFull -Recurse -Force -File -ErrorAction SilentlyContinue)
+        $bytes = 0
+        foreach ($file in $files) { $bytes += [long]$file.Length }
 
-    # Re-scan immediately before deletion to close the check/delete race.
-    $liveProcesses = @(Get-ProfileProcessIds -Paths $paths)
-    if ($liveProcesses.Count -gt 0) {
-        Write-Host ("[CLEANUP] refused: profile processes appeared during cleanup: {0}" -f ($liveProcesses -join ', ')) -ForegroundColor Yellow
-        return 1
-    }
+        # Re-scan immediately before deletion to close the check/delete race.
+        $liveProcesses = @(Get-ProfileProcessIds -Paths $paths)
+        if ($liveProcesses.Count -gt 0) {
+            Write-Host ("[CLEANUP] refused: profile processes appeared during cleanup: {0}" -f ($liveProcesses -join ', ')) -ForegroundColor Yellow
+            return 1
+        }
+        Assert-DesktopNoReparsePoints -Path $resolvedFull
 
-    Write-Host "[CLEANUP] removing: $resolvedFull"
-    Remove-Item -LiteralPath $resolvedFull -Recurse -Force -ErrorAction Stop
-    if (Test-Path -LiteralPath $resolvedFull) {
-        throw "Cleanup did not remove the profile: $resolvedFull"
+        Write-Host "[CLEANUP] removing: $resolvedFull"
+        Remove-Item -LiteralPath $resolvedFull -Recurse -Force -ErrorAction Stop
+        if (Test-Path -LiteralPath $resolvedFull) {
+            throw "Cleanup did not remove the profile: $resolvedFull"
+        }
+        Write-Host ("[CLEANUP] removed: {0} (files={1}, bytes={2})" -f $resolvedFull, $files.Count, $bytes) -ForegroundColor Green
+        return 0
+    } finally {
+        Exit-DesktopProfileMutex $profileLock
     }
-    Write-Host ("[CLEANUP] removed: {0} (files={1}, bytes={2})" -f $resolvedFull, $files.Count, $bytes) -ForegroundColor Green
-    return 0
 }
 
 function Invoke-RemoveCaAction {
@@ -1642,16 +2146,24 @@ function Invoke-RemoveCaAction {
         throw "remove-ca requires a valid -Profile name; global mitmproxy certificate removal is disabled"
     }
     $paths = Get-ProfilePaths -Name $Profile
-    if (-not (Test-Path -LiteralPath $paths.Root -PathType Container)) {
-        throw "Refusing mitmproxy CA removal: profile does not exist: $($paths.Name)"
+    $profileLock = $null
+    try {
+        $profileLock = Enter-DesktopProfileMutex -ProfileRoot $paths.Root
+        if ($null -eq $profileLock) { throw "Profile is busy: $($paths.Root)" }
+        if (-not (Test-Path -LiteralPath $paths.Root -PathType Container)) {
+            throw "Refusing mitmproxy CA removal: profile does not exist: $($paths.Name)"
+        }
+        Assert-DesktopNoReparsePoints -Path $paths.Root
+        $caPath = Join-Path $paths.MitmDir 'mitmproxy-ca-cert.cer'
+        if (Remove-MitmCa -Path $caPath) {
+            Write-Host "[CA] Profile mitmproxy root certificate removed: $caPath" -ForegroundColor Green
+            return 0
+        }
+        Write-Host "[CA] mitmproxy root certificate is still present" -ForegroundColor Red
+        return 1
+    } finally {
+        Exit-DesktopProfileMutex $profileLock
     }
-    $caPath = Join-Path $paths.MitmDir 'mitmproxy-ca-cert.cer'
-    if (Remove-MitmCa -Path $caPath) {
-        Write-Host "[CA] Profile mitmproxy root certificate removed: $caPath" -ForegroundColor Green
-        return 0
-    }
-    Write-Host "[CA] mitmproxy root certificate is still present" -ForegroundColor Red
-    return 1
 }
 
 $exitCode = 0
@@ -1664,6 +2176,7 @@ try {
         'ab'      { $exitCode = Invoke-AbAction }
         'cleanup' { $exitCode = Invoke-CleanupAction }
         'remove-ca' { $exitCode = Invoke-RemoveCaAction }
+        'monitor' { $exitCode = Invoke-DesktopMonitorAction }
     }
 } catch {
     Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red

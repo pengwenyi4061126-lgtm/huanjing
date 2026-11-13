@@ -1,3 +1,5 @@
+#requires -Version 5.1
+
 Add-Type -TypeDefinition @'
 using System;
 using System.Text;
@@ -22,7 +24,7 @@ function Confirm-CertificateDialog {
             [void][CacDialog]::GetWindowText($hWnd, $title, 256)
             [void][CacDialog]::GetClassName($hWnd, $class, 256)
             if ($class.ToString() -eq '#32770' -and
-                $title.ToString() -match 'Security|安全|证书|警告|Warning') {
+                $title.ToString() -match '(?i)Security|Warning|\u5B89\u5168|\u8BC1\u4E66|\u8B66\u544A') {
                 [void][CacDialog]::PostMessage($hWnd, 0x0111, [IntPtr]6, [IntPtr]::Zero)
                 $script:CertDialogConfirmed = $true
             }

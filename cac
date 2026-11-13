@@ -114,8 +114,8 @@ _get_real_cmd() {
 }
 
 # host:port:user:pass → http://user:pass@host:port
-# socks5://host:port:user:pass → socks5://user:pass@host:port
-# or pass a standard URL directly (http://, https://, socks5://)
+# socks5[ h ]://host:port:user:pass → socks5[ h ]://user:pass@host:port
+# or pass a standard URL directly (http://, https://, socks5://, socks5h://)
 _parse_proxy() {
     local raw="$1"
     local proto rest
@@ -123,8 +123,8 @@ _parse_proxy() {
     [[ -n "$raw" ]] || return 0
 
     # Normalize protocol-prefixed legacy form:
-    #   socks5://host:port:user:pass -> socks5://user:pass@host:port
-    if [[ "$raw" =~ ^(http|https|socks5):// ]]; then
+    #   socks5h://host:port:user:pass -> socks5h://user:pass@host:port
+    if [[ "$raw" =~ ^(http|https|socks5|socks5h):// ]]; then
         proto="${raw%%://*}"
         rest="${raw#*://}"
         if [[ "$rest" != *"@"* ]] && [[ "$rest" == *:*:* ]]; then
@@ -160,11 +160,11 @@ _parse_proxy() {
 _curl_proxy_url() {
     local normalized
     normalized=$(_parse_proxy "$1")
-    if [[ "$normalized" =~ ^socks5:// ]]; then
-        echo "socks5h://${normalized#socks5://}"
-    else
-        echo "$normalized"
-    fi
+    case "$normalized" in
+        socks5://*)  echo "socks5h://${normalized#socks5://}" ;;
+        socks5h://*) echo "$normalized" ;;
+        *)           echo "$normalized" ;;
+    esac
 }
 
 # socks5://user:pass@host:port → host:port
@@ -187,7 +187,7 @@ _proxy_reachable() {
 _auto_detect_proxy() {
     local raw="$1"
     # Has protocol prefix, return as-is
-    if [[ "$raw" =~ ^(http|https|socks5):// ]]; then
+    if [[ "$raw" =~ ^(http|https|socks5|socks5h):// ]]; then
         echo "$raw"
         return 0
     fi
@@ -203,9 +203,9 @@ _auto_detect_proxy() {
         auth_part=""
     fi
 
-    # Try in order: http → socks5 → https
+    # Try in order: http → socks5h → https
     local proto try_url
-    for proto in http socks5 https; do
+    for proto in http socks5h https; do
         try_url="${proto}://${auth_part}${host}:${port}"
         if curl --proxy "$try_url" -fsSL --connect-timeout 8 -o /dev/null https://api.ipify.org 2>/dev/null; then
             echo "$try_url"
@@ -1248,7 +1248,7 @@ fi
 PROXY=""
 if [[ -f "$_env_dir/proxy" ]]; then
     PROXY=$(tr -d '[:space:]' < "$_env_dir/proxy")
-    if [[ "$PROXY" =~ ^(http|https|socks5):// ]]; then
+    if [[ "$PROXY" =~ ^(http|https|socks5|socks5h):// ]]; then
         _proto="${PROXY%%://*}"
         _rest="${PROXY#*://}"
         if [[ "$_rest" != *"@"* ]] && [[ "$_rest" == *:*:* ]]; then
@@ -1457,62 +1457,106 @@ if [[ -z "$_real" ]] || [[ ! -x "$_real" ]]; then
 fi
 [[ -x "$_real" ]] || { echo "[cac] error: claude not found, run 'cac claude install latest'" >&2; exit 1; }
 
-# ── Relay local forwarding (always enabled when proxy is set) ──
-# Relay lifecycle: ENVIRONMENT-level, not session-level.
-# - Started on demand by the first session that needs it
-# - Persists across sessions (no cleanup on exit)
-# - Restarted if proxy changes (relay.proxy mismatch)
-# - Stopped by: cac env activate (switch), cac self delete, or machine reboot
+# ── Relay local forwarding (HTTP and SOCKS upstreams only) ──
+# Keep the upstream proxy in a private file; never put credentials in argv.
 _relay_active=false
-if [[ -n "$PROXY" ]] && [[ -f "$CAC_DIR/relay.js" ]]; then
+_relay_valid_pid() {
+    local pid="${1:-}"
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [[ "$pid" != "1" ]]
+}
+_relay_stop_pid() {
+    local pid="${1:-}" _i
+    _relay_valid_pid "$pid" || return 0
+    if kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        for _i in {1..20}; do
+            kill -0 "$pid" 2>/dev/null || return 0
+            sleep 0.1
+        done
+        kill -KILL "$pid" 2>/dev/null || true
+    fi
+}
+_relay_spawn() {
+    local relay_js="$1" port="$2" proxy_file="$3" pid_file="$4"
+    local relay_loader='
+const fs = require("fs");
+const relayJs = process.env.CAC_RELAY_JS;
+const proxy = fs.readFileSync(process.env.CAC_RELAY_PROXY_FILE, "utf8").trim();
+process.argv = [process.execPath, relayJs, process.env.CAC_RELAY_PORT, proxy, process.env.CAC_RELAY_PID_FILE];
+require(relayJs);
+'
+    CAC_RELAY_JS="$relay_js" \
+    CAC_RELAY_PORT="$port" \
+    CAC_RELAY_PROXY_FILE="$proxy_file" \
+    CAC_RELAY_PID_FILE="$pid_file" \
+    exec node -e "$relay_loader"
+}
+
+if [[ -n "$PROXY" ]] && [[ -f "$CAC_DIR/relay.js" ]] && \
+   [[ "$PROXY" == http://* || "$PROXY" == socks5://* || "$PROXY" == socks5h://* ]]; then
     _relay_js="$CAC_DIR/relay.js"
     _relay_pid_file="$CAC_DIR/relay.pid"
     _relay_port_file="$CAC_DIR/relay.port"
     _relay_proxy_file="$CAC_DIR/relay.proxy"
 
-    # check if relay is already running
+    # Check if relay is already running.
     _relay_running=false
     if [[ -f "$_relay_pid_file" ]]; then
         _rpid=$(tr -d '[:space:]' < "$_relay_pid_file")
-        [[ -n "$_rpid" ]] && kill -0 "$_rpid" 2>/dev/null && _relay_running=true
+        _relay_valid_pid "$_rpid" && kill -0 "$_rpid" 2>/dev/null && _relay_running=true
     fi
 
-    # kill stale relay if proxy changed (env switch without going through cac activate)
-    # skip if relay.proxy absent (first run after upgrade — assume match)
+    # Stop a relay whose upstream no longer matches the active environment.
     if [[ "$_relay_running" == "true" ]] && [[ -f "$_relay_proxy_file" ]]; then
         _old_proxy=$(tr -d '[:space:]' < "$_relay_proxy_file")
         if [[ "$_old_proxy" != "$PROXY" ]]; then
-            kill "$_rpid" 2>/dev/null || true
+            _relay_stop_pid "$_rpid"
             rm -f "$_relay_pid_file" "$_relay_port_file" "$_relay_proxy_file"
             _relay_running=false
         fi
     fi
 
-    # start if not running
+    # Start if not running.
     if [[ "$_relay_running" != "true" ]]; then
         _rport=17890
         while (echo >/dev/tcp/127.0.0.1/$_rport) 2>/dev/null; do
             (( _rport++ ))
             [[ $_rport -gt 17999 ]] && break
         done
-        node "$_relay_js" "$_rport" "$PROXY" "$_relay_pid_file" </dev/null >"$CAC_DIR/relay.log" 2>&1 &
-        disown
+        (umask 077; printf '%s\n' "$PROXY" > "$_relay_proxy_file")
+        (umask 077; : > "$CAC_DIR/relay.log")
+        chmod 600 "$_relay_proxy_file" "$CAC_DIR/relay.log"
+        _relay_spawn "$_relay_js" "$_rport" "$_relay_proxy_file" "$_relay_pid_file" </dev/null >>"$CAC_DIR/relay.log" 2>&1 &
+        _relay_job=$!
         for _ri in {1..30}; do
             (echo >/dev/tcp/127.0.0.1/$_rport) 2>/dev/null && break
             sleep 0.1
         done
-        echo "$PROXY" > "$_relay_proxy_file"
-        echo "$_rport" > "$_relay_port_file"
+        if ! (echo >/dev/tcp/127.0.0.1/$_rport) 2>/dev/null; then
+            _relay_stop_pid "$_relay_job"
+            wait "$_relay_job" 2>/dev/null || true
+            rm -f "$_relay_pid_file" "$_relay_port_file" "$_relay_proxy_file"
+            echo "[cac] error: relay startup timeout" >&2
+            exit 1
+        fi
+        _rpid=$(tr -d '[:space:]' < "$_relay_pid_file" 2>/dev/null || true)
+        if ! _relay_valid_pid "$_rpid" || ! kill -0 "$_rpid" 2>/dev/null; then
+            _relay_stop_pid "$_relay_job"
+            wait "$_relay_job" 2>/dev/null || true
+            rm -f "$_relay_pid_file" "$_relay_port_file" "$_relay_proxy_file"
+            echo "[cac] error: relay did not create a valid PID" >&2
+            exit 1
+        fi
+        disown "$_relay_job" 2>/dev/null || true
+        printf '%s\n' "$_rport" > "$_relay_port_file"
     fi
 
-    # env-level watchdog singleton: auto-restarts relay if it crashes
-    # - one watchdog per environment, shared across all sessions
-    # - exits automatically when relay is intentionally stopped (relay.proxy removed)
+    # Env-level watchdog singleton: auto-restarts relay if it crashes.
     _relay_watchdog_file="$CAC_DIR/relay.watchdog.pid"
     _wd_running=false
     if [[ -f "$_relay_watchdog_file" ]]; then
         _wpid=$(tr -d '[:space:]' < "$_relay_watchdog_file")
-        [[ -n "$_wpid" ]] && kill -0 "$_wpid" 2>/dev/null && _wd_running=true
+        _relay_valid_pid "$_wpid" && kill -0 "$_wpid" 2>/dev/null && _wd_running=true
     fi
     if [[ "$_wd_running" != "true" ]]; then
         (
@@ -1520,37 +1564,36 @@ if [[ -n "$PROXY" ]] && [[ -f "$CAC_DIR/relay.js" ]]; then
             set +e
             while true; do
                 sleep 5
-                # relay.proxy removed by _relay_stop — intentional stop, exit watchdog
                 [[ -f "$CAC_DIR/relay.proxy" ]] || exit 0
-                # relay alive and port reachable — nothing to do
                 if [[ -f "$CAC_DIR/relay.pid" ]]; then
                     _rpid=$(tr -d '[:space:]' < "$CAC_DIR/relay.pid")
-                    if kill -0 "$_rpid" 2>/dev/null; then
+                    if _relay_valid_pid "$_rpid" && kill -0 "$_rpid" 2>/dev/null; then
                         _rport=$(tr -d '[:space:]' < "$CAC_DIR/relay.port" 2>/dev/null || true)
-                        (echo >/dev/tcp/127.0.0.1/"$_rport") 2>/dev/null && continue
-                        # process alive but port unresponsive — kill and restart
-                        kill "$_rpid" 2>/dev/null || true
+                        [[ "$_rport" =~ ^[0-9]+$ ]] && (echo >/dev/tcp/127.0.0.1/"$_rport") 2>/dev/null && continue
+                        _relay_stop_pid "$_rpid"
                     fi
                 fi
-                # relay dead — restart on same port with same proxy
                 _rport=$(tr -d '[:space:]' < "$CAC_DIR/relay.port" 2>/dev/null || true)
-                _rproxy=$(tr -d '[:space:]' < "$CAC_DIR/relay.proxy" 2>/dev/null || true)
-                [[ -n "$_rport" ]] && [[ -n "$_rproxy" ]] || exit 0
-                node "$CAC_DIR/relay.js" "$_rport" "$_rproxy" "$CAC_DIR/relay.pid" </dev/null >>"$CAC_DIR/relay.log" 2>&1 &
+                [[ "$_rport" =~ ^[0-9]+$ ]] && [[ -s "$CAC_DIR/relay.proxy" ]] || exit 0
+                [[ -f "$CAC_DIR/relay.js" ]] || exit 0
+                [[ -f "$CAC_DIR/relay.log" ]] || { (umask 077; : > "$CAC_DIR/relay.log"); chmod 600 "$CAC_DIR/relay.log"; }
+                _relay_spawn "$CAC_DIR/relay.js" "$_rport" "$CAC_DIR/relay.proxy" "$CAC_DIR/relay.pid" </dev/null >>"$CAC_DIR/relay.log" 2>&1 &
             done
         ) &
         _new_wpid=$!
         echo "$_new_wpid" > "$_relay_watchdog_file"
-        disown "$_new_wpid"
+        disown "$_new_wpid" 2>/dev/null || true
     fi
 
-    # override proxy to point to local relay
+    # Override proxy to point to local relay only while the port is live.
     if [[ -f "$_relay_port_file" ]]; then
         _rport=$(tr -d '[:space:]' < "$_relay_port_file")
-        export HTTPS_PROXY="http://127.0.0.1:$_rport"
-        export HTTP_PROXY="http://127.0.0.1:$_rport"
-        export ALL_PROXY="http://127.0.0.1:$_rport"
-        _relay_active=true
+        if [[ "$_rport" =~ ^[0-9]+$ ]] && (echo >/dev/tcp/127.0.0.1/"$_rport") 2>/dev/null; then
+            export HTTPS_PROXY="http://127.0.0.1:$_rport"
+            export HTTP_PROXY="http://127.0.0.1:$_rport"
+            export ALL_PROXY="http://127.0.0.1:$_rport"
+            _relay_active=true
+        fi
     fi
 fi
 
@@ -1833,7 +1876,7 @@ _env_cmd_create() {
     # Auto-detect proxy protocol
     local proxy_url=""
     if [[ -n "$proxy" ]]; then
-        if [[ ! "$proxy" =~ ^(http|https|socks5):// ]]; then
+        if [[ ! "$proxy" =~ ^(http|https|socks5|socks5h):// ]]; then
             printf "  $(_dim "Detecting proxy protocol ...") "
             if proxy_url=$(_auto_detect_proxy "$proxy"); then
                 echo "$(_cyan "$(echo "$proxy_url" | grep -oE '^[a-z]+' || echo "http")")"
@@ -2144,7 +2187,7 @@ _env_cmd_set() {
             else
                 [[ -n "$value" ]] || _die "usage: cac env set [name] proxy <url|host:port:user:pass>"
                 local proxy_url
-                if [[ ! "$value" =~ ^(http|https|socks5):// ]]; then
+                if [[ ! "$value" =~ ^(http|https|socks5|socks5h):// ]]; then
                     printf "  $(_dim "Detecting proxy protocol ...") "
                     if proxy_url=$(_auto_detect_proxy "$value"); then
                         echo "$(_cyan "$(echo "$proxy_url" | grep -oE '^[a-z]+' || echo "http")")"
@@ -2255,11 +2298,57 @@ cmd_env() {
 # ━━━ cmd_relay.sh ━━━
 # ── cmd: relay (local relay, bypass TUN) ──────────────────────────────
 
+_relay_valid_pid() {
+    local pid="${1:-}"
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [[ "$pid" != "1" ]]
+}
+
+_relay_stop_pid() {
+    local pid="${1:-}" _i
+    _relay_valid_pid "$pid" || return 0
+    if kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        for _i in {1..20}; do
+            kill -0 "$pid" 2>/dev/null || return 0
+            sleep 0.1
+        done
+        kill -KILL "$pid" 2>/dev/null || true
+    fi
+}
+
+_relay_spawn() {
+    local relay_js="$1" port="$2" proxy_file="$3" pid_file="$4"
+    local relay_loader='
+const fs = require("fs");
+const relayJs = process.env.CAC_RELAY_JS;
+const proxy = fs.readFileSync(process.env.CAC_RELAY_PROXY_FILE, "utf8").trim();
+process.argv = [process.execPath, relayJs, process.env.CAC_RELAY_PORT, proxy, process.env.CAC_RELAY_PID_FILE];
+require(relayJs);
+'
+    CAC_RELAY_JS="$relay_js" \
+    CAC_RELAY_PORT="$port" \
+    CAC_RELAY_PROXY_FILE="$proxy_file" \
+    CAC_RELAY_PID_FILE="$pid_file" \
+    exec node -e "$relay_loader"
+}
+
 _relay_start() {
     local name="${1:-$(_current_env)}"
     local env_dir="$ENVS_DIR/$name"
     local proxy; proxy=$(_parse_proxy "$(_read "$env_dir/proxy")")
     [[ -z "$proxy" ]] && return 1
+
+    case "$proxy" in
+        http://*|socks5://*|socks5h://*) ;;
+        https://*)
+            echo "error: local relay does not support TLS upstream proxies" >&2
+            return 1
+            ;;
+        *)
+            echo "error: unsupported proxy protocol" >&2
+            return 1
+            ;;
+    esac
 
     local relay_js="$CAC_DIR/relay.js"
     [[ -f "$relay_js" ]] || { echo "error: relay.js not found, reinstall with 'npm i -g claude-cac'" >&2; return 1; }
@@ -2275,8 +2364,19 @@ _relay_start() {
     done
 
     local pid_file="$CAC_DIR/relay.pid"
-    node "$relay_js" "$port" "$proxy" "$pid_file" </dev/null >"$CAC_DIR/relay.log" 2>&1 &
-    disown
+    local proxy_file="$CAC_DIR/relay.proxy"
+    local log_file="$CAC_DIR/relay.log"
+
+    if [[ -f "$pid_file" ]] && ! _relay_is_running; then
+        rm -f "$pid_file" "$CAC_DIR/relay.port" "$proxy_file"
+    fi
+
+    (umask 077; printf '%s\n' "$proxy" > "$proxy_file")
+    (umask 077; : > "$log_file")
+    chmod 600 "$proxy_file" "$log_file"
+
+    _relay_spawn "$relay_js" "$port" "$proxy_file" "$pid_file" </dev/null >>"$log_file" 2>&1 &
+    local relay_job=$!
 
     # wait for relay ready
     local _i
@@ -2286,12 +2386,24 @@ _relay_start() {
     done
 
     if ! (echo >/dev/tcp/127.0.0.1/$port) 2>/dev/null; then
+        _relay_stop_pid "$relay_job"
+        wait "$relay_job" 2>/dev/null || true
+        rm -f "$pid_file" "$CAC_DIR/relay.port" "$proxy_file"
         echo "error: relay startup timeout" >&2
         return 1
     fi
 
-    echo "$proxy" > "$CAC_DIR/relay.proxy"
-    echo "$port" > "$CAC_DIR/relay.port"
+    local relay_pid; relay_pid=$(_read "$pid_file")
+    if ! _relay_valid_pid "$relay_pid" || ! kill -0 "$relay_pid" 2>/dev/null; then
+        _relay_stop_pid "$relay_job"
+        wait "$relay_job" 2>/dev/null || true
+        rm -f "$pid_file" "$CAC_DIR/relay.port" "$proxy_file"
+        echo "error: relay did not create a valid PID" >&2
+        return 1
+    fi
+
+    disown "$relay_job" 2>/dev/null || true
+    printf '%s\n' "$port" > "$CAC_DIR/relay.port"
     return 0
 }
 
@@ -2299,15 +2411,7 @@ _relay_stop() {
     local pid_file="$CAC_DIR/relay.pid"
     if [[ -f "$pid_file" ]]; then
         local pid; pid=$(tr -d '[:space:]' < "$pid_file")
-        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null || true
-            # wait for process exit
-            local _i
-            for _i in {1..20}; do
-                kill -0 "$pid" 2>/dev/null || break
-                sleep 0.1
-            done
-        fi
+        _relay_stop_pid "$pid"
         rm -f "$pid_file"
     fi
     rm -f "$CAC_DIR/relay.port" "$CAC_DIR/relay.proxy"
@@ -2317,7 +2421,7 @@ _relay_stop() {
     local wd_file="$CAC_DIR/relay.watchdog.pid"
     if [[ -f "$wd_file" ]]; then
         local wd_pid; wd_pid=$(tr -d '[:space:]' < "$wd_file")
-        [[ -n "$wd_pid" ]] && kill "$wd_pid" 2>/dev/null || true
+        _relay_stop_pid "$wd_pid"
         rm -f "$wd_file"
     fi
 
@@ -2329,7 +2433,7 @@ _relay_is_running() {
     local pid_file="$CAC_DIR/relay.pid"
     [[ -f "$pid_file" ]] || return 1
     local pid; pid=$(tr -d '[:space:]' < "$pid_file")
-    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+    _relay_valid_pid "$pid" && kill -0 "$pid" 2>/dev/null
 }
 
 # ── route management (direct route to bypass TUN) ──────────────────────────────
@@ -2344,7 +2448,7 @@ _relay_add_route() {
 
     # resolve to IP
     local proxy_ip
-    proxy_ip=$(python3 -c "import socket; print(socket.gethostbyname('$proxy_host'))" 2>/dev/null || echo "$proxy_host")
+    proxy_ip=$(python3 -c 'import socket,sys; print(socket.gethostbyname(sys.argv[1]))' "$proxy_host" 2>/dev/null || echo "$proxy_host")
 
     local os; os=$(_detect_os)
     if [[ "$os" == "macos" ]]; then

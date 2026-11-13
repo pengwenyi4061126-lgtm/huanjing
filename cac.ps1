@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$CAC_VERSION = "1.0.43"
+$CAC_VERSION = "1.0.44"
 $SUPPORTED_CC = "2.1.294"
 
 $scriptDir = Split-Path $MyInvocation.MyCommand.Definition -Parent
@@ -189,54 +189,19 @@ function Do-Init {
 function Action-Launch {
     $envName = Get-CurrentEnv
     if (-not $envName) { Write-Err "未激活环境"; Wait-AnyKey; return }
-    $ed = Get-EnvDir $envName
-    $paths = Ensure-ProfileLayout $envName
-    $integrity = Get-CcIntegrityStatus
-    if (-not $integrity.Ok) {
-        Write-Err "拒绝启动: Claude 完整性检查失败: $($integrity.Reason)"
-        Write-Host "  运行“版本更新并应用补丁”重新安装并登记 SHA-256" -ForegroundColor White
+    $wrapper = Join-Path $CAC_DIR "bin\claude.cmd"
+    if (-not (Test-Path -LiteralPath $wrapper -PathType Leaf)) {
+        [void](Write-Wrapper)
+    }
+    if (-not (Test-Path -LiteralPath $wrapper -PathType Leaf)) {
+        Write-Err "拒绝启动: Profile wrapper 缺失，请先初始化 cac-windows"
         Wait-AnyKey
         return
     }
-    $hookPath = Join-Path $CAC_DIR "fingerprint-hook.js"
-    if (-not (Test-Path -LiteralPath $hookPath)) {
-        Write-Err "拒绝启动: Profile identity hook 缺失，请重新初始化 cac-windows"
-        Wait-AnyKey
-        return
-    }
-    if ((Get-ClaudeProcesses).Count -gt 0) {
-        Write-Err "已有 Claude 会话运行，先切换/重启 Profile 后再启动"
-        Wait-AnyKey
-        return
-    }
-    $real = (Get-Content (Join-Path $CAC_DIR "real_claude") -Raw).Trim()
-    if (-not (Test-Path $real)) {
-        Write-Err "claude 路径无效: $real"
-        Write-Host "  请运行 '版本更新并应用补丁' 重新安装" -ForegroundColor White
-        Wait-AnyKey; return
-    }
-    $values = Get-ProfileEnvironment $paths
-    $relay = $null
-    $names = @($values.Keys) + @("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "CAC_HTTP_PROXY_LOCAL", "CAC_PROXY_UPSTREAM", "TZ")
-    $snapshot = Save-ProcessEnvironment $names
     Clear-Host
-    try {
-        if ($values.Contains('HTTPS_PROXY') -and -not [string]::IsNullOrWhiteSpace([string]$values.HTTPS_PROXY)) {
-            $relay = Start-CacProxyRelay -UpstreamProxyUrl ([string]$values.HTTPS_PROXY) -LogsDir $paths.LogsDir
-            $values.HTTPS_PROXY = $relay.url
-            $values.HTTP_PROXY = $relay.url
-            $values.ALL_PROXY = $relay.url
-            $values.CAC_HTTP_PROXY_LOCAL = $relay.url
-            $values.CAC_PROXY_UPSTREAM = [string]$relay.upstream
-        }
-        Set-ProcessEnvironment $values $names
-        Update-Statsig -ConfigDir $paths.ConfigDir -StableId (Read-FileValue (Join-Path $paths.Root "stable_id"))
-        Update-ClaudeJsonUserId -ConfigDir $paths.ConfigDir -HomeDir $paths.HomeDir -UserId (Read-FileValue (Join-Path $paths.Root "user_id"))
-        if ($real -like "*.js") { & node $real } else { & $real }
-    } finally {
-        Stop-CacProxyRelay $relay
-        Restore-ProcessEnvironment $snapshot
-    }
+    & $wrapper
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) { Write-Err "Claude 启动失败，退出码: $exitCode"; Wait-AnyKey }
 }
 
 function Action-InstallAndPatch {
@@ -392,7 +357,7 @@ function Action-EnvCreate {
     Set-Content (Join-Path $CAC_DIR "current") $name
     [void](Ensure-ProfileLayout $name)
     if (-not $rawProxy) {
-        $poolBinding = Get-CacProxyForAccount -AccountKey ("claude-code:{0}" -f $name)
+        $poolBinding = Resolve-CacProxyBinding -AccountKey ("claude-code:{0}" -f $name)
         if ($null -ne $poolBinding) { $proxyNote = "代理池: $(Mask-CacProxyUrl $poolBinding.url)" }
     }
     Show-CacProxyCapacityWarning (Get-CacKnownAccountCapacityWarning)

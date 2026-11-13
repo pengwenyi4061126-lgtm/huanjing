@@ -2,7 +2,9 @@
 
 Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征，遥测正常流转。
 
-当前版本：`1.0.43`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+当前版本：`1.0.44`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+
+最终审计快照（2026-11-14，提交前工作树）记录的 `native/dist` NativeBridge SHA-256 为 `1C98CA2EA7E8ECE4EE28882D7D5A6048E404A2B373B95235A9C6B8C17FC3F58A`，`cac-native-launch.exe` SHA-256 为 `080D8E6EBCF9020C42D1D5A231BB8425B9B9532405C9778B17F8959B08717BDD`。本机 `%USERPROFILE%\.cac\native` 已同步到相同哈希；`npm run audit:release`、Native smoke、WFP smoke、代理池 smoke 和 relay smoke 均通过。Desktop 历史 PID 审计在未启动真实 Desktop 的情况下保持 `PARTIAL`，不会被静态日志冒充为完整运行时通过。
 
 ## 功能
 
@@ -10,7 +12,7 @@ Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征
 - **时区对齐** — 系统提示词日期和时区跟随 TZ 环境变量
 - **代理支持** — HTTP / SOCKS5 / SOCKS5H 代理配置
 - **Profile 隔离** — 每个环境独立配置、Home、AppData、缓存、临时目录和身份清单
-- **生命周期保护** — 切换 Profile 前强制结束旧 Claude 会话，避免身份与配置混用
+- **生命周期保护** — 切换 Profile 前强制结束旧 Claude 会话；根进程按路径、启动时间和 Profile `--user-data-dir` 校验，进程树终止前再次校验 PID 身份
 - **启动完整性** — 精确锁定 Claude Code 版本，校验补丁标记和 claude.exe SHA-256
 - **网络验收** — 检查代理可达性、socks5h 远程 DNS 语义和子进程环境继承
 - **A/B 验收** — 验证 Profile 默认 Home、配置、AppData、TEMP/TMP 不交叉
@@ -148,7 +150,9 @@ npm run audit:kernel -- -Strict
 npm run native:wfp:smoke
 ```
 
-`audit:desktop` 默认对未观察到的 WMI、异步 DeviceIoControl 或 CPU manifest 返回非零；`-RequireKernel` 要求看到 `kernel.policy=verified`，`-RequireWfp` 要求看到 WFP 安装证据；`-AllowPartial` 只允许查看当前会话证据，不会把未观察到的路径标记为已覆盖。完整验收仍以 `desktop-native-check.json` 的 `status=PASS` 为准。
+`audit:desktop` 默认对未观察到的 WMI、异步 DeviceIoControl、CPU manifest 或进程快照返回非零；`-RequireKernel` 要求看到 `kernel.policy=verified`，`-RequireWfp` 要求看到 WFP 安装证据；`-AllowPartial` 只允许查看当前会话证据，不会把未观察到的路径标记为已覆盖。完整验收仍以 `desktop-native-check.json` 的 `status=PASS` 为准。
+
+Desktop 审计会按 NativeBridge 会话中的每个 PID读取 `ParentProcessId`、`ExecutablePath` 和 `CommandLine`，并把父子 PID、`--user-data-dir` Profile 参数、仅回环的 `--proxy-server`/DNS/QUIC/WebRTC 参数以及 Native 模式的 Chromium `--no-sandbox`、`--disable-gpu-sandbox` 和子进程 `--type` 参数写入 `processMetadata`/`processAssertions`。进程树已在审计前退出时，字段写为 `observed=false`，结果为 `PARTIAL`；这类查看命令不会启动真实 Desktop。
 
 `audit:native` 只读取 `%USERPROFILE%\.cac\envs\<name>` 下的 Claude Code 证据；Claude Desktop 必须使用 `audit:desktop`，两者的日志目录和结论不能混用。
 
@@ -166,10 +170,10 @@ Set-Content "$env:USERPROFILE\.cac\envs\profile-a\cpuid_mode" "empty" -Encoding 
 Desktop 使用独立启动器，不复用 Claude Code 的 `CLAUDE_CONFIG_DIR`：
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action create -Profile work
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Inject
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Inject -RequireKernel
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action ab -Inject -WaitSeconds 45
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action create -Profile work
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Inject
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Inject -RequireKernel
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action ab -Inject -WaitSeconds 45
 ```
 
 启动器把 `APPDATA` 放在 `USERPROFILE\home\AppData\Roaming` 下，并隔离 `Claude`、`Claude-3p`、`ant-did`、sessions 和 Crashpad。不要用 `CLAUDE_USER_DATA_DIR`：Desktop 会删除/忽略该变量。
@@ -179,11 +183,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Actio
 代理池文件位于 `%USERPROFILE%\.cac\proxy-pool.json`。新建 Code/ Desktop Profile 时，会按 `claude-code:<name>` 或 `desktop:<name>` 自动绑定当前负载最小的启用代理；显式写入 Profile 的 `proxy` 文件时，显式代理优先。推荐统一使用 `socks5h://user:pass@host:port`，输入 `socks5://` 也会自动规范为 `socks5h://`。
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action add -Proxy socks5h://user:pass@proxy.example:1080
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action list
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action auto-bind -AccountKey claude-code:profile-a,desktop:profile-a
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action rebalance -AccountsFile .\accounts.txt
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action unbind-all
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action add -Proxy socks5h://user:pass@proxy.example:1080
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action list
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action auto-bind -AccountKey claude-code:profile-a,desktop:profile-a
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action rebalance -AccountsFile .\accounts.txt
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -Action unbind-all
 ```
 
 启动时不会把上游 SOCKS5 地址直接交给 Claude。cac 会先启动 Profile 专属的 `proxy-relay.js`，进程和所有后代只拿到 `http://127.0.0.1:<port>`；relay 对 HTTPS `CONNECT` 和明文 HTTP 请求都通过 SOCKS5 的域名地址类型 `ATYP=3` 发送目标主机名，因此目标 DNS 在上游代理解析，失败时本地 relay 断开且 `network_mode=enforce` 的动态 WFP 规则只允许回环连接。Desktop 还追加 `--proxy-server`、`--host-resolver-rules`、`--disable-quic` 和 WebRTC 禁止非代理 UDP，renderer/utility/GPU/登录页继承同一代理链。
@@ -237,7 +241,7 @@ clean   : 以太网(02:aa:bb:cc:dd:ee), Loopback
 
 ```powershell
 Set-Content "$env:USERPROFILE\.cac\desktop\work\network_mode" "enforce" -Encoding ASCII
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Inject -RequireKernel
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Inject -RequireKernel
 ```
 
 `enforce` 仅在 NativeBridge 进程内安装动态 WFP 规则：允许 `127.0.0.1` / `::1` 回环连接，阻断该 Claude 镜像的非回环 ALE Connect；安装失败会记录 `wfp.policy=failed` 并拒绝启动。它是用户态创建的动态 WFP 策略，不是 NDIS 轻量过滤器、WFP callout 驱动，也不会改变物理网卡、路由器或服务端看到的出口地址。
@@ -247,7 +251,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Actio
 Claude Desktop 拒绝 `--remote-debugging-port` / `--remote-debugging-pipe` / `--inspect`，因此指纹层改用 MITM：
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Fingerprint
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action launch -Profile work -Fingerprint
 ```
 
 启动器会生成 Profile 内的 `fingerprint.json`，使用 Profile 专属的 `mitmproxy` `confdir` 启动 `mitmdump`，安装该 Profile CA 到 CurrentUser Root，并给 Claude 加 `--proxy-server=http://127.0.0.1:<port>`。登录页和 hCaptcha iframe 的 HTML 会注入 `fingerprint-shim.js`。证书校验按当前 Profile CA 的 SHA-1 指纹匹配，不按宽泛 Subject 匹配。
@@ -267,7 +271,7 @@ probe {"hc":24,"tz":"Asia/Shanghai","offset":-480,"persona":true}
 CA 安装/删除已改为静默自动化：`cert-silent.ps1` 检测标准安全警告窗口并自动确认，不再需要手动点击。删除命令：
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action remove-ca -Profile work
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action remove-ca -Profile work
 ```
 
 `remove-ca` 必须传入 `-Profile`，只按该 Profile 的 CA 文件指纹删除；缺少 Profile、CA 文件缺失或指纹无效都会拒绝执行，避免误删其他 Profile 的证书。Windows CurrentUser Root 本身是用户级共享证书存储，因此 Profile 隔离依赖“独立 CA 文件 + 精确指纹删除”，不能宣称证书存储是内核级隔离。

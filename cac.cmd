@@ -4,3 +4,4 @@ where pwsh >nul 2>&1 && (
     exit /b %ERRORLEVEL%
 )
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0cac.ps1" %*
+exit /b %ERRORLEVEL%

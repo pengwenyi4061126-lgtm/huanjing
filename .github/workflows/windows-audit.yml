@@ -20,7 +20,7 @@ jobs:
           node-version: '20'
 
       - name: Validate package and PowerShell sources
-        shell: pwsh
+        shell: powershell
         run: |
           $package = Get-Content package.json -Raw | ConvertFrom-Json
           $versionText = Get-Content cac.ps1 -Raw
@@ -32,41 +32,43 @@ jobs:
           if ($package.repository.url -ne 'git+https://github.com/pengwenyi4061126-lgtm/huanjing.git') {
             throw "package.json repository does not match the active repository"
           }
-          $files = @(
-            'scripts/release-check.ps1',
-            'scripts/profile-check.ps1',
-            'scripts/native-boundary-check.ps1',
-            'scripts/desktop-native-check.ps1',
-            'scripts/desktop-profile.ps1',
-            'scripts/cert-silent.ps1',
-            'scripts/network-check.ps1'
-          )
+          $files = @(Get-ChildItem -Path $PWD -Recurse -File -Filter *.ps1 | Where-Object { $_.FullName -notmatch '\\node_modules\\' })
           foreach ($file in $files) {
             $errors = $null
             $tokens = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
-              (Join-Path $PWD $file), [ref]$tokens, [ref]$errors
+              $file.FullName, [ref]$tokens, [ref]$errors
             ) | Out-Null
-            if ($errors.Count -gt 0) { throw "$file parse failed: $($errors[0].Message)" }
+            if ($errors.Count -gt 0) { throw "$($file.FullName) parse failed: $($errors[0].Message)" }
           }
 
       - name: Validate package contents and JavaScript syntax
-        shell: pwsh
+        shell: powershell
         run: |
           $pack = @(npm.cmd pack --ignore-scripts --dry-run --json | ConvertFrom-Json)
           $paths = @($pack[0].files | ForEach-Object { $_.path })
           foreach ($required in @('cac.cmd', 'cac.ps1', 'native/dist/NativeBridge.dll', 'native/dist/cac-native-launch.exe', 'native/dist/cac-native-launch.sha256')) {
             if ($paths -notcontains $required) { throw "npm package is missing $required" }
           }
-          foreach ($file in @('scripts/postinstall.js', 'scripts/patch-cli.js', 'scripts/verify-cli.js', 'scripts/fingerprint-shim.js', 'scripts/fingerprint-cdp.js', 'scripts/fingerprint-test.js', 'fingerprint-hook.js')) {
+          foreach ($file in @(rg --files -g '*.js' -g '!node_modules/**')) {
             node --check $file
             if ($LASTEXITCODE -ne 0) { throw "JavaScript parse failed: $file" }
           }
+          node scripts/proxy-relay-smoke.js
+          if ($LASTEXITCODE -ne 0) { throw 'proxy relay smoke failed' }
+
+      - name: Run proxy pool smoke
+        shell: powershell
+        run: ./scripts/proxy-pool-smoke.ps1
 
       - name: Run NativeBridge smoke suite
-        shell: pwsh
+        shell: powershell
         run: ./native/tests/run-smoke.ps1
 
+      - name: Run WFP smoke suite
+        shell: powershell
+        run: ./native/tests/run-wfp-smoke.ps1
+
       - name: Verify release artifacts
-        shell: pwsh
+        shell: powershell
         run: ./scripts/release-check.ps1

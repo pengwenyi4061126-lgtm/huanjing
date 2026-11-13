@@ -54,6 +54,48 @@ function Assert-Equal([string]$Expected, [string]$Actual, [string]$Label) {
 
 $package = Get-Content -LiteralPath $packageJsonPath -Raw | ConvertFrom-Json
 $version = [string]$package.version
+$cacSource = Get-Content -LiteralPath (Join-Path $root 'cac.ps1') -Raw
+$cacVersionMatch = [regex]::Match($cacSource, '\$CAC_VERSION\s*=\s*"([^"]+)"')
+if (-not $cacVersionMatch.Success) { throw 'cac.ps1 version source is missing' }
+Assert-Equal $version $cacVersionMatch.Groups[1].Value 'cac.ps1 version'
+$runtimeChainFiles = @(
+    'cac',
+    'cac.cmd',
+    'cac.ps1',
+    'package.json',
+    'fingerprint-hook.js',
+    'src/relay.js',
+    'scripts/lib.ps1',
+    'scripts/menu.ps1',
+    'scripts/postinstall.js',
+    'scripts/patch-cli.js',
+    'scripts/verify-cli.js',
+    'scripts/cleanup.ps1',
+    'scripts/network-check.ps1',
+    'scripts/profile-check.ps1',
+    'scripts/native-boundary-check.ps1',
+    'scripts/kernel-boundary-check.ps1',
+    'scripts/desktop-native-check.ps1',
+    'scripts/desktop-profile.ps1',
+    'scripts/cert-silent.ps1',
+    'scripts/proxy-pool-lib.ps1',
+    'scripts/proxy-pool.ps1',
+    'scripts/fingerprint-shim.js',
+    'scripts/fingerprint-cdp.js',
+    'scripts/fingerprint-test.js',
+    'scripts/mitm_fingerprint.py',
+    'native/dist/NativeBridge.dll',
+    'native/dist/NativeBridge.sha256',
+    'native/dist/cac-native-launch.exe',
+    'native/dist/cac-native-launch.sha256'
+)
+foreach ($relativePath in $runtimeChainFiles) {
+    $workspacePath = Join-Path $root ($relativePath -replace '/', '\')
+    Assert-File $workspacePath "workspace runtime chain file $relativePath"
+    if ($relativePath -ne 'package.json' -and @($package.files) -notcontains $relativePath) {
+        throw "package.json files is missing runtime chain entry: $relativePath"
+    }
+}
 $dll = Join-Path $distDir 'NativeBridge.dll'
 $launcher = Join-Path $distDir 'cac-native-launch.exe'
 $hashFile = Join-Path $distDir 'NativeBridge.sha256'
@@ -113,6 +155,10 @@ if (-not $SkipPack) {
         Assert-File $embeddedLauncher 'package native launcher'
         Assert-File $embeddedLauncherHashFile 'package cac-native-launch.sha256'
         Assert-File $embeddedPackageJson 'package package.json'
+        foreach ($relativePath in $runtimeChainFiles) {
+            $embeddedPath = Join-Path $extractRoot ('package\' + ($relativePath -replace '/', '\'))
+            Assert-File $embeddedPath "package runtime chain file $relativePath"
+        }
         $embedded = Get-Content -LiteralPath $embeddedPackageJson -Raw | ConvertFrom-Json
         Assert-Equal $version ([string]$embedded.version) 'package version'
         $embeddedDllHash = Get-Sha256 $embeddedDll
@@ -130,6 +176,7 @@ if (-not $SkipPack) {
             declaredSha256 = $embeddedDeclaredHash
             launcherSha256 = $embeddedLauncherHash
             declaredLauncherSha256 = $embeddedDeclaredLauncherHash
+            runtimeChainFiles = @($runtimeChainFiles)
         }
     } finally {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue

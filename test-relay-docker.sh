@@ -50,7 +50,7 @@ echo
 ##############################################
 echo "--- Test 2: relay.js 启动监听 ---"
 # 启动 relay（上游指向一个不存在的地址，仅测试本地监听）
-node /opt/cac/src/relay.js 17890 http://127.0.0.1:19999 /tmp/relay-test.pid &
+CAC_RELAY_UPSTREAM_URL=http://127.0.0.1:19999 node /opt/cac/src/relay.js 17890 /tmp/relay-test.pid &
 RELAY_PID=$!
 sleep 1
 
@@ -89,7 +89,7 @@ echo
 # Test 3: relay.js SOCKS5 上游模式启动
 ##############################################
 echo "--- Test 3: relay.js SOCKS5 模式 ---"
-node /opt/cac/src/relay.js 17891 socks5://127.0.0.1:19999 /tmp/relay-test2.pid &
+CAC_RELAY_UPSTREAM_URL=socks5://127.0.0.1:19999 node /opt/cac/src/relay.js 17891 /tmp/relay-test2.pid &
 RELAY_PID2=$!
 sleep 1
 
@@ -108,7 +108,12 @@ echo
 # Test 4: relay.js 带认证上游
 ##############################################
 echo "--- Test 4: relay.js 带认证上游 ---"
-node /opt/cac/src/relay.js 17892 http://user:pass@127.0.0.1:19999 /tmp/relay-test3.pid &
+(umask 077; printf 'http://%s:%s@%s:%s\n' user pass 127.0.0.1 19999 > /tmp/relay-test3.proxy)
+CAC_RELAY_PROXY_FILE=/tmp/relay-test3.proxy node -e '
+const relayJs = "/opt/cac/src/relay.js";
+process.argv = [process.execPath, relayJs, "17892", "/tmp/relay-test3.pid"];
+require(relayJs);
+' &
 RELAY_PID3=$!
 sleep 1
 
@@ -119,7 +124,7 @@ else
 fi
 
 kill $RELAY_PID3 2>/dev/null; wait $RELAY_PID3 2>/dev/null || true
-rm -f /tmp/relay-test3.pid
+rm -f /tmp/relay-test3.pid /tmp/relay-test3.proxy
 
 echo
 
@@ -127,7 +132,7 @@ echo
 # Test 5: relay.js SIGTERM 清理
 ##############################################
 echo "--- Test 5: relay.js 优雅退出 ---"
-node /opt/cac/src/relay.js 17893 http://127.0.0.1:19999 /tmp/relay-test4.pid &
+CAC_RELAY_UPSTREAM_URL=http://127.0.0.1:19999 node /opt/cac/src/relay.js 17893 /tmp/relay-test4.pid &
 RELAY_PID4=$!
 sleep 1
 
@@ -175,7 +180,7 @@ MOCK_UPSTREAM=$!
 sleep 0.5
 
 # 启动 relay 指向 mock 上游
-node /opt/cac/src/relay.js 17894 http://127.0.0.1:18080 /tmp/relay-test5.pid &
+CAC_RELAY_UPSTREAM_URL=http://127.0.0.1:18080 node /opt/cac/src/relay.js 17894 /tmp/relay-test5.pid &
 RELAY_PID5=$!
 sleep 0.5
 
