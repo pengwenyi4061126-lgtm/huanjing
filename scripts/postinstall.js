@@ -68,7 +68,80 @@ var SUPPORTED_CLAUDE_VERSION = '2.1.294';
 var CC_PKG = '@anthropic-ai/claude-code';
 if (process.platform === 'win32') {
   var spawnSync = require('child_process').spawnSync;
-  var npmPrefix = process.env.npm_config_prefix || path.join(home, 'AppData', 'Roaming', 'npm');
+  var npmCommand = 'npm.cmd';
+
+  function failPostinstall(message) {
+    console.error('  cac-windows postinstall failed: ' + message);
+    process.exit(1);
+  }
+
+  function resolveNpmCli() {
+    var lifecycleCli = process.env.npm_execpath;
+    if (lifecycleCli && fs.existsSync(lifecycleCli)) return lifecycleCli;
+
+    var located = spawnSync('where.exe', [npmCommand], {
+      encoding: 'utf8',
+      shell: false,
+      windowsHide: true,
+      timeout: 10000
+    });
+    if (!located.error && located.status === 0) {
+      var npmCmdPath = String(located.stdout || '').split(/\r?\n/)
+        .map(function (line) { return line.trim(); })
+        .filter(function (line) { return line.length > 0; })[0];
+      if (npmCmdPath) {
+        var cliPath = path.join(path.dirname(npmCmdPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+        if (fs.existsSync(cliPath)) return cliPath;
+      }
+    }
+    return null;
+  }
+
+  var npmCli = resolveNpmCli();
+
+  function spawnNpm(args, options) {
+    var spawnOptions = Object.assign({
+      shell: !npmCli,
+      windowsHide: true
+    }, options || {});
+    if (npmCli) return spawnSync(process.execPath, [npmCli].concat(args), spawnOptions);
+    return spawnSync(npmCommand, args, spawnOptions);
+  }
+
+  function getNpmGlobalPrefix() {
+    var result = spawnNpm(['prefix', '-g'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000
+    });
+    if (result.error || result.status !== 0) {
+      failPostinstall('npm prefix -g failed' + (result.error ? ': ' + result.error.message : ''));
+    }
+    var lines = String(result.stdout || '').split(/\r?\n/)
+      .map(function (line) { return line.trim(); })
+      .filter(function (line) { return line.length > 0; });
+    var prefix = lines.length > 0 ? lines[lines.length - 1] : '';
+    if (!prefix) failPostinstall('npm prefix -g returned an empty path');
+    return path.resolve(prefix);
+  }
+
+  function installClaudeCode(npmPrefix) {
+    console.log('  Installing Claude Code v' + SUPPORTED_CLAUDE_VERSION + ' from npm prefix ' + npmPrefix + '...');
+    var installResult = spawnNpm([
+      'install', '-g', CC_PKG + '@' + SUPPORTED_CLAUDE_VERSION,
+      '--registry', 'https://registry.npmjs.org'
+    ], {
+      stdio: 'inherit',
+      windowsHide: false,
+      timeout: 120000
+    });
+    if (installResult.error || installResult.status !== 0) {
+      failPostinstall('Claude Code v' + SUPPORTED_CLAUDE_VERSION + ' installation failed' +
+        (installResult.error ? ': ' + installResult.error.message : ''));
+    }
+  }
+
+  var npmPrefix = getNpmGlobalPrefix();
   var ccDir = path.join(npmPrefix, 'node_modules', CC_PKG);
   var ccBinDir = path.join(ccDir, 'bin');
   var ccInstall = path.join(ccDir, 'install.cjs');
@@ -84,30 +157,56 @@ if (process.platform === 'win32') {
       var ccVersion = JSON.parse(fs.readFileSync(ccPkgJson, 'utf8')).version;
       if (ccVersion !== SUPPORTED_CLAUDE_VERSION) {
         console.log('  Claude Code v' + ccVersion + ' detected; cac-windows requires v' + SUPPORTED_CLAUDE_VERSION + ' for its pinned patch set.');
-        console.log('  Run cac and choose version update, or install: npm i -g ' + CC_PKG + '@' + SUPPORTED_CLAUDE_VERSION);
+        console.log('  Reinstalling the pinned Claude Code version now.');
+        needInstall = true;
       }
-    } catch (e) { needInstall = true; }
+    } catch (e) {
+      console.log('  Claude Code package metadata is unreadable; reinstalling the pinned version.');
+      needInstall = true;
+    }
   }
 
   if (needInstall) {
-    var installResult = spawnSync('npm', ['install', '-g', CC_PKG + '@' + SUPPORTED_CLAUDE_VERSION,
-      '--registry', 'https://registry.npmjs.org'], {
-      encoding: 'utf8', shell: true, stdio: 'inherit', timeout: 120000
-    });
-    if (installResult.status !== 0) {
-      console.log('  \x1b[33m⚠ Claude Code install failed\x1b[0m — install manually:');
-      console.log('    npm i -g ' + CC_PKG + '@' + SUPPORTED_CLAUDE_VERSION);
+    installClaudeCode(npmPrefix);
+  }
+
+  // Re-read the package after a reinstall and refuse to continue on drift.
+  if (!fs.existsSync(ccPkgJson)) {
+    failPostinstall('Claude Code package is still missing after installation');
+  }
+  try {
+    var installedVersion = JSON.parse(fs.readFileSync(ccPkgJson, 'utf8')).version;
+    if (installedVersion !== SUPPORTED_CLAUDE_VERSION) {
+      failPostinstall('Claude Code version mismatch after installation: found ' + installedVersion +
+        ', expected ' + SUPPORTED_CLAUDE_VERSION);
     }
+  } catch (e) {
+    failPostinstall('Claude Code package metadata is unreadable after installation: ' + e.message);
   }
 
   // Step 2: Ensure install.cjs has run (extracts the SEA binary)
   try {
     var hasExe = fs.existsSync(path.join(ccBinDir, 'claude.exe')) || fs.existsSync(path.join(ccBinDir, 'claude'));
-    if (!hasExe && fs.existsSync(ccInstall)) {
+    if (!hasExe) {
+      if (!fs.existsSync(ccInstall)) {
+        failPostinstall('Claude Code executable is missing and install.cjs is unavailable');
+      }
       console.log('  Running Claude Code install.cjs (blocked by allow-scripts)...');
-      spawnSync(process.execPath, [ccInstall], { stdio: 'inherit', timeout: 30000 });
+      var installScriptResult = spawnSync(process.execPath, [ccInstall], {
+        stdio: 'inherit',
+        windowsHide: false,
+        timeout: 30000
+      });
+      if (installScriptResult.error || installScriptResult.status !== 0) {
+        failPostinstall('Claude Code install.cjs failed' +
+          (installScriptResult.error ? ': ' + installScriptResult.error.message : ''));
+      }
+      hasExe = fs.existsSync(path.join(ccBinDir, 'claude.exe')) || fs.existsSync(path.join(ccBinDir, 'claude'));
+      if (!hasExe) failPostinstall('Claude Code executable is still missing after install.cjs');
     }
-  } catch (e) { /* non-fatal */ }
+  } catch (e) {
+    failPostinstall('Claude Code executable setup failed: ' + e.message);
+  }
 
   // Step 3: Apply TZ + privacy patches (single source of truth: scripts/patch-cli.js)
   // Skipped if claude is running (binary locked → EBUSY); `cac` will patch on next launch.

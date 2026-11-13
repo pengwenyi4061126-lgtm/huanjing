@@ -30,6 +30,19 @@ function Get-CacSha256 {
     }
 }
 
+function Get-CacDeclaredSha256 {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    try {
+        $raw = Get-Content -LiteralPath $Path -Raw
+        $matches = [regex]::Matches($raw, '(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])')
+        if ($matches.Count -ne 1) { return $null }
+        return $matches[0].Value.ToUpperInvariant()
+    } catch {
+        return $null
+    }
+}
+
 function Test-ProfileName {
     param([string]$Name)
     if ([string]::IsNullOrWhiteSpace($Name)) { return $false }
@@ -68,9 +81,14 @@ function Sync-NativeLayer {
     if (-not (Test-Path -LiteralPath $source)) { return $false }
     New-Item -ItemType Directory -Path $target -Force | Out-Null
     $changed = $false
-    foreach ($name in @("NativeBridge.dll", "cac-native-launch.exe", "NativeBridge.sha256")) {
+    $required = @("NativeBridge.dll", "cac-native-launch.exe", "NativeBridge.sha256", "cac-native-launch.sha256")
+    $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $source $_) -PathType Leaf) })
+    if ($missing.Count -gt 0) {
+        Write-Warn "Native 层发布物不完整，缺少: $($missing -join ', ')"
+        return $false
+    }
+    foreach ($name in $required) {
         $from = Join-Path $source $name
-        if (-not (Test-Path -LiteralPath $from)) { continue }
         $to = Join-Path $target $name
         if (-not (Test-Path -LiteralPath $to) -or
             (Get-CacSha256 $from) -ne (Get-CacSha256 $to)) {
@@ -98,16 +116,32 @@ function Get-NativeLayerStatus {
     $dir = Join-Path $CAC_DIR "native"
     $dll = Join-Path $dir "NativeBridge.dll"
     $launcher = Join-Path $dir "cac-native-launch.exe"
+    $dllHashFile = Join-Path $dir "NativeBridge.sha256"
+    $launcherHashFile = Join-Path $dir "cac-native-launch.sha256"
     $manifest = Join-Path $dir "native-hook-manifest.txt"
+    $dllHash = if (Test-Path -LiteralPath $dll -PathType Leaf) { Get-CacSha256 $dll } else { $null }
+    $dllDeclaredHash = Get-CacDeclaredSha256 $dllHashFile
+    $launcherHash = if (Test-Path -LiteralPath $launcher -PathType Leaf) { Get-CacSha256 $launcher } else { $null }
+    $launcherDeclaredHash = Get-CacDeclaredSha256 $launcherHashFile
+    $integrityOk = ($dllHash -and $dllDeclaredHash -and
+        $launcherHash -and $launcherDeclaredHash -and
+        $dllHash -eq $dllDeclaredHash -and $launcherHash -eq $launcherDeclaredHash)
     return [pscustomobject]@{
         Dir        = $dir
         Dll        = $dll
         Launcher   = $launcher
+        DllHashFile = $dllHashFile
+        LauncherHashFile = $launcherHashFile
         Manifest   = $manifest
         DllPresent = (Test-Path -LiteralPath $dll)
         LauncherPresent = (Test-Path -LiteralPath $launcher)
+        DllHash    = $dllHash
+        DllDeclaredHash = $dllDeclaredHash
+        LauncherHash = $launcherHash
+        LauncherDeclaredHash = $launcherDeclaredHash
+        IntegrityOk = [bool]$integrityOk
         ManifestPresent = (Test-Path -LiteralPath $manifest)
-        Available  = ((Test-Path -LiteralPath $dll) -and (Test-Path -LiteralPath $launcher))
+        Available  = [bool]$integrityOk
     }
 }
 
@@ -599,6 +633,15 @@ function Get-CacSha256([string]$Path) {
         $sha.Dispose()
     }
 }
+function Get-CacDeclaredSha256([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    try {
+        $raw = Get-Content -LiteralPath $Path -Raw
+        $matches = [regex]::Matches($raw, '(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])')
+        if ($matches.Count -ne 1) { return $null }
+        return $matches[0].Value.ToUpperInvariant()
+    } catch { return $null }
+}
 $cacHome = $env:USERPROFILE
 $d = Join-Path $cacHome ".cac"
 $hook = Join-Path $d "fingerprint-hook.js"
@@ -759,9 +802,24 @@ if (Test-Path $uid) {
 
 $nativeLauncher = Join-Path $d "native\cac-native-launch.exe"
 $nativeDll = Join-Path $d "native\NativeBridge.dll"
+$nativeDllHashFile = Join-Path $d "native\NativeBridge.sha256"
+$nativeLauncherHashFile = Join-Path $d "native\cac-native-launch.sha256"
 $nativeManifest = Join-Path $d "native\native-hook-manifest.txt"
 $env:CAC_NATIVE_AUDIT = Join-Path $audit "native-hook.jsonl"
 if ((Test-Path -LiteralPath $nativeLauncher) -and (Test-Path -LiteralPath $nativeDll) -and ($real -like "*.exe")) {
+    if (-not (Test-Path -LiteralPath $nativeDllHashFile -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $nativeLauncherHashFile -PathType Leaf)) {
+        Write-Error "[cac] Native integrity manifests are missing; run cac to resync the release artifacts"
+        exit 1
+    }
+    $expectedDllHash = Get-CacDeclaredSha256 $nativeDllHashFile
+    $expectedLauncherHash = Get-CacDeclaredSha256 $nativeLauncherHashFile
+    if (-not $expectedDllHash -or -not $expectedLauncherHash -or
+        (Get-CacSha256 $nativeDll) -ne $expectedDllHash -or
+        (Get-CacSha256 $nativeLauncher) -ne $expectedLauncherHash) {
+        Write-Error "[cac] NativeBridge or launcher SHA-256 mismatch; launch refused"
+        exit 1
+    }
     $env:CAC_NATIVE_DLL = $nativeDll
     if (Test-Path -LiteralPath $nativeManifest) { $env:CAC_NATIVE_MANIFEST = $nativeManifest }
     & $nativeLauncher $real @args

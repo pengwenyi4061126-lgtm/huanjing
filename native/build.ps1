@@ -11,6 +11,23 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dist = Join-Path $root "dist"
 $obj = Join-Path $root "obj"
 
+function Get-CacSha256([string]$Path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::ReadWrite
+        )
+        return ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToUpperInvariant()
+    } finally {
+        if ($stream) { $stream.Dispose() }
+        $sha.Dispose()
+    }
+}
+
 . (Join-Path $root "toolchain.ps1")
 $toolchain = Set-CacToolchain
 $msvc = $toolchain.Msvc
@@ -56,7 +73,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "NativeBridge.dll build failed ($LASTEXITCODE)" }
 
     $dllPath = Join-Path $dist "NativeBridge.dll"
-    $dllHash = (Get-FileHash -LiteralPath $dllPath -Algorithm SHA256).Hash
+    $dllHash = Get-CacSha256 $dllPath
     Set-Content -LiteralPath (Join-Path $obj "expected_dll_hash.h") `
         -Value "#define CAC_EXPECTED_DLL_SHA256 `"$dllHash`"" -Encoding ASCII
     Set-Content -LiteralPath (Join-Path $dist "NativeBridge.sha256") -Value $dllHash -Encoding ASCII
@@ -68,12 +85,16 @@ try {
         (Join-Path $root "Launcher\main.cpp") `
         "/Fo$obj\" "/Fe:$dist\cac-native-launch.exe" /link /guard:cf /Brepro
     if ($LASTEXITCODE -ne 0) { throw "cac-native-launch.exe build failed ($LASTEXITCODE)" }
+
+    $launcherPath = Join-Path $dist "cac-native-launch.exe"
+    $launcherHash = Get-CacSha256 $launcherPath
+    Set-Content -LiteralPath (Join-Path $dist "cac-native-launch.sha256") -Value $launcherHash -Encoding ASCII
 } finally {
     Pop-Location
 }
 
 Get-ChildItem -LiteralPath $dist -File | ForEach-Object {
-    $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+    $hash = Get-CacSha256 $_.FullName
     [pscustomobject]@{ File = $_.FullName; Size = $_.Length; Sha256 = $hash }
 } | Format-Table -AutoSize
 
