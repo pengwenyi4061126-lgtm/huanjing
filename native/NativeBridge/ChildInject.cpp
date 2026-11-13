@@ -320,32 +320,39 @@ NTSTATUS NTAPI HookNtCreateUserProcess(PHANDLE processHandle, PHANDLE threadHand
                                          processParameters, createInfo, attributeList);
     }
 
-    const NTSTATUS status = g_origNtCreateUserProcess(
-        processHandle, threadHandle, processAccess, threadAccess, processAttributes, threadAttributes,
-        processFlags, threadFlags, processParameters, createInfo, attributeList);
-    if (status < 0 || !processHandle || !*processHandle) return status;
-
     const std::wstring image = processParameters ? UnicodeValue(processParameters->ImagePathName)
                                                  : std::wstring();
     const std::wstring commandLine = processParameters ? UnicodeValue(processParameters->CommandLine)
                                                        : std::wstring();
     std::wstring dllPath;
-    if (!PrepareInjection(image.c_str(), commandLine.c_str(), dllPath)) return status;
+    const bool inject = PrepareInjection(image.c_str(), commandLine.c_str(), dllPath);
+    constexpr ULONG kThreadCreateSuspended = 0x00000001UL;
+    const bool forcedSuspend = inject && ((threadFlags & kThreadCreateSuspended) == 0);
+    const ULONG effectiveThreadFlags = forcedSuspend ?
+        (threadFlags | kThreadCreateSuspended) : threadFlags;
 
-    const DWORD processId = GetProcessId(*processHandle);
-    HANDLE target = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
-                                    PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ | SYNCHRONIZE,
-                                FALSE, processId);
-    const bool borrowed = (target == nullptr);
-    if (!target) target = *processHandle;
+    const NTSTATUS status = g_origNtCreateUserProcess(
+        processHandle, threadHandle, processAccess, threadAccess, processAttributes, threadAttributes,
+        processFlags, effectiveThreadFlags, processParameters, createInfo, attributeList);
+    if (status < 0 || !processHandle || !*processHandle) return status;
 
-    std::string error;
-    if (InjectLibrary(target, dllPath, &error)) {
-        AuditEvent("native.child", "injected", "ntcreateuserprocess", processId, true);
-    } else {
-        AuditEvent("native.child", "failed", error.c_str(), processId, true);
+    if (inject) {
+        const DWORD processId = GetProcessId(*processHandle);
+        HANDLE target = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
+                                        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ | SYNCHRONIZE,
+                                    FALSE, processId);
+        const bool borrowed = (target == nullptr);
+        if (!target) target = *processHandle;
+
+        std::string error;
+        if (InjectLibrary(target, dllPath, &error)) {
+            AuditEvent("native.child", "injected", "ntcreateuserprocess", processId, true);
+        } else {
+            AuditEvent("native.child", "failed", error.c_str(), processId, true);
+        }
+        if (!borrowed) CloseHandle(target);
     }
-    if (!borrowed) CloseHandle(target);
+    if (forcedSuspend && threadHandle && *threadHandle) ResumeThread(*threadHandle);
     return status;
 }
 

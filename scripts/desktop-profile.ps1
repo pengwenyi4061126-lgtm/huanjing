@@ -450,6 +450,19 @@ function Wait-AntDid {
     }
 }
 
+function Wait-DesktopRuntimeWindow {
+    param(
+        [DateTime]$StartedUtc,
+        [int]$Seconds,
+        [string]$ProfileName
+    )
+    $remaining = [int][Math]::Ceiling($Seconds - ([DateTime]::UtcNow - $StartedUtc).TotalSeconds)
+    if ($remaining -gt 0) {
+        Write-Host ("[AB] {0} runtime window remaining: {1}s" -f $ProfileName, $remaining) -ForegroundColor DarkGray
+        Start-Sleep -Seconds $remaining
+    }
+}
+
 function Get-ClaudeProcessRows {
     $result = @()
     try {
@@ -1020,7 +1033,9 @@ function Invoke-AbAction {
     $stopA = $null
     if ($launchA.started) {
         Write-Host "[AB] profile-a launched: PID $($launchA.processId), mode $($launchA.mode)"
+        $startedA = [DateTime]::UtcNow
         $antA = Wait-AntDid -Paths $pathsA -Seconds $WaitSeconds
+        Wait-DesktopRuntimeWindow -StartedUtc $startedA -Seconds $WaitSeconds -ProfileName 'profile-a'
         $stopA = Stop-ClaudeProcessTree -RootProcessId $launchA.processId
         Write-Host ("[AB] profile-a tree stopped: {0}" -f (@($stopA.collectedPids) -join ', '))
     } else {
@@ -1035,7 +1050,9 @@ function Invoke-AbAction {
         $launchB = Start-ClaudeDesktop -Paths $pathsB -ExePath $Exe -UseInject ([bool]$Inject) -UseFingerprint ([bool]$Fingerprint)
         if ($launchB.started) {
             Write-Host "[AB] profile-b launched: PID $($launchB.processId), mode $($launchB.mode)"
+            $startedB = [DateTime]::UtcNow
             $antB = Wait-AntDid -Paths $pathsB -Seconds $WaitSeconds
+            Wait-DesktopRuntimeWindow -StartedUtc $startedB -Seconds $WaitSeconds -ProfileName 'profile-b'
             $stopB = Stop-ClaudeProcessTree -RootProcessId $launchB.processId
             Write-Host ("[AB] profile-b tree stopped: {0}" -f (@($stopB.collectedPids) -join ', '))
         } else {

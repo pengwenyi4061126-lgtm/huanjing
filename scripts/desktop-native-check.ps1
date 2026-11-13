@@ -5,7 +5,8 @@ param(
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')]
     [string]$Profile,
     [switch]$RequireChild,
-    [switch]$RequireCpuManifest
+    [switch]$RequireCpuManifest,
+    [switch]$RequireRendererUtility
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,6 +55,16 @@ $notImported = @($session | Where-Object {
 $children = @($session | Where-Object { $_.surface -eq 'native.child' })
 $childInjected = @($children | Where-Object { $_.action -in @('injected', 'launcher-injected') })
 $childFailed = @($children | Where-Object { $_.action -in @('failed', 'launcher-failed') })
+$attachEvents = @($session | Where-Object {
+    $_.surface -eq 'native.bridge' -and $_.action -eq 'attach'
+})
+$processTypes = [ordered]@{}
+foreach ($event in $attachEvents) {
+    $type = 'unknown'
+    if ([string]$event.detail -match 'process=([^, ]+)') { $type = $matches[1] }
+    if (-not $processTypes.Contains($type)) { $processTypes[$type] = 0 }
+    $processTypes[$type]++
+}
 $unwrappedWmi = @($session | Where-Object {
     $_.surface -in @('wmi.enum', 'wmi.services') -and $_.action -match 'unwrapped'
 })
@@ -73,8 +84,14 @@ $result = [ordered]@{
     rootPid = $rootPid
     session = [ordered]@{
         ready = $ready
-        processes = @($session | Where-Object { $_.surface -eq 'native.bridge' -and $_.action -eq 'attach' } |
+        processes = @($attachEvents |
             Select-Object -ExpandProperty pid -Unique)
+        processTypes = $processTypes
+        mainAttached = [bool]($processTypes.Contains('main'))
+        rendererAttached = [bool]($processTypes.Contains('renderer'))
+        utilityAttached = [bool]($processTypes.Contains('utility'))
+        gpuAttached = [bool]($processTypes.Contains('gpu-process'))
+        crashpadAttached = [bool]($processTypes.Contains('crashpad-handler'))
         apiInstallComplete = @($session | Where-Object { $_.surface -eq 'api.install' -and $_.action -eq 'complete' }).Count -gt 0
         apiInstallFailures = $failures.Count
         apiInstallFailureDetails = @($failures | ForEach-Object {
@@ -99,6 +116,8 @@ $result = [ordered]@{
 $pass = $ready -and $failures.Count -eq 0 -and $childFailed.Count -eq 0
 if ($RequireChild -and $childInjected.Count -eq 0) { $pass = $false }
 if ($RequireCpuManifest -and $cpuInstalled.Count -eq 0) { $pass = $false }
+if ($RequireRendererUtility -and
+    (-not $processTypes.Contains('renderer') -or -not $processTypes.Contains('utility'))) { $pass = $false }
 $result.result = if ($pass) { 'PASS' } else { 'FAIL' }
 $result.note = 'This is current-session userland evidence. It does not prove kernel, NDIS/WFP, DPAPI, or physical hardware isolation.'
 

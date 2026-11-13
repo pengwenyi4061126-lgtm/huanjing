@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <cstdio>
+#include <cwchar>
 
 #include "ApiHooks.h"
 #include "Audit.h"
@@ -9,6 +10,17 @@
 #include "WmiHooks.h"
 
 namespace {
+
+const char* ProcessTypeDetail() {
+    const wchar_t* commandLine = GetCommandLineW();
+    if (commandLine) {
+        if (wcsstr(commandLine, L"--type=renderer")) return "process=renderer";
+        if (wcsstr(commandLine, L"--type=utility")) return "process=utility";
+        if (wcsstr(commandLine, L"--type=gpu-process")) return "process=gpu-process";
+        if (wcsstr(commandLine, L"--type=crashpad-handler")) return "process=crashpad-handler";
+    }
+    return "process=main";
+}
 
 void SignalReady() {
     wchar_t name[96] = {};
@@ -24,7 +36,7 @@ void SignalReady() {
 DWORD WINAPI InitializeThread(LPVOID) {
     ProfileIdentity& identity = ProfileIdentity::Get();
     AuditInit(identity.profileDir);
-    AuditEvent("native.bridge", "attach");
+    AuditEvent("native.bridge", "attach", ProcessTypeDetail());
 
     InstallApiHooks();
     InstallChildInjection();

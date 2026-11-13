@@ -224,17 +224,23 @@ DWORD WINAPI MonitorThread(LPVOID parameter) {
     MonitorContext* context = static_cast<MonitorContext*>(parameter);
     std::set<DWORD> handled;
     std::map<DWORD, int> attempts;
-    while (WaitForSingleObject(context->process, 0) == WAIT_TIMEOUT) {
+    std::map<DWORD, ULONGLONG> retryAfter;
+    ULONGLONG graceDeadline = 0;
+    while (true) {
+        const ULONGLONG now = GetTickCount64();
+        const bool rootAlive = WaitForSingleObject(context->process, 0) == WAIT_TIMEOUT;
+        if (!rootAlive) {
+            if (graceDeadline == 0) graceDeadline = now + 5000;
+            if (now >= graceDeadline) break;
+        }
         for (DWORD processId : DescendantsOf(context->rootPid)) {
             if (processId == context->rootPid || handled.count(processId)) continue;
+            const auto next = retryAfter.find(processId);
+            if (next != retryAfter.end() && now < next->second) continue;
             std::wstring image;
             if (!QueryImagePath(processId, image)) continue;
             if (_wcsicmp(image.c_str(), context->exePath.c_str()) != 0) continue;
             if (IsModuleLoaded(processId, L"NativeBridge.dll")) {
-                handled.insert(processId);
-                continue;
-            }
-            if (attempts[processId] >= 5) {
                 handled.insert(processId);
                 continue;
             }
@@ -243,7 +249,9 @@ DWORD WINAPI MonitorThread(LPVOID parameter) {
                                              SYNCHRONIZE,
                                          FALSE, processId);
             if (!process) {
-                ++attempts[processId];
+                const int attempt = ++attempts[processId];
+                const ULONGLONG delay = static_cast<ULONGLONG>(100 + attempt * 100);
+                retryAfter[processId] = now + (delay > 2000 ? 2000 : delay);
                 continue;
             }
             std::string error;
@@ -251,8 +259,12 @@ DWORD WINAPI MonitorThread(LPVOID parameter) {
                 handled.insert(processId);
                 AppendAudit(context->auditPath, "launcher-injected", processId, nullptr);
             } else {
-                ++attempts[processId];
-                AppendAudit(context->auditPath, "launcher-failed", processId, error.c_str());
+                const int attempt = ++attempts[processId];
+                const ULONGLONG delay = static_cast<ULONGLONG>(100 + attempt * 100);
+                retryAfter[processId] = now + (delay > 2000 ? 2000 : delay);
+                if (attempt == 1 || (attempt % 10) == 0) {
+                    AppendAudit(context->auditPath, "launcher-failed", processId, error.c_str());
+                }
             }
             CloseHandle(process);
         }
