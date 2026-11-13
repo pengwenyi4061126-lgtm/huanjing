@@ -206,6 +206,27 @@ function Initialize-ProfileLayout {
     return $Paths
 }
 
+function Sync-NativeLayer {
+    $source = Join-Path (Split-Path $PSScriptRoot -Parent) 'native\dist'
+    $target = Join-Path $script:OriginalUserProfile '.cac\native'
+    if (-not (Test-Path -LiteralPath $source -PathType Container)) { return }
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+    foreach ($name in @('NativeBridge.dll', 'cac-native-launch.exe')) {
+        $from = Join-Path $source $name
+        if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
+        $to = Join-Path $target $name
+        $needsCopy = -not (Test-Path -LiteralPath $to -PathType Leaf)
+        if (-not $needsCopy) {
+            $needsCopy = (Get-FileHash -LiteralPath $from -Algorithm SHA256).Hash -ne
+                        (Get-FileHash -LiteralPath $to -Algorithm SHA256).Hash
+        }
+        if ($needsCopy) {
+            Copy-Item -LiteralPath $from -Destination $to -Force
+            Write-Host "  [SYNC] $name" -ForegroundColor DarkGray
+        }
+    }
+}
+
 function Get-AntDidInfo {
     param([string]$Path)
     try {
@@ -364,6 +385,7 @@ function Start-ClaudeDesktop {
     $nativeUsed = $false
 
     if ($UseInject) {
+        Sync-NativeLayer
         if ((Test-Path -LiteralPath $nativeLauncher -PathType Leaf) -and
             (Test-Path -LiteralPath $nativeDll -PathType Leaf)) {
             $nativeUsed = $true
