@@ -371,7 +371,12 @@ function Start-ClaudeDesktop {
     $userDataArgument = '--user-data-dir=' + (ConvertTo-ProcessArgument -Value $Paths.UserDataDir)
     if ($nativeUsed) {
         $launchFile = $nativeLauncher
-        $arguments = (ConvertTo-ProcessArgument -Value $ExePath) + ' ' + $userDataArgument
+        # Unsigned DLL injection into Chromium renderer/GPU processes is blocked
+        # once ACG/CIG is active. Native mode deliberately starts Claude without
+        # the renderer sandbox so every child can be intercepted before it reads
+        # device identity. Direct (non-Native) mode keeps the stock sandbox.
+        $arguments = (ConvertTo-ProcessArgument -Value $ExePath) + ' ' + $userDataArgument +
+                     ' --no-sandbox --disable-gpu-sandbox'
         $mode = 'native'
     } else {
         $launchFile = $ExePath

@@ -11,11 +11,20 @@
 | `GetSystemFirmwareTable('RSMB')` | IAT patch + in-place SMBIOS rewrite | on |
 | `NtQuerySystemInformation` class 76 | IAT patch + SMBIOS rewrite | on |
 | `DeviceIoControl` `IOCTL_STORAGE_QUERY_PROPERTY` | IAT patch + serial rewrite | on |
+| `NtDeviceIoControlFile` | inline + IAT; storage serial rewrite, SMART/firmware cleared | on |
+| `GetVolumeInformationByHandleW` / `GetFileInformationByHandle` / `NtQueryVolumeInformationFile` | IAT/inline + volume serial rewrite | on |
 | `GetComputerNameW` / `GetComputerNameExW` | IAT patch | on |
 | `GetUserNameW` | IAT/delay patch | on |
 | `RegGetValueW` / `RegQueryValueExW` (MachineGuid/BIOS/CPU values) | IAT/delay patch | on |
 | `HidD_GetSerialNumberString` | IAT/delay patch | on |
 | `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | IAT/delay patch; audit or empty policy | audit |
+| `GetIfTable2` / `GetIfEntry2` / `GetIfTable` | IAT patch + MAC rewrite | on |
+| `RegEnumValueW` | IAT/delay patch + value rewrite | on |
+| `EnumDeviceDrivers` / `K32EnumDeviceDrivers` | IAT/delay patch; empty policy hides the list | on |
+| `SetupDiGetClassDevsW` | IAT/delay patch; empty policy hides disk/display/net/system classes | on |
+| `CreateFileW` raw device paths | IAT patch; empty policy denies `\\.\PhysicalDrive*` and friends | on |
+| `CreateProcessW` / `CreateProcessInternalW` / `NtCreateUserProcess` | inline + IAT; inject same-image children at creation | on |
+| WMI COM (`CLSID_WbemLocator`) | in-process `IWbemLocator`/`IWbemServices`/`IWbemClassObject` wrappers | on |
 | `CPUID` / `XGETBV` | inline hook at verified function entry | manifest required |
 | Kernel, NDIS, WFP, driver objects, physical hardware | not implemented | — |
 
@@ -25,7 +34,7 @@ Delay imports are resolved by loading the target DLL, resolving the real export,
 
 The wrapper passes `CAC_NATIVE_READ_POLICY=profile` by default. Set the current Profile's `native_read_policy` file to `empty` to make covered identity reads return empty strings, zero serials, no SMBIOS table, no storage serial, empty SetupDi properties, and zeroed CPUID/XGETBV output. `CAC_NATIVE_CPUID_MODE` accepts `neutral`, `empty`, or `passthrough`; `empty` is selected automatically when the read policy is `empty` unless a Profile-specific `cpuid_mode` file overrides it.
 
-The `profile` mode is the compatibility default. The `empty` mode is intentionally strict and may make applications disable hardware-dependent features; it does not intercept WMI/COM, renderer/utility processes, kernel APIs, NDIS/WFP, driver objects, or physical hardware.
+The `profile` mode is the compatibility default. The `empty` mode is intentionally strict and may make applications disable hardware-dependent features. WMI/COM and renderer/utility processes are covered by this build; kernel APIs, NDIS/WFP filters, kernel driver objects and physical firmware still require a signed kernel driver.
 
 Enable it for a Code Profile with:
 
@@ -144,3 +153,5 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File E:\环境\huanjing\scripts\desktop
 ```
 
 The launcher aligns `APPDATA` under `USERPROFILE\AppData\Roaming`, sets `HOME`, `TEMP`, `TMP`, `CAC_PROFILE_DIR`, `CAC_PROFILE_IDENTITY`, and `--user-data-dir=<profile>\home\AppData\Roaming\Claude`. This alignment is required: Electron fails with `Failed to get 'appData' path` if `APPDATA` is outside the `USERPROFILE` tree.
+
+Native mode also appends `--no-sandbox --disable-gpu-sandbox`. Chromium's ACG/CIG blocks unsigned DLL loads in GPU/renderer processes; without these flags those processes cannot be intercepted by a user-mode DLL.

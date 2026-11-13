@@ -2,7 +2,7 @@
 
 Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征，遥测正常流转。
 
-当前版本：`1.0.31`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
+当前版本：`1.0.32`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
 ## 功能
 
@@ -15,7 +15,9 @@ Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征
 - **网络验收** — 检查代理可达性、socks5h 远程 DNS 语义和子进程环境继承
 - **A/B 验收** — 验证 Profile 默认 Home、配置、AppData、TEMP/TMP 不交叉
 - **Node 用户态身份 Hook** — 通过 Profile 级 `NODE_OPTIONS/BUN_OPTIONS` 注入 `fingerprint-hook.js`，并记录运行时命中证据
-- **NativeBridge 用户态层** — 可选 DLL 注入，覆盖 `GetAdaptersAddresses`、`GetAdaptersInfo`、`GetVolumeInformationW`、`GetSystemFirmwareTable`、`NtQuerySystemInformation`、`DeviceIoControl`，并在哈希绑定的清单下过滤 `CPUID/XGETBV`
+- **NativeBridge 用户态层** — 可选 DLL 注入，覆盖网卡、卷序列号、SMBIOS、磁盘/固件、主机名、用户名、注册表、HID、SetupDi、驱动列表、原始设备打开以及哈希绑定的 `CPUID/XGETBV`
+- **WMI/COM 隔离** — 在进程内包装 `CLSID_WbemLocator`，对 `Win32_BIOS`、`Win32_ComputerSystemProduct`、`Win32_DiskDrive`、`Win32_Processor`、`Win32_NetworkAdapter`、`Win32_LogicalDisk` 等结果按 Profile 改写或清空
+- **renderer/utility 注入** — 对 Claude Desktop 的 browser/GPU/renderer/utility/crashpad 子进程做创建时注入，并带启动器后代补偿
 - **Desktop Profile** — `scripts/desktop-profile.ps1` 为 Claude Desktop 重定向 `APPDATA`/`LOCALAPPDATA`/`USERPROFILE`/`TEMP`，隔离 `Claude`、`Claude-3p`、`ant-did`、sessions 和 Crashpad
 - **Native/硬件证据** — 单独记录 Windows CIM、注册表、磁盘、网卡等主机共享面；不把它宣称为硬件隔离
 - **Profile 清理** — 只清理当前 Profile，不修改全局 `.claude` 或全局凭据
@@ -101,7 +103,7 @@ cac
 └─ uuid/stable_id/user_id/machine_id/hostname/mac_address/disk_serial/bios_serial/system_serial/hid_serial
 ```
 
-Windows 版本的隔离边界是**进程级 Profile 隔离 + Node 用户态 Hook + 可选 NativeBridge 用户态 Hook**。NativeBridge 覆盖 `GetAdaptersAddresses/Info`、`GetVolumeInformationW`、`GetSystemFirmwareTable`、`NtQuerySystemInformation`、`DeviceIoControl`、`GetComputerNameW/ExW`、`GetUserNameW`、`RegGetValueW/RegQueryValueExW` 和 HID 序列号；它不改变 Windows 内核、NDIS/WFP、驱动设备对象或物理硬件。`E:\claude` 中的 Native/硬件报告仍应作为独立观测证据，不能用本项目的 Node/PowerShell 结果替代。
+Windows 版本的隔离边界是**进程级 Profile 隔离 + Node 用户态 Hook + 可选 NativeBridge 用户态 Hook**。NativeBridge 覆盖 `GetAdaptersAddresses/Info`、`GetIfTable2/GetIfEntry2`、`GetVolumeInformationW/ByHandleW`、`GetFileInformationByHandle`、`NtQueryVolumeInformationFile`、`GetSystemFirmwareTable`、`NtQuerySystemInformation`、`DeviceIoControl`、`NtDeviceIoControlFile`、`GetComputerNameW/ExW`、`GetUserNameW`、`RegGetValueW/RegQueryValueExW`、`RegEnumValueW`、`EnumDeviceDrivers`、`SetupDiGetClassDevsW` 和 HID 序列号；WMI 通过 COM 包装覆盖。它不安装内核驱动，也不改变 NDIS/WFP 过滤器或物理硬件。`E:\claude` 中的 Native/硬件报告仍应作为独立观测证据，不能用本项目的 Node/PowerShell 结果替代。
 
 菜单中的 **Native/硬件边界证据** 会把 Windows CIM、MachineGuid、磁盘、卷、处理器、主板、显卡和物理网卡等主机共享面写入 `audit/native-hardware-check.json`；敏感标识只保存存在性、长度和 SHA-256。报告会同时记录 Node 层 `fingerprint-hook.jsonl` 与 Native 层 `native-hook.jsonl` 的命中情况，并分别标记 `nativeUserland`、`cpuid`、`xgetbv`、`deviceIoControl` 和内核边界。
 
@@ -111,7 +113,7 @@ Windows 版本的隔离边界是**进程级 Profile 隔离 + Node 用户态 Hook
 
 Native 层始终只做用户态返回值和用户态指令入口处理。它不会加载驱动、不会修改 NDIS/WFP，也不会改变物理硬件；内核设备对象和物理层仍是同一台机器。
 
-Native 读取策略默认为 `profile`，保证返回值具有一致的 Profile 语义。将当前 Profile 的 `native_read_policy` 写为 `empty` 后，NativeBridge 会对主进程内的设备身份读取返回空字符串、零序列号、无固件数据或无设备属性；`cpuid_mode` 默认为 `neutral`，在 `empty` 策略下自动改为 `empty`。`empty` 模式只作用于已覆盖的用户态 API，不代表 WMI、驱动、内核或物理硬件被修改；也不处理 renderer/utility 子进程。
+Native 读取策略默认为 `profile`，保证返回值具有一致的 Profile 语义。将当前 Profile 的 `native_read_policy` 写为 `empty` 后，NativeBridge 会对已覆盖的设备身份读取返回空字符串、零序列号、无固件数据、无 WMI 属性或无设备枚举结果；`cpuid_mode` 默认为 `neutral`，在 `empty` 策略下自动改为 `empty`。`empty` 模式作用于主进程、renderer/utility 子进程和 WMI 同步查询；内核回调、NDIS/WFP 过滤器和物理固件仍不在覆盖范围。
 
 启用某个 Code Profile 的严格空值策略：
 
@@ -133,6 +135,22 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Actio
 启动器把 `APPDATA` 放在 `USERPROFILE\home\AppData\Roaming` 下，并隔离 `Claude`、`Claude-3p`、`ant-did`、sessions 和 Crashpad。不要用 `CLAUDE_USER_DATA_DIR`：Desktop 会删除/忽略该变量。
 
 > **为什么必须通过 `claude` wrapper（或 cac 菜单）启动？** claude.exe 是 Bun 打包的单文件程序，内置了预编译的 JSC 字节码。默认情况下运行时直接执行字节码，**内嵌的 JS 源码根本不会被读取，补丁等于没打**。wrapper 启动时会设置 `BUN_JSC_useCodeCache=false`，强制 Bun 放弃字节码、回退到（已打补丁的）源码执行。代价是启动慢约 0.3 秒。直接双击或用绝对路径运行 claude.exe 不会带上这个变量，补丁不生效。
+
+### Desktop 子进程注入与沙箱
+
+`-Inject` 模式通过 `CreateProcessW`、`CreateProcessInternalW` 和 `NtCreateUserProcess` 三条创建路径注入子进程，并由启动器轮询补注入遗漏的后代进程。Chromium 的 GPU/renderer 在启用 ACG/CIG 后会拒绝加载未签名 DLL，因此 Native 模式会追加：
+
+```text
+--no-sandbox --disable-gpu-sandbox
+```
+
+这是让未签名 `NativeBridge.dll` 进入 renderer/GPU 的必要条件，同时也降低了 Chromium 自身的沙箱强度。不使用 `-Inject` 时不会追加这两个参数。
+
+### 内核 / NDIS / WFP / 物理硬件边界
+
+用户态已覆盖这些表面的可访问路径：`EnumDeviceDrivers`、`NtQuerySystemInformation(SystemModuleInformation)`、`GetIfTable2/GetIfEntry2`、`GetAdapters*`、`SetupDiGetClassDevsW`、`NtDeviceIoControlFile` 和原始设备 `CreateFileW`。在 `empty` 策略下，驱动列表、设备枚举和原始设备打开会被清空或拒绝。
+
+真正的内核回调、NDIS 轻量过滤器和 WFP 过滤器无法由用户态 DLL 安装。要覆盖驱动内部、其他进程的内核查询以及物理固件层，必须加载签名的内核驱动；本机未安装 WDK，也未启用测试签名，因此这一层没有实现，不能被宣称为已完成。
 
 ## 致谢
 

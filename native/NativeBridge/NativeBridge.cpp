@@ -3,7 +3,9 @@
 
 #include "ApiHooks.h"
 #include "Audit.h"
+#include "ChildInject.h"
 #include "Identity.h"
+#include "WmiHooks.h"
 
 namespace {
 
@@ -24,6 +26,8 @@ DWORD WINAPI InitializeThread(LPVOID) {
     AuditEvent("native.bridge", "attach");
 
     InstallApiHooks();
+    InstallChildInjection();
+    InstallWmiHooks();
     InstallCpuHooksFromManifest();
 
     char scan[8] = {};

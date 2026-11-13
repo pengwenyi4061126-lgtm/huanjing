@@ -116,9 +116,11 @@ void AuditEventRateLimited(const char* surface, const char* action, const char* 
                            unsigned long long value, bool hasValue) {
     EnsureInit();
     EnterCriticalSection(&g_lock);
+    bool found = false;
     bool log = false;
     for (int i = 0; i < g_rateCount; ++i) {
         if (std::strcmp(g_rates[i].surface, surface) == 0) {
+            found = true;
             if (g_rates[i].count < 16) {
                 ++g_rates[i].count;
                 log = true;
@@ -126,7 +128,7 @@ void AuditEventRateLimited(const char* surface, const char* action, const char* 
             break;
         }
     }
-    if (!log && g_rateCount < static_cast<int>(_countof(g_rates))) {
+    if (!found && g_rateCount < static_cast<int>(_countof(g_rates))) {
         std::snprintf(g_rates[g_rateCount].surface, sizeof(g_rates[g_rateCount].surface), "%s", surface);
         g_rates[g_rateCount].count = 1;
         ++g_rateCount;

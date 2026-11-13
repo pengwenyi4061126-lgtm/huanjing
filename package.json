@@ -1,6 +1,6 @@
 {
   "name": "cac-windows",
-  "version": "1.0.31",
+  "version": "1.0.32",
   "description": "Claude Code Windows privacy tool — binary patches to remove Chinese identity markers.",
   "bin": {
     "cac": "cac"

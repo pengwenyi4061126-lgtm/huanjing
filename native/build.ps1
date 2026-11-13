@@ -39,6 +39,8 @@ $dllSources = @(
     "NativeBridge\HookEngine.cpp",
     "NativeBridge\Firmware.cpp",
     "NativeBridge\ApiHooks.cpp",
+    "NativeBridge\ChildInject.cpp",
+    "NativeBridge\WmiHooks.cpp",
     "NativeBridge\NativeBridge.cpp"
 ) | ForEach-Object { Join-Path $root $_ }
 
@@ -49,7 +51,7 @@ try {
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
         $dllSources `
         "/Fo$obj\" "/Fe:$dist\NativeBridge.dll" `
-        /link /DLL /guard:cf iphlpapi.lib bcrypt.lib
+        /link /DLL /guard:cf iphlpapi.lib bcrypt.lib wbemuuid.lib ole32.lib oleaut32.lib
     if ($LASTEXITCODE -ne 0) { throw "NativeBridge.dll build failed ($LASTEXITCODE)" }
 
     Write-Host "Building cac-native-launch.exe ..." -ForegroundColor Cyan

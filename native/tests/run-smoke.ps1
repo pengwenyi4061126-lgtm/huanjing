@@ -79,6 +79,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "delay_probe build failed" }
     & cl.exe /nologo /utf-8 /std:c++17 /EHsc /Od /Zi /MT (Join-Path $tests "cpu_probe.cpp") /Fe:cpu_probe.exe /link /DEBUG | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "cpu_probe build failed" }
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT (Join-Path $tests "device_probe.cpp") /Fe:device_probe.exe /link iphlpapi.lib setupapi.lib psapi.lib advapi32.lib | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "device_probe build failed" }
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT (Join-Path $tests "child_probe.cpp") /Fe:child_probe.exe /link iphlpapi.lib | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "child_probe build failed" }
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT (Join-Path $tests "wmi_probe.cpp") /Fe:wmi_probe.exe /link wbemuuid.lib ole32.lib oleaut32.lib | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "wmi_probe build failed" }
 } finally {
     Pop-Location
 }
@@ -138,6 +144,45 @@ Assert-True (@($auditLines | Where-Object { $_ -match '"surface":"smbios.patch"'
 Assert-True (@($auditLines | Where-Object { $_ -match '"surface":"api.reggetvalue"' }).Count -gt 0) "RegGetValueW hook recorded"
 Assert-True (@($auditLines | Where-Object { $_ -match '"surface":"api.hid.serial"' }).Count -gt 0) "HID serial hook recorded"
 
+Write-Host "Device / driver / registry surfaces" -ForegroundColor Cyan
+$deviceBaseline = Parse-ProbeOutput @(& (Join-Path $bin "device_probe.exe") 2>&1)
+$deviceProfile = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "device_probe.exe") 2>&1)
+Assert-True ($deviceProfile.handle_volume -eq $identity.volume_serial) "GetVolumeInformationByHandleW matches profile"
+Assert-True ($deviceProfile.file_volume -eq $identity.volume_serial) "GetFileInformationByHandle matches profile"
+Assert-True ($deviceProfile.nt_volume -eq $identity.volume_serial) "NtQueryVolumeInformationFile matches profile"
+Assert-True ($deviceProfile.if2_mac -eq $identity.mac_address) "GetIfTable2 MAC matches profile"
+Assert-True ($deviceProfile.if2_entry_mac -eq $identity.mac_address) "GetIfEntry2 MAC matches profile"
+Assert-True ($deviceProfile.driver_count -ne "0") "kernel driver list remains readable in profile mode"
+Assert-True ($deviceProfile.disk_setupdi -eq "ok") "SetupDi disk enumeration remains readable in profile mode"
+Assert-True ($deviceProfile.enum_machine_guid -eq $identity.machine_id) "RegEnumValueW MachineGuid matches profile"
+if ($deviceBaseline.nt_disk_serial -notin @("empty", "ioctl-error", "open-denied", "missing")) {
+    Assert-True ($deviceProfile.nt_disk_serial -like "WD-*") "NtDeviceIoControlFile rewrites disk serial"
+}
+
+Write-Host "Renderer / utility child injection" -ForegroundColor Cyan
+$childBaseline = Parse-ProbeOutput @(& (Join-Path $bin "child_probe.exe") 2>&1)
+$childProfile = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "child_probe.exe") 2>&1)
+Assert-True ($childProfile.child_ok -eq "1") "child process created"
+Assert-True ($childBaseline.child_mac -ne $identity.mac_address) "baseline child MAC differs from profile"
+Assert-True ($childProfile.child_mac -eq $identity.mac_address) "child process receives NativeBridge injection"
+$auditLines = @(Get-Content -LiteralPath $env:CAC_NATIVE_AUDIT -ErrorAction SilentlyContinue)
+Assert-True (@($auditLines | Where-Object { $_ -match '"surface":"native.child","action":"injected"' }).Count -gt 0) "child injection recorded"
+
+Write-Host "WMI / COM surfaces" -ForegroundColor Cyan
+$wmiBaseline = Parse-ProbeOutput @(& (Join-Path $bin "wmi_probe.exe") 2>&1)
+$wmiProfile = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "wmi_probe.exe") 2>&1)
+if ($wmiBaseline.wmi_state -eq "ok") {
+    Assert-True ($wmiProfile.wmi_state -eq "ok") "WMI connect succeeds through wrapper"
+    Assert-True ($wmiProfile.wmi_bios_serial -eq $identity.system_serial) "WMI BIOS serial matches profile"
+    Assert-True ($wmiProfile.wmi_uuid -eq $identity.uuid) "WMI system UUID matches profile"
+    Assert-True ($wmiProfile.wmi_disk_serial -eq $identity.disk_serial) "WMI disk serial matches profile"
+    Assert-True ($wmiProfile.wmi_mac -eq $identity.mac_address) "WMI MAC matches profile"
+    Assert-True ($wmiProfile.wmi_processor_id -eq $identity.processor_id) "WMI ProcessorId matches profile"
+    Assert-True ($wmiProfile.wmi_volume_serial -eq $identity.volume_serial) "WMI volume serial matches profile"
+} else {
+    Write-Host "  [INFO] WMI baseline unavailable: $($wmiBaseline.wmi_state)" -ForegroundColor Yellow
+}
+
 Write-Host "CPUID/XGETBV manifest hook" -ForegroundColor Cyan
 $cpuProbe = Join-Path $bin "cpu_probe.exe"
 $cpuIdRva = Get-SymbolRva $cpuProbe "TestCpuId"
@@ -176,13 +221,37 @@ Assert-True ($emptyInjected.mac -eq "none") "empty policy clears GetAdaptersAddr
 Assert-True ($emptyInjected.mac_info -eq "none") "empty policy clears GetAdaptersInfo MAC"
 Assert-True ($emptyInjected.volume -eq "00000000") "empty policy clears volume serial"
 Assert-True ($emptyInjected.smbios_serial -eq "unavailable") "empty policy suppresses SMBIOS"
-Assert-True ($emptyInjected.disk_serial -eq "") "empty policy clears storage serial"
+Assert-True ($emptyInjected.disk_serial -in @("", "open-failed")) "empty policy blocks storage serial"
 Assert-True ($emptyInjected.native_computer_name -eq "") "empty policy clears computer name"
 Assert-True ($emptyInjected.native_computer_name_ex -eq "") "empty policy clears extended computer name"
 Assert-True ($emptyInjected.native_user_name -eq "") "empty policy clears username"
 Assert-True ($emptyInjected.native_machine_guid -eq "") "empty policy clears RegGetValueW MachineGuid"
 Assert-True ($emptyInjected.native_machine_guid_query -eq "") "empty policy clears RegQueryValueExW MachineGuid"
 Assert-True ($emptyInjected.native_hid_serial -eq "") "empty policy clears HID serial"
+
+$deviceEmpty = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "device_probe.exe") 2>&1)
+Assert-True ($deviceEmpty.handle_volume -eq "00000000") "empty policy clears GetVolumeInformationByHandleW"
+Assert-True ($deviceEmpty.file_volume -eq "00000000") "empty policy clears GetFileInformationByHandle"
+Assert-True ($deviceEmpty.nt_volume -eq "00000000") "empty policy clears NtQueryVolumeInformationFile"
+Assert-True ($deviceEmpty.if2_mac -eq "none") "empty policy clears GetIfTable2 MAC"
+Assert-True ($deviceEmpty.if2_entry_mac -eq "none") "empty policy clears GetIfEntry2 MAC"
+Assert-True ($deviceEmpty.nt_disk_serial -eq "open-denied") "empty policy denies raw disk open"
+Assert-True ($deviceEmpty.driver_count -eq "0") "empty policy hides kernel driver list"
+Assert-True ($deviceEmpty.disk_setupdi -eq "empty") "empty policy hides SetupDi disk enumeration"
+Assert-True ($deviceEmpty.enum_machine_guid -eq "") "empty policy clears RegEnumValueW MachineGuid"
+
+$childEmpty = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "child_probe.exe") 2>&1)
+Assert-True ($childEmpty.child_mac -eq "none") "empty policy propagates to child process"
+
+if ($wmiBaseline.wmi_state -eq "ok") {
+    $wmiEmpty = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "wmi_probe.exe") 2>&1)
+    Assert-True ($wmiEmpty.wmi_bios_serial -eq "") "empty policy clears WMI BIOS serial"
+    Assert-True ($wmiEmpty.wmi_uuid -eq "") "empty policy clears WMI UUID"
+    Assert-True ($wmiEmpty.wmi_disk_serial -in @("", "<none>")) "empty policy clears WMI disk serial"
+    Assert-True ($wmiEmpty.wmi_mac -in @("", "<none>")) "empty policy clears WMI MAC"
+    Assert-True ($wmiEmpty.wmi_processor_id -eq "") "empty policy clears WMI ProcessorId"
+    Assert-True ($wmiEmpty.wmi_volume_serial -eq "") "empty policy clears WMI volume serial"
+}
 
 $emptyCpu = Parse-ProbeOutput @(& (Join-Path $dist "cac-native-launch.exe") (Join-Path $bin "cpu_probe.exe") 2>&1)
 Assert-True ($emptyCpu.test_leaf -eq "00000000") "empty policy clears arbitrary CPUID leaf"

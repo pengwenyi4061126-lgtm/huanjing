@@ -1,6 +1,9 @@
 #include <windows.h>
+#include <tlhelp32.h>
 
 #include <cstdio>
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -79,6 +82,146 @@ bool InjectDll(HANDLE process, const std::wstring& dllPath, std::string* error) 
     return true;
 }
 
+bool QueryImagePath(DWORD processId, std::wstring& path) {
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    if (!process) return false;
+    wchar_t buffer[32768] = {};
+    DWORD size = static_cast<DWORD>(_countof(buffer));
+    const BOOL ok = QueryFullProcessImageNameW(process, 0, buffer, &size);
+    CloseHandle(process);
+    if (!ok) return false;
+    path.assign(buffer, size);
+    return true;
+}
+
+bool IsModuleLoaded(DWORD processId, const wchar_t* moduleName) {
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, processId);
+    if (snapshot == INVALID_HANDLE_VALUE) return false;
+    MODULEENTRY32W entry = {};
+    entry.dwSize = sizeof(entry);
+    bool found = false;
+    if (Module32FirstW(snapshot, &entry)) {
+        do {
+            if (_wcsicmp(entry.szModule, moduleName) == 0) {
+                found = true;
+                break;
+            }
+        } while (Module32NextW(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+    return found;
+}
+
+std::set<DWORD> DescendantsOf(DWORD root) {
+    std::vector<std::pair<DWORD, DWORD>> rows;
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W entry = {};
+        entry.dwSize = sizeof(entry);
+        if (Process32FirstW(snapshot, &entry)) {
+            do {
+                rows.emplace_back(entry.th32ProcessID, entry.th32ParentProcessID);
+            } while (Process32NextW(snapshot, &entry));
+        }
+        CloseHandle(snapshot);
+    }
+
+    std::set<DWORD> result;
+    result.insert(root);
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (const auto& row : rows) {
+            if (result.count(row.second) && !result.count(row.first)) {
+                result.insert(row.first);
+                changed = true;
+            }
+        }
+    }
+    return result;
+}
+
+void AppendAudit(const std::wstring& path, const char* action, DWORD processId, const char* detail) {
+    if (path.empty()) return;
+    SYSTEMTIME st = {};
+    GetSystemTime(&st);
+    char line[512] = {};
+    int length = std::snprintf(line, sizeof(line),
+        "{\"utc\":\"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ\",\"pid\":%lu,\"surface\":\"native.child\","
+        "\"action\":\"%s\",\"value\":\"%lu\"",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+        static_cast<unsigned long>(GetCurrentProcessId()), action,
+        static_cast<unsigned long>(processId));
+    if (detail && *detail && length > 0 && length < static_cast<int>(sizeof(line) - 32)) {
+        length += std::snprintf(line + length, sizeof(line) - length, ",\"detail\":\"%s\"", detail);
+    }
+    if (length > 0 && length < static_cast<int>(sizeof(line) - 2)) {
+        line[length++] = '}';
+        line[length++] = '\n';
+        line[length] = 0;
+    } else {
+        return;
+    }
+    HANDLE file = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                              nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(file, line, static_cast<DWORD>(length), &written, nullptr);
+        CloseHandle(file);
+    }
+}
+
+struct MonitorContext {
+    HANDLE process;
+    DWORD rootPid;
+    std::wstring exePath;
+    std::wstring dllPath;
+    std::wstring auditPath;
+};
+
+DWORD WINAPI MonitorThread(LPVOID parameter) {
+    MonitorContext* context = static_cast<MonitorContext*>(parameter);
+    std::set<DWORD> handled;
+    std::map<DWORD, int> attempts;
+    while (WaitForSingleObject(context->process, 0) == WAIT_TIMEOUT) {
+        for (DWORD processId : DescendantsOf(context->rootPid)) {
+            if (processId == context->rootPid || handled.count(processId)) continue;
+            std::wstring image;
+            if (!QueryImagePath(processId, image)) continue;
+            if (_wcsicmp(image.c_str(), context->exePath.c_str()) != 0) continue;
+            if (IsModuleLoaded(processId, L"NativeBridge.dll")) {
+                handled.insert(processId);
+                continue;
+            }
+            if (attempts[processId] >= 5) {
+                handled.insert(processId);
+                continue;
+            }
+            HANDLE process = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
+                                             PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ |
+                                             SYNCHRONIZE,
+                                         FALSE, processId);
+            if (!process) {
+                ++attempts[processId];
+                continue;
+            }
+            std::string error;
+            if (InjectDll(process, context->dllPath, &error)) {
+                handled.insert(processId);
+                AppendAudit(context->auditPath, "launcher-injected", processId, nullptr);
+            } else {
+                ++attempts[processId];
+                AppendAudit(context->auditPath, "launcher-failed", processId, error.c_str());
+            }
+            CloseHandle(process);
+        }
+        Sleep(300);
+    }
+    CloseHandle(context->process);
+    delete context;
+    return 0;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -134,6 +277,25 @@ int wmain(int argc, wchar_t** argv) {
 
     if (ready) CloseHandle(ready);
     ResumeThread(process.hThread);
+
+    std::wstring auditPath;
+    wchar_t auditBuffer[32768] = {};
+    const DWORD auditLength = GetEnvironmentVariableW(L"CAC_NATIVE_AUDIT", auditBuffer,
+                                                      static_cast<DWORD>(_countof(auditBuffer)));
+    if (auditLength > 0 && auditLength < _countof(auditBuffer)) auditPath.assign(auditBuffer, auditLength);
+    HANDLE monitorProcess = nullptr;
+    if (DuplicateHandle(GetCurrentProcess(), process.hProcess, GetCurrentProcess(), &monitorProcess,
+                        SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, 0)) {
+        MonitorContext* monitorContext = new MonitorContext{monitorProcess, process.dwProcessId, target,
+                                                            dllPath, auditPath};
+        HANDLE monitor = CreateThread(nullptr, 0, MonitorThread, monitorContext, 0, nullptr);
+        if (monitor) CloseHandle(monitor);
+        else {
+            CloseHandle(monitorProcess);
+            delete monitorContext;
+        }
+    }
+
     WaitForSingleObject(process.hProcess, INFINITE);
     DWORD exitCode = 1;
     GetExitCodeProcess(process.hProcess, &exitCode);

@@ -84,6 +84,10 @@ $nativeEvidence = [ordered]@{
     registryHook = $false
     hidHook = $false
     setupDiHook = $false
+    childInjections = 0
+    childInjectionFailures = 0
+    processes = @()
+    wmiWrapped = $false
     readPolicy = "unknown"
     cpuidMode = "unknown"
 }
@@ -117,6 +121,11 @@ if ($EnvName -and (Test-ProfileName $EnvName)) {
         $nativeEvidence.registryHook = @($nativeEvents | Where-Object { $_.surface -in @("api.reggetvalue", "api.regqueryvalue") }).Count -gt 0
         $nativeEvidence.hidHook = @($nativeEvents | Where-Object { $_.surface -eq "api.hid.serial" }).Count -gt 0
         $nativeEvidence.setupDiHook = @($nativeEvents | Where-Object { $_.surface -like "api.setupdi*" }).Count -gt 0
+        $nativeEvidence.processes = @($nativeEvents | Where-Object { $_.surface -eq "native.bridge" -and $_.action -eq "attach" } |
+            Select-Object -ExpandProperty pid -Unique)
+        $nativeEvidence.childInjections = @($nativeEvents | Where-Object { $_.surface -eq "native.child" -and $_.action -in @("injected", "launcher-injected") }).Count
+        $nativeEvidence.childInjectionFailures = @($nativeEvents | Where-Object { $_.surface -eq "native.child" -and $_.action -in @("failed", "launcher-failed") }).Count
+        $nativeEvidence.wmiWrapped = @($nativeEvents | Where-Object { $_.surface -eq "wmi.install" }).Count -gt 0
     }
 }
 if ($EnvName -and (Test-ProfileName $EnvName)) {
@@ -185,6 +194,11 @@ $evidence = [ordered]@{
         registryHook = $registryState
         hidHook = $hidState
         setupDiHook = $setupDiState
+        rendererInjection = if ($nativeEvidence.childInjections -gt 0) { "PARENT_HOOK+MONITOR" } else { "NONE_OBSERVED" }
+        rendererProcesses = @($nativeEvidence.processes).Count
+        childInjections = $nativeEvidence.childInjections
+        childInjectionFailures = $nativeEvidence.childInjectionFailures
+        wmiCom = if ($nativeEvidence.wmiWrapped) { "WRAPPED" } else { "NOT_OBSERVED" }
         readPolicy = $nativeEvidence.readPolicy
         cpuidMode = $nativeEvidence.cpuidMode
         kernelDrivers = "NOT_COLLECTED"
@@ -233,5 +247,9 @@ Write-Host "Native / hardware boundary evidence" -ForegroundColor Cyan
 Write-Host "  Profile boundary: PROCESS_PROFILE_ONLY" -ForegroundColor Yellow
 Write-Host "  Hardware boundary: NOT_PROVIDED" -ForegroundColor Yellow
 Write-Host "  Node Hook is hardware proof: False" -ForegroundColor Yellow
+Write-Host ("  Renderer injection: {0} ({1} processes, {2} injections, {3} failures)" -f
+    $(if ($nativeEvidence.childInjections -gt 0) { "PARENT_HOOK+MONITOR" } else { "NONE_OBSERVED" }),
+    @($nativeEvidence.processes).Count, $nativeEvidence.childInjections, $nativeEvidence.childInjectionFailures) -ForegroundColor Yellow
+Write-Host ("  WMI/COM: {0}" -f $(if ($nativeEvidence.wmiWrapped) { "WRAPPED" } else { "NOT_OBSERVED" })) -ForegroundColor Yellow
 Write-Host "  Evidence: $outPath" -ForegroundColor DarkGray
 Write-Host ""

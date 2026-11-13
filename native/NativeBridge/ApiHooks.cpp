@@ -13,6 +13,10 @@
 #include <intrin.h>
 #include <setupapi.h>
 #include <devpropdef.h>
+#include <initguid.h>
+#include <devguid.h>
+#include <netioapi.h>
+#include <psapi.h>
 
 #include <cstdint>
 #include <cstdio>
@@ -91,6 +95,18 @@ typedef BOOLEAN (WINAPI* PFN_HidD_GetSerialNumberString)(HANDLE, PVOID, ULONG);
 typedef BOOL (WINAPI* PFN_SetupDiGetDevicePropertyW)(HDEVINFO, PSP_DEVINFO_DATA, const DEVPROPKEY*, DEVPROPTYPE*, PBYTE, DWORD, PDWORD, DWORD);
 typedef BOOL (WINAPI* PFN_SetupDiGetDeviceRegistryPropertyW)(HDEVINFO, PSP_DEVINFO_DATA, DWORD, PDWORD, PBYTE, DWORD, PDWORD);
 typedef BOOL (WINAPI* PFN_SetupDiGetDeviceInstanceIdW)(HDEVINFO, PSP_DEVINFO_DATA, PWSTR, DWORD, PDWORD);
+typedef BOOL (WINAPI* PFN_GetVolumeInformationByHandleW)(HANDLE, LPWSTR, DWORD, LPDWORD, LPDWORD, LPDWORD, LPWSTR, DWORD);
+typedef BOOL (WINAPI* PFN_GetFileInformationByHandle)(HANDLE, LPBY_HANDLE_FILE_INFORMATION);
+typedef NTSTATUS (NTAPI* PFN_NtQueryVolumeInformationFile)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, ULONG);
+typedef NTSTATUS (NTAPI* PFN_NtDeviceIoControlFile)(HANDLE, HANDLE, PIO_APC_ROUTINE, PVOID,
+                                                    PIO_STATUS_BLOCK, ULONG, PVOID, ULONG, PVOID, ULONG);
+typedef NETIO_STATUS (WINAPI* PFN_GetIfTable2)(PMIB_IF_TABLE2*);
+typedef NETIO_STATUS (WINAPI* PFN_GetIfEntry2)(PMIB_IF_ROW2);
+typedef DWORD (WINAPI* PFN_GetIfTable)(PMIB_IFTABLE, PULONG, BOOL);
+typedef LSTATUS (WINAPI* PFN_RegEnumValueW)(HKEY, DWORD, LPWSTR, LPDWORD, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
+typedef BOOL (WINAPI* PFN_EnumDeviceDrivers)(LPVOID*, DWORD, LPDWORD);
+typedef HDEVINFO (WINAPI* PFN_SetupDiGetClassDevsW)(const GUID*, PCWSTR, HWND, DWORD);
+typedef HANDLE (WINAPI* PFN_CreateFileW)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 
 PFN_GetAdaptersAddresses g_origGetAdaptersAddresses = nullptr;
 PFN_GetAdaptersInfo g_origGetAdaptersInfo = nullptr;
@@ -107,6 +123,17 @@ PFN_HidD_GetSerialNumberString g_origHidGetSerial = nullptr;
 PFN_SetupDiGetDevicePropertyW g_origSetupDiGetDeviceProperty = nullptr;
 PFN_SetupDiGetDeviceRegistryPropertyW g_origSetupDiGetRegistryProperty = nullptr;
 PFN_SetupDiGetDeviceInstanceIdW g_origSetupDiGetInstanceId = nullptr;
+PFN_GetVolumeInformationByHandleW g_origGetVolumeInformationByHandle = nullptr;
+PFN_GetFileInformationByHandle g_origGetFileInformationByHandle = nullptr;
+PFN_NtQueryVolumeInformationFile g_origNtQueryVolumeInformationFile = nullptr;
+PFN_NtDeviceIoControlFile g_origNtDeviceIoControlFile = nullptr;
+PFN_GetIfTable2 g_origGetIfTable2 = nullptr;
+PFN_GetIfEntry2 g_origGetIfEntry2 = nullptr;
+PFN_GetIfTable g_origGetIfTable = nullptr;
+PFN_RegEnumValueW g_origRegEnumValue = nullptr;
+PFN_EnumDeviceDrivers g_origEnumDeviceDrivers = nullptr;
+PFN_SetupDiGetClassDevsW g_origSetupDiGetClassDevs = nullptr;
+PFN_CreateFileW g_origCreateFile = nullptr;
 
 struct FirmwareTableInfo {
     ULONG ProviderSignature;
@@ -117,6 +144,10 @@ struct FirmwareTableInfo {
 };
 
 constexpr DWORD kRsmbSignature = 0x52534D42;  // 'RSMB'
+
+#ifndef IOCTL_SMART_RECEIVE_DRIVE_DATA
+#define IOCTL_SMART_RECEIVE_DRIVE_DATA 0x0007C088
+#endif
 
 bool ReplaceBufferString(char* value, size_t maxLength, const std::string& desired) {
     if (!value || maxLength == 0) return false;
@@ -401,6 +432,12 @@ UINT WINAPI HookGetSystemFirmwareTable(DWORD signature, DWORD tableId, PVOID buf
 }
 
 NTSTATUS NTAPI HookNtQuerySystemInformation(ULONG infoClass, PVOID info, ULONG length, PULONG returnLength) {
+    if (EmptyReadsEnabled() && infoClass == 11) {  // SystemModuleInformation: driver list
+        (void)info; (void)length;
+        if (returnLength) *returnLength = 0;
+        AuditEventRateLimited("api.ntquerysysteminformation.modules", "empty");
+        return static_cast<NTSTATUS>(0xC0000003L);
+    }
     if (EmptyReadsEnabled() && infoClass == 76) {
         (void)info; (void)length;
         if (returnLength) *returnLength = 0;
@@ -420,32 +457,282 @@ NTSTATUS NTAPI HookNtQuerySystemInformation(ULONG infoClass, PVOID info, ULONG l
     return status;
 }
 
+void SanitizeStorageOutput(DWORD code, const void* input, DWORD inputSize, void* output,
+                           DWORD outputSize, DWORD returned, const char* surface) {
+    if (!output || returned == 0) return;
+    const DWORD available = (outputSize && outputSize < returned) ? outputSize : returned;
+    const bool identifierOnly = code == IOCTL_SMART_RECEIVE_DRIVE_DATA ||
+                                code == IOCTL_STORAGE_FIRMWARE_GET_INFO;
+    if (EmptyReadsEnabled()) {
+        // Keep the descriptor layout intact when the caller asked for the
+        // standard device property; only the serial string is emptied.
+        if (code == IOCTL_STORAGE_QUERY_PROPERTY && input &&
+            inputSize >= sizeof(STORAGE_PROPERTY_QUERY) && available >= sizeof(STORAGE_DEVICE_DESCRIPTOR)) {
+            const STORAGE_PROPERTY_QUERY* query = static_cast<const STORAGE_PROPERTY_QUERY*>(input);
+            STORAGE_DEVICE_DESCRIPTOR* descriptor = static_cast<STORAGE_DEVICE_DESCRIPTOR*>(output);
+            if (query->PropertyId == StorageDeviceProperty &&
+                descriptor->SerialNumberOffset > 0 && descriptor->SerialNumberOffset < available) {
+                char* serial = static_cast<char*>(output) + descriptor->SerialNumberOffset;
+                serial[0] = '\0';
+                AuditEventRateLimited(surface, "empty", nullptr, code, true);
+                return;
+            }
+        }
+        if (code == IOCTL_STORAGE_QUERY_PROPERTY || identifierOnly) {
+            std::memset(output, 0, available);
+            AuditEventRateLimited(surface, "empty", nullptr, code, true);
+            return;
+        }
+    }
+    if (identifierOnly) {
+        // SMART and firmware payloads are pure hardware identifiers. They are
+        // cleared in both modes instead of leaking a real disk/firmware serial.
+        std::memset(output, 0, available);
+        AuditEventRateLimited(surface, "cleared", nullptr, code, true);
+        return;
+    }
+    if (code == IOCTL_STORAGE_QUERY_PROPERTY && input && inputSize >= sizeof(STORAGE_PROPERTY_QUERY) &&
+        available >= sizeof(STORAGE_DEVICE_DESCRIPTOR)) {
+        const STORAGE_PROPERTY_QUERY* query = static_cast<const STORAGE_PROPERTY_QUERY*>(input);
+        STORAGE_DEVICE_DESCRIPTOR* descriptor = static_cast<STORAGE_DEVICE_DESCRIPTOR*>(output);
+        if (query->PropertyId == StorageDeviceUniqueIdProperty) {
+            std::memset(output, 0, available);
+            AuditEventRateLimited(surface, "cleared", nullptr, code, true);
+            return;
+        }
+        if (query->PropertyId == StorageDeviceProperty && query->QueryType == PropertyStandardQuery &&
+            descriptor->Size <= available && descriptor->SerialNumberOffset > 0 &&
+            descriptor->SerialNumberOffset < available) {
+            char* serial = static_cast<char*>(output) + descriptor->SerialNumberOffset;
+            const size_t max = available - descriptor->SerialNumberOffset;
+            if (ReplaceBufferString(serial, max, ProfileIdentity::Get().diskSerial)) {
+                AuditEventRateLimited(surface, "patched", nullptr, code, true);
+            }
+        }
+    }
+}
+
 BOOL WINAPI HookDeviceIoControl(HANDLE device, DWORD code, LPVOID input, DWORD inputSize,
                                 LPVOID output, DWORD outputSize, LPDWORD returned, LPOVERLAPPED overlapped) {
     const BOOL result = g_origDeviceIoControl
         ? g_origDeviceIoControl(device, code, input, inputSize, output, outputSize, returned, overlapped)
         : FALSE;
     if (result && output && returned && *returned > 0) {
-        if (code == IOCTL_STORAGE_QUERY_PROPERTY && input && inputSize >= sizeof(STORAGE_PROPERTY_QUERY)) {
-            const STORAGE_PROPERTY_QUERY* query = static_cast<const STORAGE_PROPERTY_QUERY*>(input);
-            if (query->PropertyId == StorageDeviceProperty && query->QueryType == PropertyStandardQuery) {
-                STORAGE_DEVICE_DESCRIPTOR* descriptor = static_cast<STORAGE_DEVICE_DESCRIPTOR*>(output);
-                if (descriptor->Size <= *returned && descriptor->SerialNumberOffset > 0 &&
-                    descriptor->SerialNumberOffset < *returned) {
-                    char* serial = static_cast<char*>(output) + descriptor->SerialNumberOffset;
-                    const size_t max = *returned - descriptor->SerialNumberOffset;
-                    if (EmptyReadsEnabled()) {
-                        serial[0] = '\0';
-                        AuditEventRateLimited("api.deviceiocontrol.serial", "empty");
-                    } else if (ReplaceBufferString(serial, max, ProfileIdentity::Get().diskSerial)) {
-                        AuditEventRateLimited("api.deviceiocontrol.serial", "patched");
-                    }
-                }
-            }
-        }
+        SanitizeStorageOutput(code, input, inputSize, output, outputSize, *returned,
+                              "api.deviceiocontrol.serial");
         AuditEventRateLimited("api.deviceiocontrol", "observed", nullptr, code, true);
     }
     return result;
+}
+
+BOOL WINAPI HookGetVolumeInformationByHandleW(HANDLE handle, LPWSTR volumeName, DWORD volumeNameSize,
+                                              LPDWORD serial, LPDWORD maxComponentLength, LPDWORD flags,
+                                              LPWSTR fileSystemName, DWORD fileSystemNameSize) {
+    const BOOL result = g_origGetVolumeInformationByHandle
+        ? g_origGetVolumeInformationByHandle(handle, volumeName, volumeNameSize, serial,
+                                             maxComponentLength, flags, fileSystemName, fileSystemNameSize)
+        : FALSE;
+    if (result && EmptyReadsEnabled()) {
+        if (serial) *serial = 0;
+        if (volumeName && volumeNameSize > 0) volumeName[0] = L'\0';
+        if (fileSystemName && fileSystemNameSize > 0) fileSystemName[0] = L'\0';
+        AuditEventRateLimited("api.getvolumeinformationbyhandle", "empty");
+    } else if (result && serial) {
+        *serial = ProfileIdentity::Get().volumeSerial;
+        AuditEventRateLimited("api.getvolumeinformationbyhandle", "patched");
+    }
+    return result;
+}
+
+BOOL WINAPI HookGetFileInformationByHandle(HANDLE handle, LPBY_HANDLE_FILE_INFORMATION information) {
+    const BOOL result = g_origGetFileInformationByHandle
+        ? g_origGetFileInformationByHandle(handle, information)
+        : FALSE;
+    if (result && information) {
+        information->dwVolumeSerialNumber = EmptyReadsEnabled()
+            ? 0
+            : ProfileIdentity::Get().volumeSerial;
+        AuditEventRateLimited("api.getfileinformationbyhandle",
+                              EmptyReadsEnabled() ? "empty" : "patched");
+    }
+    return result;
+}
+
+struct FsVolumeInformation {
+    LARGE_INTEGER CreationTime;
+    ULONG SerialNumber;
+    ULONG LabelLength;
+    BOOLEAN SupportsObjects;
+    WCHAR Label[1];
+};
+
+NTSTATUS NTAPI HookNtQueryVolumeInformationFile(HANDLE handle, PIO_STATUS_BLOCK ioStatus,
+                                                PVOID information, ULONG length, ULONG informationClass) {
+    const NTSTATUS status = g_origNtQueryVolumeInformationFile
+        ? g_origNtQueryVolumeInformationFile(handle, ioStatus, information, length, informationClass)
+        : static_cast<NTSTATUS>(0xC0000002L);
+    // FileFsVolumeInformation == 1
+    if ((status >= 0 || status == static_cast<NTSTATUS>(0x80000005L)) &&
+        informationClass == 1 && information && length >= sizeof(FsVolumeInformation)) {
+        FsVolumeInformation* volume = static_cast<FsVolumeInformation*>(information);
+        if (EmptyReadsEnabled()) {
+            volume->SerialNumber = 0;
+            volume->LabelLength = 0;
+            if (volume->Label[0]) volume->Label[0] = L'\0';
+            AuditEventRateLimited("api.ntqueryvolumeinformation", "empty");
+        } else {
+            volume->SerialNumber = ProfileIdentity::Get().volumeSerial;
+            AuditEventRateLimited("api.ntqueryvolumeinformation", "patched");
+        }
+    }
+    return status;
+}
+
+NTSTATUS NTAPI HookNtDeviceIoControlFile(HANDLE file, HANDLE event, PIO_APC_ROUTINE apc, PVOID apcContext,
+                                         PIO_STATUS_BLOCK ioStatus, ULONG code, PVOID input, ULONG inputLength,
+                                         PVOID output, ULONG outputLength) {
+    const NTSTATUS status = g_origNtDeviceIoControlFile
+        ? g_origNtDeviceIoControlFile(file, event, apc, apcContext, ioStatus, code, input, inputLength,
+                                      output, outputLength)
+        : static_cast<NTSTATUS>(0xC0000002L);
+    if (status >= 0 && ioStatus && output && ioStatus->Information > 0) {
+        SanitizeStorageOutput(code, input, inputLength, output, outputLength,
+                              static_cast<DWORD>(ioStatus->Information), "api.ntdeviceiocontrol.serial");
+        AuditEventRateLimited("api.ntdeviceiocontrol", "observed", nullptr, code, true);
+    }
+    return status;
+}
+
+void ApplyPhysicalAddress(BYTE* address, ULONG* length, ULONG capacity) {
+    if (!address || !length) return;
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    if (EmptyReadsEnabled()) {
+        if (capacity) std::memset(address, 0, capacity);
+        *length = 0;
+        return;
+    }
+    if (identity.hasMac && capacity >= 6) {
+        std::memcpy(address, identity.macBytes, 6);
+        *length = 6;
+    }
+}
+
+NETIO_STATUS WINAPI HookGetIfTable2(PMIB_IF_TABLE2* table) {
+    const NETIO_STATUS status = g_origGetIfTable2 ? g_origGetIfTable2(table) : ERROR_NOT_SUPPORTED;
+    if (status == NO_ERROR && table && *table) {
+        for (ULONG i = 0; i < (*table)->NumEntries; ++i) {
+            MIB_IF_ROW2& row = (*table)->Table[i];
+            ApplyPhysicalAddress(row.PhysicalAddress, &row.PhysicalAddressLength, IF_MAX_PHYS_ADDRESS_LENGTH);
+            ULONG permanentLength = row.PhysicalAddressLength;
+            ApplyPhysicalAddress(row.PermanentPhysicalAddress, &permanentLength, IF_MAX_PHYS_ADDRESS_LENGTH);
+        }
+        AuditEventRateLimited("api.getiftable2", EmptyReadsEnabled() ? "empty" : "patched");
+    }
+    return status;
+}
+
+NETIO_STATUS WINAPI HookGetIfEntry2(PMIB_IF_ROW2 row) {
+    const NETIO_STATUS status = g_origGetIfEntry2 ? g_origGetIfEntry2(row) : ERROR_NOT_SUPPORTED;
+    if (status == NO_ERROR && row) {
+        ApplyPhysicalAddress(row->PhysicalAddress, &row->PhysicalAddressLength, IF_MAX_PHYS_ADDRESS_LENGTH);
+        ULONG permanentLength = row->PhysicalAddressLength;
+        ApplyPhysicalAddress(row->PermanentPhysicalAddress, &permanentLength, IF_MAX_PHYS_ADDRESS_LENGTH);
+        AuditEventRateLimited("api.getifentry2", EmptyReadsEnabled() ? "empty" : "patched");
+    }
+    return status;
+}
+
+DWORD WINAPI HookGetIfTable(PMIB_IFTABLE table, PULONG size, BOOL order) {
+    const DWORD status = g_origGetIfTable ? g_origGetIfTable(table, size, order) : ERROR_NOT_SUPPORTED;
+    if (status == NO_ERROR && table) {
+        for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+            MIB_IFROW& row = table->table[i];
+            ApplyPhysicalAddress(row.bPhysAddr, &row.dwPhysAddrLen, sizeof(row.bPhysAddr));
+        }
+        AuditEventRateLimited("api.getiftable", EmptyReadsEnabled() ? "empty" : "patched");
+    }
+    return status;
+}
+
+LSTATUS WINAPI HookRegEnumValueW(HKEY key, DWORD index, LPWSTR valueName, LPDWORD valueNameLength,
+                                 LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD dataSize) {
+    const LSTATUS status = g_origRegEnumValue
+        ? g_origRegEnumValue(key, index, valueName, valueNameLength, reserved, type, data, dataSize)
+        : ERROR_PROC_NOT_FOUND;
+    if (status == ERROR_SUCCESS && valueName && type && data && dataSize) {
+        std::wstring spoof;
+        if (GetRegistrySpoofValue(valueName, spoof)) {
+            if (EmptyReadsEnabled()) spoof.clear();
+            const DWORD needed = static_cast<DWORD>((spoof.size() + 1) * sizeof(wchar_t));
+            if (*dataSize >= needed) {
+                std::memcpy(data, spoof.c_str(), needed);
+                *dataSize = needed;
+                *type = REG_SZ;
+                AuditEventRateLimited("api.regenumvalue", EmptyReadsEnabled() ? "empty" : "patched");
+            }
+        }
+    }
+    return status;
+}
+
+BOOL WINAPI HookEnumDeviceDrivers(LPVOID* imageBase, DWORD size, LPDWORD needed) {
+    if (EmptyReadsEnabled()) {
+        if (imageBase && size) std::memset(imageBase, 0, size);
+        if (needed) *needed = 0;
+        AuditEventRateLimited("api.enumdevicedrivers", "empty");
+        return TRUE;
+    }
+    return g_origEnumDeviceDrivers ? g_origEnumDeviceDrivers(imageBase, size, needed) : FALSE;
+}
+
+bool IsBlockedDeviceClass(const GUID* classGuid) {
+    if (!classGuid) return false;
+    return IsEqualGUID(*classGuid, GUID_DEVCLASS_DISKDRIVE) ||
+           IsEqualGUID(*classGuid, GUID_DEVCLASS_DISPLAY) ||
+           IsEqualGUID(*classGuid, GUID_DEVCLASS_NET) ||
+           IsEqualGUID(*classGuid, GUID_DEVCLASS_SYSTEM) ||
+           IsEqualGUID(*classGuid, GUID_DEVCLASS_VOLUME) ||
+           IsEqualGUID(*classGuid, GUID_DEVCLASS_VOLUMESNAPSHOT);
+}
+
+HDEVINFO WINAPI HookSetupDiGetClassDevsW(const GUID* classGuid, PCWSTR enumerator, HWND parent, DWORD flags) {
+    if (EmptyReadsEnabled() && IsBlockedDeviceClass(classGuid)) {
+        SetLastError(ERROR_NO_MORE_ITEMS);
+        AuditEventRateLimited("api.setupdi.classdevs", "empty");
+        return INVALID_HANDLE_VALUE;
+    }
+    return g_origSetupDiGetClassDevs ? g_origSetupDiGetClassDevs(classGuid, enumerator, parent, flags)
+                                     : INVALID_HANDLE_VALUE;
+}
+
+bool IsRawHardwarePath(const wchar_t* path) {
+    if (!path) return false;
+    static const wchar_t* prefixes[] = {
+        L"\\\\.\\PhysicalDrive",
+        L"\\\\.\\CdRom",
+        L"\\\\.\\Volume",
+        L"\\\\.\\SCSI",
+        L"\\\\.\\GLOBALROOT\\Device\\Harddisk",
+        L"\\\\?\\GLOBALROOT\\Device\\Harddisk",
+        L"\\\\.\\MountPointManager",
+    };
+    for (const wchar_t* prefix : prefixes) {
+        const size_t length = wcslen(prefix);
+        if (_wcsnicmp(path, prefix, length) == 0) return true;
+    }
+    return false;
+}
+
+HANDLE WINAPI HookCreateFileW(LPCWSTR fileName, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
+                              DWORD creation, DWORD flags, HANDLE templateFile) {
+    if (EmptyReadsEnabled() && IsRawHardwarePath(fileName)) {
+        SetLastError(ERROR_ACCESS_DENIED);
+        AuditEventRateLimited("api.createfile.rawdevice", "denied");
+        return INVALID_HANDLE_VALUE;
+    }
+    return g_origCreateFile
+        ? g_origCreateFile(fileName, access, share, security, creation, flags, templateFile)
+        : INVALID_HANDLE_VALUE;
 }
 
 bool PatchIatInModule(HMODULE module, const char* dllName, const char* functionName,
@@ -624,6 +911,36 @@ void InstallOne(const char* dllName, const char* functionName, void* detour, voi
         AuditEvent("api.install", "inline", functionName);
     } else {
         AuditEvent("api.install", "refused", error.c_str());
+    }
+}
+
+// Some callers resolve ntdll exports with GetProcAddress, so an IAT-only patch
+// is not sufficient. Install the inline detour first (capturing the trampoline
+// as the original) and then patch every import table to point at the detour.
+void InstallInlineThenIat(const char* dllName, const char* functionName, void* detour,
+                          void** original) {
+    void* target = ResolveExport(dllName, functionName);
+    if (target) {
+        void* trampoline = nullptr;
+        std::string error;
+        if (HookEngine::Install(target, detour, &trampoline, &error)) {
+            if (original) *original = trampoline;
+            AuditEvent("api.install", "inline-primary", functionName);
+        } else {
+            AuditEvent("api.install", "inline-refused", error.c_str());
+        }
+    } else {
+        AuditEvent("api.install", "inline-missing", functionName);
+    }
+
+    const int iatCount = PatchAllModules(dllName, functionName, detour, original);
+    const int delayCount = PatchDelayAllModules(dllName, functionName, detour, original);
+    if (iatCount + delayCount > 0) {
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s iat=%d delay=%d",
+                      dllName, functionName, iatCount, delayCount);
+        AuditEvent("api.install", "iat+delay", detail,
+                   static_cast<unsigned long long>(iatCount + delayCount), true);
     }
 }
 
@@ -881,6 +1198,20 @@ void InstallManifestEntry(const std::string& line) {
 
 }  // namespace
 
+void InstallHookShared(const char* dllName, const char* functionName, void* detour,
+                       void** original, bool allowInline) {
+    InstallOne(dllName, functionName, detour, original, allowInline);
+}
+
+void InstallHookInlinePrimary(const char* dllName, const char* functionName, void* detour,
+                              void** original) {
+    InstallInlineThenIat(dllName, functionName, detour, original);
+}
+
+bool NativeEmptyReadsEnabled() {
+    return EmptyReadsEnabled();
+}
+
 bool InstallApiHooks() {
     InstallOne("iphlpapi.dll", "GetAdaptersAddresses", reinterpret_cast<void*>(&HookGetAdaptersAddresses),
                reinterpret_cast<void**>(&g_origGetAdaptersAddresses));
@@ -890,8 +1221,9 @@ bool InstallApiHooks() {
                reinterpret_cast<void**>(&g_origGetVolumeInformation));
     InstallOne("kernel32.dll", "GetSystemFirmwareTable", reinterpret_cast<void*>(&HookGetSystemFirmwareTable),
                reinterpret_cast<void**>(&g_origGetSystemFirmwareTable));
-    InstallOne("ntdll.dll", "NtQuerySystemInformation", reinterpret_cast<void*>(&HookNtQuerySystemInformation),
-               reinterpret_cast<void**>(&g_origNtQuerySystemInformation));
+    InstallInlineThenIat("ntdll.dll", "NtQuerySystemInformation",
+                         reinterpret_cast<void*>(&HookNtQuerySystemInformation),
+                         reinterpret_cast<void**>(&g_origNtQuerySystemInformation));
     InstallOne("kernel32.dll", "DeviceIoControl", reinterpret_cast<void*>(&HookDeviceIoControl),
                reinterpret_cast<void**>(&g_origDeviceIoControl));
     InstallOne("kernel32.dll", "GetComputerNameW", reinterpret_cast<void*>(&HookGetComputerNameW),
@@ -912,6 +1244,34 @@ bool InstallApiHooks() {
                reinterpret_cast<void**>(&g_origSetupDiGetRegistryProperty), false);
     InstallOne("setupapi.dll", "SetupDiGetDeviceInstanceIdW", reinterpret_cast<void*>(&HookSetupDiGetDeviceInstanceIdW),
                reinterpret_cast<void**>(&g_origSetupDiGetInstanceId), false);
+    InstallOne("kernel32.dll", "GetVolumeInformationByHandleW",
+               reinterpret_cast<void*>(&HookGetVolumeInformationByHandleW),
+               reinterpret_cast<void**>(&g_origGetVolumeInformationByHandle));
+    InstallOne("kernel32.dll", "GetFileInformationByHandle",
+               reinterpret_cast<void*>(&HookGetFileInformationByHandle),
+               reinterpret_cast<void**>(&g_origGetFileInformationByHandle));
+    InstallInlineThenIat("ntdll.dll", "NtQueryVolumeInformationFile",
+                         reinterpret_cast<void*>(&HookNtQueryVolumeInformationFile),
+                         reinterpret_cast<void**>(&g_origNtQueryVolumeInformationFile));
+    InstallInlineThenIat("ntdll.dll", "NtDeviceIoControlFile",
+                         reinterpret_cast<void*>(&HookNtDeviceIoControlFile),
+                         reinterpret_cast<void**>(&g_origNtDeviceIoControlFile));
+    InstallOne("iphlpapi.dll", "GetIfTable2", reinterpret_cast<void*>(&HookGetIfTable2),
+               reinterpret_cast<void**>(&g_origGetIfTable2));
+    InstallOne("iphlpapi.dll", "GetIfEntry2", reinterpret_cast<void*>(&HookGetIfEntry2),
+               reinterpret_cast<void**>(&g_origGetIfEntry2));
+    InstallOne("iphlpapi.dll", "GetIfTable", reinterpret_cast<void*>(&HookGetIfTable),
+               reinterpret_cast<void**>(&g_origGetIfTable));
+    InstallOne("advapi32.dll", "RegEnumValueW", reinterpret_cast<void*>(&HookRegEnumValueW),
+               reinterpret_cast<void**>(&g_origRegEnumValue));
+    InstallOne("kernel32.dll", "K32EnumDeviceDrivers", reinterpret_cast<void*>(&HookEnumDeviceDrivers),
+               reinterpret_cast<void**>(&g_origEnumDeviceDrivers));
+    InstallOne("psapi.dll", "EnumDeviceDrivers", reinterpret_cast<void*>(&HookEnumDeviceDrivers),
+               reinterpret_cast<void**>(&g_origEnumDeviceDrivers));
+    InstallOne("setupapi.dll", "SetupDiGetClassDevsW", reinterpret_cast<void*>(&HookSetupDiGetClassDevsW),
+               reinterpret_cast<void**>(&g_origSetupDiGetClassDevs));
+    InstallOne("kernel32.dll", "CreateFileW", reinterpret_cast<void*>(&HookCreateFileW),
+               reinterpret_cast<void**>(&g_origCreateFile));
     AuditEvent("api.install", "complete");
     return true;
 }
