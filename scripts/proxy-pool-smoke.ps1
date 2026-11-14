@@ -6,6 +6,10 @@ $oldPath = [Environment]::GetEnvironmentVariable('CAC_PROXY_POOL_PATH', 'Process
 $path = Join-Path $env:TEMP ("cac-proxy-pool-smoke-{0}.json" -f ([guid]::NewGuid().ToString('N')))
 try {
     [Environment]::SetEnvironmentVariable('CAC_PROXY_POOL_PATH', $path, 'Process')
+    foreach ($legacy in @('127.0.0.1:21003:user:pass', '127.0.0.1|21004|user|pass', 'user:pass@127.0.0.1:21005')) {
+        $normalizedLegacy = ConvertTo-CacProxyUrl $legacy
+        if ([string]::IsNullOrWhiteSpace($normalizedLegacy) -or $normalizedLegacy -notlike 'socks5h://*') { throw "legacy proxy format was not normalized: $legacy" }
+    }
     Add-CacProxyPoolEntry 'socks5://user:pass@127.0.0.1:21001' | Out-Null
     Add-CacProxyPoolEntry 'socks5h://user:pass@127.0.0.1:21002' | Out-Null
     $state = Get-CacProxyPoolState

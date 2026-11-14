@@ -30,7 +30,10 @@ DWORD AddAppFilter(const GUID& layer,
                    bool ipv6,
                    UINT8 weight) {
     FWPM_FILTER_CONDITION0 conditions[2] = {};
-    UINT32 loopback4 = htonl(INADDR_LOOPBACK);
+    // FWPM_CONDITION_IP_REMOTE_ADDRESS with FWP_UINT32 expects IPv4 values
+    // in host byte order. Passing htonl(INADDR_LOOPBACK) makes the allow
+    // filter miss 127.0.0.1, so the lower-priority non-loopback block wins.
+    UINT32 loopback4 = INADDR_LOOPBACK;
     FWP_BYTE_ARRAY16 loopback6 = {};
 
     conditions[0].fieldKey = FWPM_CONDITION_ALE_APP_ID;

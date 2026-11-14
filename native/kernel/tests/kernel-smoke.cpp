@@ -1,6 +1,12 @@
 #include "../CacKernelIoctl.h"
 
+#include <windows.h>
+#include <winioctl.h>
+#include <ntddstor.h>
+#include <initguid.h>
+
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int g_failures = 0;
@@ -62,10 +68,17 @@ static void WriteJson(const wchar_t *path, const CAC_PING_RESPONSE &ping, DWORD 
 
 int wmain(int argc, wchar_t **argv) {
     bool pingOnly = false;
+    bool identityProbe = false;
+    bool smbiosProbe = false;
     const wchar_t *jsonPath = NULL;
     for (int i = 1; i < argc; ++i) {
         if (wcscmp(argv[i], L"--ping") == 0) {
             pingOnly = true;
+        } else if (wcscmp(argv[i], L"--identity") == 0) {
+            identityProbe = true;
+        } else if (wcscmp(argv[i], L"--smbios") == 0) {
+            identityProbe = true;
+            smbiosProbe = true;
         } else if (wcscmp(argv[i], L"--json") == 0 && i + 1 < argc) {
             jsonPath = argv[++i];
         }
@@ -109,6 +122,118 @@ int wmain(int argc, wchar_t **argv) {
         Check(Ioctl(device, CAC_IOCTL_POLICY_REGISTER, &request, sizeof(request),
                     NULL, 0, &returned),
               "register current process");
+
+        if (identityProbe) {
+            CAC_IDENTITY identity = {};
+            identity.Version = CAC_KERNEL_PROTOCOL_VERSION;
+            identity.ModuleFlags = CAC_MODULE_FLAG_STORAGE;
+            if (smbiosProbe) {
+                identity.ModuleFlags |= CAC_MODULE_FLAG_SMBIOS;
+            }
+            memcpy(identity.DiskSerial, "CAC-DISK-01", 12);
+            identity.MacAddress[0] = 0x02;
+            identity.MacAddress[5] = 0x01;
+            memcpy(identity.BiosVendor, "CAC-TEST-VENDOR", 16);
+            memcpy(identity.SystemManufacturer, "CAC-TEST-SYSMFR", 16);
+
+            Check(Ioctl(device, CAC_IOCTL_IDENTITY_SET,
+                        &identity, sizeof(identity), NULL, 0, &returned),
+                  "identity-set accepted");
+
+            CAC_MODULE_STATE state = {};
+            Check(Ioctl(device, CAC_IOCTL_MODULE_QUERY,
+                        NULL, 0, &state, sizeof(state), &returned),
+                  "module-state query");
+            Check(state.StorageFilters > 0, "storage filters attached");
+            if (smbiosProbe) {
+                Check(state.SmbiosLocated == 1, "physical smbios table located");
+                Check(state.SmbiosApplied == 1, "smbios table patched");
+            }
+            printf("  [INFO] filters storage=%lu smbiosPhys=0x%llx len=%lu\n",
+                   (unsigned long)state.StorageFilters,
+                   (unsigned long long)state.SmbiosPhysicalAddress,
+                   (unsigned long)state.SmbiosLength);
+
+            /* Storage probe: the registered PID must observe the profile serial. */
+            HANDLE drive = CreateFileW(
+                L"\\\\.\\PhysicalDrive0",
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                NULL,
+                OPEN_EXISTING,
+                0,
+                NULL);
+            if (drive == INVALID_HANDLE_VALUE) {
+                Check(false, "open PhysicalDrive0");
+            } else {
+                STORAGE_PROPERTY_QUERY query = {};
+                query.PropertyId = StorageDeviceProperty;
+                query.QueryType = PropertyStandardQuery;
+                unsigned char buffer[512] = {};
+                DWORD bytes = 0;
+                bool queried = DeviceIoControl(
+                    drive,
+                    IOCTL_STORAGE_QUERY_PROPERTY,
+                    &query,
+                    sizeof(query),
+                    buffer,
+                    sizeof(buffer),
+                    &bytes,
+                    NULL) != FALSE;
+                Check(queried, "storage query succeeded");
+                if (queried && bytes >= sizeof(STORAGE_DEVICE_DESCRIPTOR)) {
+                    PSTORAGE_DEVICE_DESCRIPTOR descriptor =
+                        (PSTORAGE_DEVICE_DESCRIPTOR)buffer;
+                    const char *serial = (const char *)buffer +
+                                         descriptor->SerialNumberOffset;
+                    bool rewritten =
+                        strstr(serial, "CAC-DISK-01") != NULL;
+                    Check(rewritten, "storage serial rewritten for registered pid");
+                    printf("  [INFO] disk serial after rewrite: %s\n", serial);
+                }
+                CloseHandle(drive);
+            }
+
+            /* SMBIOS probe: GetSystemFirmwareTable must return the patched table. */
+            if (smbiosProbe) {
+                DWORD size = GetSystemFirmwareTable('RSMB', 0, NULL, 0);
+                bool patched = false;
+                if (size == 0 || size > 0x100000) {
+                    Check(false, "smbios table size plausible");
+                } else {
+                    unsigned char *table = (unsigned char *)calloc(1, size);
+                    if (table == NULL) {
+                        Check(false, "smbios buffer alloc");
+                    } else {
+                        DWORD got = GetSystemFirmwareTable('RSMB', 0, table, size);
+                        Check(got == size, "smbios table read");
+                        for (DWORD i = 0; i + 15 < got; ++i) {
+                            if (memcmp(table + i, "CAC-TEST-VENDOR", 15) == 0) {
+                                patched = true;
+                                break;
+                            }
+                        }
+                        free(table);
+                    }
+                }
+                Check(patched, "kernel-level smbios rewrite visible to userland");
+            }
+
+            /* Disable modules: the driver must restore the original SMBIOS. */
+            CAC_IDENTITY disable = {};
+            disable.Version = CAC_KERNEL_PROTOCOL_VERSION;
+            disable.ModuleFlags = 0;
+            Check(Ioctl(device, CAC_IOCTL_IDENTITY_SET,
+                        &disable, sizeof(disable), NULL, 0, &returned),
+                  "identity disable accepted");
+            CAC_MODULE_STATE after = {};
+            Check(Ioctl(device, CAC_IOCTL_MODULE_QUERY,
+                        NULL, 0, &after, sizeof(after), &returned),
+                  "module-state after disable");
+            if (smbiosProbe) {
+                Check(after.SmbiosApplied == 0, "smbios restored on disable");
+            }
+        }
 
         CAC_POLICY_RESPONSE response = {};
         Check(Ioctl(device, CAC_IOCTL_POLICY_QUERY, &request, sizeof(request),

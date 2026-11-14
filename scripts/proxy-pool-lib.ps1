@@ -37,7 +37,22 @@ function ConvertTo-CacProxyUrl {
     param([string]$Raw)
     $value = ([string]$Raw).Trim()
     if ([string]::IsNullOrWhiteSpace($value)) { return $null }
-    if ($value -notmatch '^[a-z][a-z0-9+.-]*://') { $value = 'http://' + $value }
+    $value = $value.Trim('"').Trim("'").Trim()
+    $schemeMatch = [regex]::Match($value, '^(?<scheme>[a-z][a-z0-9+.-]*)://')
+    if (-not $schemeMatch.Success) {
+        $match = [regex]::Match($value, '^\[(?<host>[^\]]+)\]:(?<port>\d+):(?<user>[^:]+):(?<pass>.*)$')
+        if (-not $match.Success) { $match = [regex]::Match($value, '^(?<host>[^:/\s]+):(?<port>\d+):(?<user>[^:]+):(?<pass>.*)$') }
+        if (-not $match.Success) { $match = [regex]::Match($value, '^(?<host>\[[^\]]+\]|[^\s:]+):(?<port>\d+)@(?<user>[^:]+):(?<pass>.*)$') }
+        if (-not $match.Success) { $match = [regex]::Match($value, '^(?<host>[^,|;\t]+)[,|;\t](?<port>\d+)[,|;\t](?<user>[^,|;\t]+)[,|;\t](?<pass>.*)$') }
+        if ($match.Success) {
+            $proxyHost = $match.Groups['host'].Value.Trim('[', ']')
+            $hostPart = if ($proxyHost.Contains(':')) { "[$proxyHost]" } else { $proxyHost }
+            $user = [Uri]::EscapeDataString($match.Groups['user'].Value)
+            $pass = [Uri]::EscapeDataString($match.Groups['pass'].Value)
+            $value = 'socks5h://{0}:{1}@{2}:{3}' -f $user, $pass, $hostPart, $match.Groups['port'].Value
+        }
+        else { $value = 'socks5h://' + $value }
+    }
     try {
         $uri = [Uri]$value
         $scheme = $uri.Scheme.ToLowerInvariant()
@@ -500,6 +515,24 @@ function Test-CacRelayHandshake {
     } catch { return $false } finally { $client.Dispose() }
 }
 
+function Stop-CacProxyRelayByPidFile {
+    param([string]$PidFile)
+    if ([string]::IsNullOrWhiteSpace($PidFile)) { return }
+    try {
+        $needle = [regex]::Escape([System.IO.Path]::GetFullPath($PidFile))
+        $rows = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue | Where-Object {
+            $commandLine = [string]$_.CommandLine
+            $commandLine -match '(?i)(?:relay\.js|proxy-relay\.js)' -and $commandLine -match $needle
+        })
+        foreach ($row in $rows) {
+            $targetId = [int]$row.ProcessId
+            if ($targetId -gt 0 -and $targetId -ne $PID) {
+                try { Stop-Process -Id $targetId -Force -ErrorAction Stop } catch { }
+            }
+        }
+    } catch { }
+}
+
 function Start-CacProxyRelay {
     param([string]$UpstreamProxyUrl, [string]$LogsDir)
     $url = ConvertTo-CacProxyUrl $UpstreamProxyUrl
@@ -517,37 +550,32 @@ function Start-CacProxyRelay {
     New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
     $pidFile = Join-Path $LogsDir 'proxy-relay.pid'
     $logFile = Join-Path $LogsDir 'proxy-relay.log'
+    Stop-CacProxyRelayByPidFile -PidFile $pidFile
+    Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
     [System.IO.File]::WriteAllText($logFile, '', (New-Object System.Text.UTF8Encoding($false)))
     $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
     if (-not $node) { $node = (Get-Command node -ErrorAction SilentlyContinue).Source }
     $relay = Get-CacRelayScriptPath
     if (-not $node -or -not $relay) { throw 'node.exe or proxy-relay.js is missing; fail-closed relay cannot start' }
-    $utf8 = New-Object System.Text.UTF8Encoding($false)
-    $appendLog = [System.Diagnostics.DataReceivedEventHandler]{
-        param($sender, $event)
-        if ($null -ne $event.Data) { try { [System.IO.File]::AppendAllText($logFile, $event.Data + [Environment]::NewLine, $utf8) } catch { } }
-    }
+    $stdoutFile = Join-Path $LogsDir 'proxy-relay.stdout.log'
+    [System.IO.File]::WriteAllText($stdoutFile, '', (New-Object System.Text.UTF8Encoding($false)))
 
     for ($attempt = 0; $attempt -lt 6; $attempt++) {
         $port = Get-CacFreeTcpPort
         Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $node
-        $psi.Arguments = ('"{0}" {1} "{2}"' -f $relay, $port, $pidFile)
-        $psi.UseShellExecute = $false
-        $psi.CreateNoWindow = $true
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.EnvironmentVariables['CAC_RELAY_UPSTREAM_URL'] = $url
-        $psi.EnvironmentVariables['CAC_RELAY_PID_FILE'] = $pidFile
-        $process = New-Object System.Diagnostics.Process
-        $process.StartInfo = $psi
-        $process.add_OutputDataReceived($appendLog)
-        $process.add_ErrorDataReceived($appendLog)
+        $process = $null
+        $savedRelayUrl = [Environment]::GetEnvironmentVariable('CAC_RELAY_UPSTREAM_URL', 'Process')
+        $savedRelayPid = [Environment]::GetEnvironmentVariable('CAC_RELAY_PID_FILE', 'Process')
         try {
-            [void]$process.Start()
-            $process.BeginOutputReadLine()
-            $process.BeginErrorReadLine()
+            [Environment]::SetEnvironmentVariable('CAC_RELAY_UPSTREAM_URL', $url, 'Process')
+            [Environment]::SetEnvironmentVariable('CAC_RELAY_PID_FILE', $pidFile, 'Process')
+            $process = Start-Process -FilePath $node `
+                -ArgumentList ('"{0}" {1} "{2}"' -f $relay, $port, $pidFile) `
+                -WorkingDirectory (Split-Path -Parent $relay) `
+                -WindowStyle Hidden `
+                -RedirectStandardOutput $stdoutFile `
+                -RedirectStandardError $logFile `
+                -PassThru -ErrorAction Stop
             $ready = $false
             $deadline = (Get-Date).AddSeconds(8)
             while ((Get-Date) -lt $deadline) {
@@ -556,15 +584,21 @@ function Start-CacProxyRelay {
                 Start-Sleep -Milliseconds 100
             }
             if ($ready -and -not $process.HasExited) {
-                return [pscustomobject][ordered]@{ owned = $true; process = $process; port = $port; url = "http://127.0.0.1:$port"; upstream = $url; pidFile = $pidFile; logFile = $logFile; outputHandler = $appendLog }
+                $result = [pscustomobject][ordered]@{ owned = $true; process = $process; port = $port; url = "http://127.0.0.1:$port"; upstream = $url; pidFile = $pidFile; logFile = $logFile; stdoutFile = $stdoutFile }
+                [Environment]::SetEnvironmentVariable('CAC_RELAY_UPSTREAM_URL', $savedRelayUrl, 'Process')
+                [Environment]::SetEnvironmentVariable('CAC_RELAY_PID_FILE', $savedRelayPid, 'Process')
+                return $result
             }
         } catch { }
-        try { if (-not $process.HasExited) { $process.Kill() } } catch { }
-        try { [void]$process.WaitForExit(3000) } catch { }
-        try { $process.remove_OutputDataReceived($appendLog); $process.remove_ErrorDataReceived($appendLog) } catch { }
-        $process.Dispose()
+        try { if ($process -and -not $process.HasExited) { $process.Kill() } } catch { }
+        try { if ($process) { [void]$process.WaitForExit(3000) } } catch { }
+        try { if ($process) { $process.Dispose() } } catch { }
+        [Environment]::SetEnvironmentVariable('CAC_RELAY_UPSTREAM_URL', $savedRelayUrl, 'Process')
+        [Environment]::SetEnvironmentVariable('CAC_RELAY_PID_FILE', $savedRelayPid, 'Process')
         Start-Sleep -Milliseconds 100
     }
+    [Environment]::SetEnvironmentVariable('CAC_RELAY_UPSTREAM_URL', $savedRelayUrl, 'Process')
+    [Environment]::SetEnvironmentVariable('CAC_RELAY_PID_FILE', $savedRelayPid, 'Process')
     throw "Proxy relay did not pass startup handshake; see $logFile"
 }
 
@@ -574,10 +608,8 @@ function Stop-CacProxyRelay {
     if ($Relay.process) {
         try { if (-not $Relay.process.HasExited) { $Relay.process.Kill() } } catch { }
         try { [void]$Relay.process.WaitForExit(3000) } catch { }
-        if ($Relay.outputHandler) {
-            try { $Relay.process.remove_OutputDataReceived($Relay.outputHandler); $Relay.process.remove_ErrorDataReceived($Relay.outputHandler) } catch { }
-        }
         try { $Relay.process.Dispose() } catch { }
     }
+    if ($Relay.pidFile) { Stop-CacProxyRelayByPidFile -PidFile ([string]$Relay.pidFile) }
     if ($Relay.pidFile) { Remove-Item -LiteralPath $Relay.pidFile -Force -ErrorAction SilentlyContinue }
 }

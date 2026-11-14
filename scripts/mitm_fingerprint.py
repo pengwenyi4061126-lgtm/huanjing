@@ -35,6 +35,49 @@ ALLOWED = (
     "login.microsoftonline.com",
 )
 
+
+def request_path(flow):
+    return str(flow.request.path or "").split("?", 1)[0]
+
+
+def is_auth_route(flow):
+    host = (flow.request.pretty_host or "").lower()
+    path = request_path(flow).lower()
+    if not (host == "claude.ai" or host.endswith(".claude.ai")):
+        return False
+    return (
+        flow.request.method.upper() in {"POST", "PUT", "PATCH"}
+        or "/login" in path
+        or "/auth" in path
+        or "magic" in path
+        or "session" in path
+        or "verification" in path
+    )
+
+
+def is_auth_page(flow):
+    host = (flow.request.pretty_host or "").lower()
+    path = request_path(flow).lower()
+    if not (host == "claude.ai" or host.endswith(".claude.ai")):
+        return False
+    return path.startswith("/login") or "magic-link" in path
+
+
+def is_cloudflare_challenge(flow):
+    host = (flow.request.pretty_host or "").lower()
+    path = request_path(flow).lower()
+    if host == "challenges.cloudflare.com" or host.endswith(".challenges.cloudflare.com"):
+        return True
+    if host == "hcaptcha.com" or host.endswith(".hcaptcha.com"):
+        return True
+    if path.startswith("/cdn-cgi/challenge-platform") or path.startswith("/cdn-cgi/challenge"):
+        return True
+    if "/captcha/" in path:
+        return True
+    if flow.response is None:
+        return False
+    return str(flow.response.headers.get("cf-mitigated", "")).lower() == "challenge"
+
 PROBE = """
 <script>
 setTimeout(function () {
@@ -148,12 +191,48 @@ class Addon:
             time.sleep(2)
 
     def request(self, flow: http.HTTPFlow):
+        if is_auth_route(flow):
+            log(
+                "request "
+                + flow.request.method.upper()
+                + " "
+                + flow.request.pretty_host
+                + request_path(flow)
+            )
         if flow.request.path.startswith("/__cac_probe"):
             value = flow.request.query.get("d", "")
             log("probe " + value)
             flow.response = http.Response.make(204, b"")
 
     def response(self, flow: http.HTTPFlow):
+        if is_auth_route(flow):
+            log(
+                "response "
+                + str(flow.response.status_code)
+                + " "
+                + flow.request.pretty_host
+                + request_path(flow)
+                + " cf="
+                + str(flow.response.headers.get("cf-mitigated", ""))
+            )
+        if is_cloudflare_challenge(flow):
+            log(
+                "challenge/captcha passthrough "
+                + str(flow.response.status_code)
+                + " "
+                + flow.request.pretty_host
+                + request_path(flow)
+            )
+            return
+        if is_auth_page(flow):
+            log(
+                "auth page passthrough "
+                + str(flow.response.status_code)
+                + " "
+                + flow.request.pretty_host
+                + request_path(flow)
+            )
+            return
         if not allowed(flow.request.pretty_host):
             return
         content_type = flow.response.headers.get("content-type", "").lower()

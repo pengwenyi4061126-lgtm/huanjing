@@ -7,7 +7,9 @@ param(
     [switch]$Uninstall,
     [switch]$NoStart,
     [switch]$SkipSmoke,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$RebootInstall,
+    [switch]$VerifyOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -153,6 +155,87 @@ if ($signature.Status -ne 'Valid') {
 Assert-TestSigning
 
 $existingState = Get-ServiceState
+$claudeRunning = (@(Get-CimInstance Win32_Process -Filter "Name='claude.exe'" -ErrorAction SilentlyContinue).Count -gt 0)
+
+if ($VerifyOnly) {
+    if ($existingState -ne 'Running') {
+        throw "Service $serviceName is not running: $existingState"
+    }
+    if (-not (Test-Path -LiteralPath $driverTarget -PathType Leaf)) {
+        throw "Installed driver is missing: $driverTarget"
+    }
+    $installedHash = Get-CacSha256 $driverTarget
+    if ($installedHash -ne $actualHash) {
+        throw "Installed driver hash mismatch: expected=$actualHash actual=$installedHash"
+    }
+    if (-not (Test-Path -LiteralPath $SmokePath -PathType Leaf)) {
+        throw "Smoke client not found: $SmokePath"
+    }
+    $smokeJson = Join-Path $env:TEMP ('cac-kernel-smoke-' + [guid]::NewGuid().ToString('N') + '.json')
+    try {
+        & $SmokePath --identity --json $smokeJson
+        $smokeExit = $LASTEXITCODE
+        $smokeResult = [ordered]@{
+            exitCode = $smokeExit
+            output = if (Test-Path -LiteralPath $smokeJson) {
+                Get-Content -LiteralPath $smokeJson -Raw | ConvertFrom-Json
+            } else { $null }
+        }
+        if ($smokeExit -ne 0) {
+            throw "Kernel smoke test failed with exit code $smokeExit"
+        }
+    } finally {
+        Remove-Item -LiteralPath $smokeJson -Force -ErrorAction SilentlyContinue
+    }
+    $evidence = [ordered]@{
+        timestampUtc = [DateTime]::UtcNow.ToString('o')
+        mode = 'verify-only'
+        driver = [ordered]@{
+            source = [System.IO.Path]::GetFullPath($DriverPath)
+            installed = $driverTarget
+            sha256 = $actualHash
+            signatureStatus = [string]$signature.Status
+            signer = $signature.Signer
+        }
+        service = [ordered]@{
+            name = $serviceName
+            state = $existingState
+            binPath = '\SystemRoot\System32\drivers\CacKernel.sys'
+        }
+        smoke = $smokeResult
+        note = 'Verified without stopping or reloading the running driver. Storage identity filtering is active; SMBIOS physical filtering is opt-in. CPUID and NIC coverage remain outside this driver.'
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $EvidencePath) -Force | Out-Null
+    $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $EvidencePath -Encoding UTF8
+    $evidence | ConvertTo-Json -Depth 8
+    Write-Host "Evidence: $EvidencePath" -ForegroundColor DarkGray
+    Write-Host "[PASS] $serviceName verified without reload" -ForegroundColor Green
+    return
+}
+
+# This host crashed on live kernel reload while Claude was active
+# (0xEF services.exe / 0x18 REFERENCE_BY_POINTER class). Never hot-swap
+# the driver with sessions running: either close Claude or use -RebootInstall.
+if ($claudeRunning -and -not $RebootInstall -and $existingState -eq 'Running') {
+    throw "Claude is running. Live kernel reload is forbidden on this host (crash history). Close Claude first, or re-run with -RebootInstall."
+}
+
+if ($RebootInstall) {
+    New-Item -ItemType Directory -Path (Split-Path -Parent $driverTarget) -Force | Out-Null
+    Copy-Item -LiteralPath $DriverPath -Destination $driverTarget -Force
+    if ($existingState -eq 'Absent') {
+        $create = Invoke-Sc -Arguments @(
+            'create', $serviceName, 'type=', 'kernel', 'start=', 'demand', 'error=', 'normal',
+            'binPath=', '\SystemRoot\System32\drivers\CacKernel.sys',
+            'DisplayName=', 'CAC Kernel Boundary'
+        )
+        if ($create.ExitCode -ne 0) { throw "sc create failed: $($create.Output)" }
+    }
+    Invoke-Sc -Arguments @('config', $serviceName, 'binPath=', '\SystemRoot\System32\drivers\CacKernel.sys') | Out-Null
+    Write-Host 'Driver staged for next boot. No live reload or automatic reboot was performed.' -ForegroundColor Cyan
+    return
+}
+
 if ($existingState -ne 'Absent') {
     if (-not $Force) {
         $existingHash = if (Test-Path -LiteralPath $driverTarget) { Get-CacSha256 $driverTarget } else { '' }
@@ -202,7 +285,7 @@ if (-not $NoStart -and -not $SkipSmoke) {
     }
     $smokeJson = Join-Path $env:TEMP ('cac-kernel-smoke-' + [guid]::NewGuid().ToString('N') + '.json')
     try {
-        & $SmokePath --json $smokeJson
+        & $SmokePath --identity --json $smokeJson
         $smokeExit = $LASTEXITCODE
         $smokeResult = [ordered]@{
             exitCode = $smokeExit
@@ -235,7 +318,7 @@ $evidence = [ordered]@{
         binPath = '\SystemRoot\System32\drivers\CacKernel.sys'
     }
     smoke = $smokeResult
-    note = 'Control plane only. This driver does not spoof CPUID, SMBIOS, NICs, disks, or firmware.'
+    note = 'Storage identity filtering is active; SMBIOS physical filtering is opt-in. CPUID and NIC coverage remain outside this driver.'
 }
 
 New-Item -ItemType Directory -Path (Split-Path -Parent $EvidencePath) -Force | Out-Null

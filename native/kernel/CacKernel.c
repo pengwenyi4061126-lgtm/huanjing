@@ -1,8 +1,10 @@
 #include <ntifs.h>
 #include "CacKernelIoctl.h"
+#include "IdentityFilter.h"
 #include <wdmsec.h>
 
 #define CAC_POOL_TAG 'cCaC'
+#define CAC_DEVICE_MAGIC 0x76654443u /* 'CDev' */
 
 typedef struct _CAC_POLICY_ENTRY {
     LIST_ENTRY Link;
@@ -12,7 +14,13 @@ typedef struct _CAC_POLICY_ENTRY {
     UCHAR ProfileId[CAC_PROFILE_ID_LENGTH];
 } CAC_POLICY_ENTRY;
 
+typedef struct _CAC_POLICY_INDEX_ENTRY {
+    ULONG ProcessId;
+    ULONG Flags;
+} CAC_POLICY_INDEX_ENTRY;
+
 typedef struct _CAC_DEVICE_EXTENSION {
+    ULONG Magic;
     LIST_ENTRY PolicyList;
     ULONG PolicyCount;
     ERESOURCE PolicyLock;
@@ -23,6 +31,9 @@ typedef struct _CAC_DEVICE_EXTENSION {
     ULONG AuditTotal;
     BOOLEAN NotifyRegistered;
     BOOLEAN LegacyNotifyRegistered;
+    KSPIN_LOCK PolicyIndexLock;
+    ULONG PolicyIndexCount;
+    CAC_POLICY_INDEX_ENTRY PolicyIndex[CAC_MAX_POLICY_ENTRIES];
 } CAC_DEVICE_EXTENSION;
 
 static PDEVICE_OBJECT g_CacDevice = NULL;
@@ -106,6 +117,77 @@ CacIsProcessAlive(
     return alive;
 }
 
+static VOID
+CacPolicyIndexRebuild(
+    _In_ CAC_DEVICE_EXTENSION *Extension
+    )
+{
+    PLIST_ENTRY cursor;
+    ULONG count = 0;
+    KIRQL irql;
+
+    ExAcquireResourceSharedLite(&Extension->PolicyLock, TRUE);
+    KeAcquireSpinLock(&Extension->PolicyIndexLock, &irql);
+    for (cursor = Extension->PolicyList.Flink;
+         cursor != &Extension->PolicyList && count < CAC_MAX_POLICY_ENTRIES;
+         cursor = cursor->Flink) {
+        CAC_POLICY_ENTRY *entry = CONTAINING_RECORD(cursor, CAC_POLICY_ENTRY, Link);
+        Extension->PolicyIndex[count].ProcessId = entry->ProcessId;
+        Extension->PolicyIndex[count].Flags = entry->Flags;
+        count += 1;
+    }
+    Extension->PolicyIndexCount = count;
+    KeReleaseSpinLock(&Extension->PolicyIndexLock, irql);
+    ExReleaseResourceLite(&Extension->PolicyLock);
+}
+
+BOOLEAN
+CacPolicyIndexQuery(
+    _In_ ULONG ProcessId,
+    _Out_ PBOOLEAN StrictEmpty
+    )
+{
+    CAC_DEVICE_EXTENSION *extension;
+    ULONG i;
+    KIRQL irql;
+    BOOLEAN found = FALSE;
+    ULONG flags = 0;
+
+    if (StrictEmpty == NULL || g_CacDevice == NULL) {
+        return FALSE;
+    }
+    extension = (CAC_DEVICE_EXTENSION *)g_CacDevice->DeviceExtension;
+    KeAcquireSpinLock(&extension->PolicyIndexLock, &irql);
+    for (i = 0; i < extension->PolicyIndexCount; ++i) {
+        if (extension->PolicyIndex[i].ProcessId == ProcessId) {
+            flags = extension->PolicyIndex[i].Flags;
+            found = TRUE;
+            break;
+        }
+    }
+    KeReleaseSpinLock(&extension->PolicyIndexLock, irql);
+    if (found && (flags & CAC_POLICY_FLAG_ACTIVE) != 0) {
+        *StrictEmpty = (flags & CAC_POLICY_FLAG_STRICT_EMPTY) != 0;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+VOID
+CacAuditExternal(
+    _In_ ULONG EventType,
+    _In_ ULONG ProcessId,
+    _In_ NTSTATUS Status,
+    _In_z_ PCSTR Detail
+    )
+{
+    if (g_CacDevice != NULL) {
+        CacAuditAppend(
+            (CAC_DEVICE_EXTENSION *)g_CacDevice->DeviceExtension,
+            EventType, ProcessId, Status, Detail);
+    }
+}
+
 static ULONG
 CacPurgeStalePolicies(
     _In_ CAC_DEVICE_EXTENSION *Extension
@@ -130,6 +212,7 @@ CacPurgeStalePolicies(
     ExReleaseResourceLite(&Extension->PolicyLock);
 
     if (purged != 0) {
+        CacPolicyIndexRebuild(Extension);
         CacAuditAppend(Extension, CacAuditProcessExit, 0, STATUS_SUCCESS,
                        "stale policies purged");
     }
@@ -163,6 +246,7 @@ CacPurgePolicyForProcessId(
         return FALSE;
     }
     ExFreePoolWithTag(found, CAC_POOL_TAG);
+    CacPolicyIndexRebuild(Extension);
     CacAuditAppend(Extension, CacAuditProcessExit, ProcessId,
                    STATUS_SUCCESS, "policy purged on exit");
     return TRUE;
@@ -240,6 +324,9 @@ CacRegisterPolicy(
     if (entry != NULL) {
         ExFreePoolWithTag(entry, CAC_POOL_TAG);
     }
+    if (NT_SUCCESS(status)) {
+        CacPolicyIndexRebuild(Extension);
+    }
     return status;
 }
 
@@ -274,6 +361,7 @@ CacUnregisterPolicy(
         return STATUS_NOT_FOUND;
     }
     ExFreePoolWithTag(found, CAC_POOL_TAG);
+    CacPolicyIndexRebuild(Extension);
     return STATUS_SUCCESS;
 }
 
@@ -318,6 +406,7 @@ CacQueryPolicy(
 
     if (stale != NULL && !found) {
         ExFreePoolWithTag(stale, CAC_POOL_TAG);
+        CacPolicyIndexRebuild(Extension);
         if (purged) {
             CacAuditAppend(Extension, CacAuditProcessExit, ProcessId,
                            STATUS_SUCCESS, "stale policy purged on query");
@@ -391,6 +480,16 @@ CacPing(
         CAC_CAP_CONTROL_PLANE | CAC_CAP_PER_PROCESS_POLICY | CAC_CAP_AUDIT_RING;
 
     CacPurgeStalePolicies(Extension);
+    {
+        CAC_MODULE_STATE moduleState;
+        CacIdentityFilterQueryState(&moduleState);
+        if (moduleState.StorageFilters != 0) {
+            response->Capabilities |= CAC_CAP_STORAGE_FILTER;
+        }
+        if (moduleState.SmbiosLocated != 0) {
+            response->Capabilities |= CAC_CAP_SMBIOS_REWRITE;
+        }
+    }
     if (Extension->NotifyRegistered) {
         response->Capabilities |= CAC_CAP_PROCESS_LIFECYCLE;
     }
@@ -578,6 +677,33 @@ CacDeviceControl(
                                outputLength, &information);
         break;
 
+    case CAC_IOCTL_IDENTITY_SET: {
+        CAC_IDENTITY *identity = (CAC_IDENTITY *)buffer;
+        if (inputLength < sizeof(CAC_IDENTITY)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+        status = CacIdentityFilterSetIdentity(identity);
+        if (NT_SUCCESS(status)) {
+            CacAuditAppend(extension, CacAuditIdentitySet, 0, status,
+                           "identity applied");
+        } else {
+            CacAuditAppend(extension, CacAuditIdentitySet, 0, status,
+                           "identity set failed");
+        }
+        break;
+    }
+
+    case CAC_IOCTL_MODULE_QUERY:
+        if (outputLength < sizeof(CAC_MODULE_STATE)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+        CacIdentityFilterQueryState((CAC_MODULE_STATE *)buffer);
+        information = sizeof(CAC_MODULE_STATE);
+        status = STATUS_SUCCESS;
+        break;
+
     default:
         CacAuditAppend(extension, CacAuditUnknownIoctl,
                        0, STATUS_INVALID_DEVICE_REQUEST, "unknown ioctl");
@@ -589,6 +715,51 @@ CacDeviceControl(
     Irp->IoStatus.Information = information;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
     return status;
+}
+
+static NTSTATUS
+CacForwardShared(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ PIRP Irp
+    )
+{
+    CAC_FILTER_EXT *filterExtension =
+        (CAC_FILTER_EXT *)DeviceObject->DeviceExtension;
+    if (filterExtension->Magic == CAC_FILTER_MAGIC) {
+        return CacIdentityFilterForward(DeviceObject, Irp);
+    }
+    Irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return STATUS_INVALID_DEVICE_REQUEST;
+}
+
+static NTSTATUS
+CacCreateCloseShared(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ PIRP Irp
+    )
+{
+    CAC_FILTER_EXT *filterExtension =
+        (CAC_FILTER_EXT *)DeviceObject->DeviceExtension;
+    if (filterExtension->Magic == CAC_FILTER_MAGIC) {
+        return CacIdentityFilterForward(DeviceObject, Irp);
+    }
+    return CacCreateClose(DeviceObject, Irp);
+}
+
+static NTSTATUS
+CacDeviceControlShared(
+    _In_ PDEVICE_OBJECT DeviceObject,
+    _In_ PIRP Irp
+    )
+{
+    CAC_FILTER_EXT *filterExtension =
+        (CAC_FILTER_EXT *)DeviceObject->DeviceExtension;
+    if (filterExtension->Magic == CAC_FILTER_MAGIC) {
+        return CacIdentityFilterDeviceControl(DeviceObject, Irp);
+    }
+    return CacDeviceControl(DeviceObject, Irp);
 }
 
 static VOID
@@ -616,6 +787,8 @@ CacDriverUnload(
         extension->NotifyRegistered = FALSE;
         extension->LegacyNotifyRegistered = FALSE;
     }
+
+    CacIdentityFilterCleanup();
 
     if (g_CacSymlinkCreated) {
         RtlInitUnicodeString(&symlinkName, CAC_KERNEL_SYMLINK_NAME);
@@ -650,6 +823,7 @@ DriverEntry(
     NTSTATUS status;
     PDEVICE_OBJECT device = NULL;
     CAC_DEVICE_EXTENSION *extension;
+    ULONG major;
     UNICODE_STRING deviceName;
     UNICODE_STRING symlinkName;
     UNICODE_STRING sddl;
@@ -676,8 +850,10 @@ DriverEntry(
 
     extension = (CAC_DEVICE_EXTENSION *)device->DeviceExtension;
     RtlZeroMemory(extension, sizeof(*extension));
+    extension->Magic = CAC_DEVICE_MAGIC;
     InitializeListHead(&extension->PolicyList);
     KeInitializeSpinLock(&extension->AuditLock);
+    KeInitializeSpinLock(&extension->PolicyIndexLock);
 
     status = ExInitializeResourceLite(&extension->PolicyLock);
     if (!NT_SUCCESS(status)) {
@@ -687,10 +863,22 @@ DriverEntry(
     extension->PolicyLockReady = TRUE;
     device->Flags |= DO_BUFFERED_IO;
 
-    DriverObject->MajorFunction[IRP_MJ_CREATE] = CacCreateClose;
-    DriverObject->MajorFunction[IRP_MJ_CLOSE] = CacCreateClose;
-    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = CacDeviceControl;
+    for (major = 0; major <= IRP_MJ_MAXIMUM_FUNCTION; ++major) {
+        DriverObject->MajorFunction[major] = CacForwardShared;
+    }
+    DriverObject->MajorFunction[IRP_MJ_CREATE] = CacCreateCloseShared;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE] = CacCreateCloseShared;
+    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = CacDeviceControlShared;
+    DriverObject->MajorFunction[IRP_MJ_INTERNAL_DEVICE_CONTROL] = CacDeviceControlShared;
     DriverObject->DriverUnload = CacDriverUnload;
+
+    status = CacIdentityFilterInit(DriverObject);
+    if (!NT_SUCCESS(status)) {
+        IoDeleteSymbolicLink(&symlinkName);
+        ExDeleteResourceLite(&extension->PolicyLock);
+        IoDeleteDevice(device);
+        return status;
+    }
 
     status = IoCreateSymbolicLink(&symlinkName, &deviceName);
     if (!NT_SUCCESS(status)) {

@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <cstdio>
 #include <cwchar>
+#include <cstring>
 
 #include "ApiHooks.h"
 #include "Audit.h"
@@ -12,6 +13,18 @@
 #include "WmiHooks.h"
 
 namespace {
+
+bool NetworkHooksDisabledForCommandLineProxy() {
+    char value[16] = {};
+    const DWORD length = GetEnvironmentVariableA(
+        "CAC_NATIVE_DISABLE_NETWORK_HOOKS", value, static_cast<DWORD>(sizeof(value)));
+    if (length == 0 || length >= sizeof(value)) return false;
+    for (DWORD i = 0; i < length; ++i) {
+        if (value[i] >= 'A' && value[i] <= 'Z') value[i] = static_cast<char>(value[i] - 'A' + 'a');
+    }
+    return std::strcmp(value, "1") == 0 || std::strcmp(value, "true") == 0 ||
+           std::strcmp(value, "yes") == 0;
+}
 
 const char* ProcessTypeDetail() {
     const wchar_t* commandLine = GetCommandLineW();
@@ -61,7 +74,11 @@ DWORD WINAPI InitializeThread(LPVOID) {
     const bool apiReady = InstallApiHooks();
     InstallChildInjection();
     InstallWmiHooks();
-    InstallNetworkHooks();
+    if (NetworkHooksDisabledForCommandLineProxy()) {
+        AuditEvent("network.hooks", "skipped", "command-line-proxy-authoritative");
+    } else {
+        InstallNetworkHooks();
+    }
     InstallCpuHooksFromManifest();
 
     const bool kernelPolicyReady = RegisterCurrentProcessKernelPolicy();

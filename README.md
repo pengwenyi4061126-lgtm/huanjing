@@ -4,7 +4,7 @@ Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征
 
 当前版本：`1.0.44`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
-最终审计快照（2026-11-14，当前发布快照）记录的 `native/dist` NativeBridge SHA-256 为 `1C98CA2EA7E8ECE4EE28882D7D5A6048E404A2B373B95235A9C6B8C17FC3F58A`，`cac-native-launch.exe` SHA-256 为 `080D8E6EBCF9020C42D1D5A231BB8425B9B9532405C9778B17F8959B08717BDD`。本机 `%USERPROFILE%\.cac\native` 已同步到相同哈希；`npm run audit:release`、Native smoke、WFP smoke、代理池 smoke 和 relay smoke 均通过。Desktop 历史 PID 审计在未启动真实 Desktop 的情况下保持 `PARTIAL`，不会被静态日志冒充为完整运行时通过。
+最终审计快照（2026-11-15，当前发布快照）记录的 `native/dist` NativeBridge SHA-256 为 `FEC3E86EA76C51882BE5131B915E8452A77B9E3A68243612D8F3A13A78876587`，`cac-native-launch.exe` SHA-256 为 `E9541F31ECE2497AA0F4573CCD394DD3C9F8CBCEA87EADFAE3AFC1B3E537F57D`。本机 `%USERPROFILE%\.cac\native` 已同步到相同哈希；代理池 smoke、relay smoke、kernel smoke（含磁盘重写）、profile A/B 检查均通过。Desktop 历史 PID 审计在未启动真实 Desktop 的情况下保持 `PARTIAL`，不会被静态日志冒充为完整运行时通过。
 
 ## 功能
 
@@ -17,7 +17,7 @@ Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征
 - **网络验收** — 检查代理可达性、socks5h 远程 DNS 语义和子进程环境继承
 - **A/B 验收** — 验证 Profile 默认 Home、配置、AppData、TEMP/TMP 不交叉
 - **Node 用户态身份 Hook** — 通过 Profile 级 `NODE_OPTIONS/BUN_OPTIONS` 注入 `fingerprint-hook.js`，并记录运行时命中证据
-- **NativeBridge 用户态层** — 可选 DLL 注入，覆盖网卡、卷序列号、SMBIOS、磁盘/固件、主机名、用户名、注册表、HID、SetupDi、驱动列表、原始设备打开以及哈希绑定的 `CPUID/XGETBV`
+- **NativeBridge 用户态层** — 可选 DLL 注入，覆盖网卡、卷序列号、SMBIOS、磁盘/固件、主机名、用户名、注册表、HID、SetupDi、驱动列表和原始设备打开；`CPUID/XGETBV` 只对命中精确二进制哈希与函数清单的入口启用
 - **WMI/COM 隔离** — 在进程内包装 `CLSID_WbemLocator`，对 `Win32_BIOS`、`Win32_ComputerSystemProduct`、`Win32_DiskDrive`、`Win32_Processor`、`Win32_NetworkAdapter`、`Win32_LogicalDisk` 等结果按 Profile 改写或清空
 - **renderer/utility 注入** — 对 Claude Desktop 的 browser/GPU/renderer/utility/crashpad 子进程做创建时注入，并带启动器后代补偿
 - **干净网络视图** — `network_mode=clean` 时隐藏 VMware/Meta/Teredo/TAP/WireGuard/Tailscale 等虚拟网卡，清零 WinHTTP/IE/注册表代理配置，WMI 网络行同步过滤
@@ -38,7 +38,7 @@ Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征
 
 - Desktop Native：使用 `native/dist` 与 `%USERPROFILE%\.cac\native` 中的 NativeBridge/launcher。
 - Fingerprint MITM：使用 `-Fingerprint` 前必须能解析 `mitmdump`，npm 包只携带 addon/shim，不携带 Python/mitmproxy 运行时。
-- Kernel 控制面：`npm` 包只携带 `native/kernel` 源码和策略文档，不携带 `CacKernel.sys`；本机构建需要 WDK 10.0.26100、MSVC、Windows SDK、`signtool`、管理员权限和测试签名配置。该驱动目前是 `CONTROL_PLANE_ONLY`，不伪造物理硬件。
+- Kernel 边界：`npm` 包只携带 `native/kernel` 源码和策略文档，不携带 `CacKernel.sys`；本机构建需要 WDK 10.0.26100、MSVC、Windows SDK、`signtool`、管理员权限和测试签名配置。本机已验证能力为 `STORAGE_FILTER_PLUS_CONTROL_PLANE`：对注册 PID 重写存储序列号，SMBIOS 物理过滤保持显式关闭；不改写 CPUID 或物理网卡。
 
 ## 安装
 
@@ -123,7 +123,7 @@ Windows 版本的隔离边界是**进程级 Profile 隔离 + Node 用户态 Hook
 
 `native/` 下是独立编译的 x64 DLL 和注入器。构建与清单生成见 [native/README.md](native/README.md)。构建产物同步到 `%USERPROFILE%\.cac\native\` 后，Desktop 的 `-Inject` 模式改用 `cac-native-launch.exe` 启动并注入 `NativeBridge.dll`；产物缺失、哈希不一致、DLL 注入失败或 `native.bridge=ready` 超时都会拒绝启动，不会回退到未注入进程。Code Profile 的非 Native 启动仍使用普通 wrapper 路径。
 
-Native 层始终只做用户态返回值和用户态指令入口处理。内核边界在 [native/kernel/](native/kernel/) 单独实现：`CacKernel.sys` 提供 5 个窄 IOCTL、per-PID 策略表、进程退出清理和 128 条审计环，通过 SCM 安装；NativeBridge 会把主进程及被注入的同镜像子进程注册到该策略表，并回读确认。当前本机验收状态为 `RUNNING_VERIFIED` / `CONTROL_PLANE_ONLY`，`kernelPolicyStatus=TestSigned` 表示本机启用了测试签名，不等于 Microsoft 生产内核签名。该控制面不 hook SSDT/IDT、不伪造 CPUID、SMBIOS、物理网卡、磁盘或固件；手动映射器和易受攻击驱动加载器仍被拒绝。
+NativeBridge 负责用户态返回值和经清单约束的用户态指令入口。内核边界在 [native/kernel/](native/kernel/) 单独实现：`CacKernel.sys` 提供 5 个窄 IOCTL、per-PID 策略表、进程退出清理、128 条审计环和存储设备过滤，通过 SCM 安装；NativeBridge 会把主进程及被注入的同镜像子进程注册到该策略表，并回读确认。当前本机验收状态为 `RUNNING_VERIFIED` / `STORAGE_FILTER_PLUS_CONTROL_PLANE`，注册 PID 的存储序列号已由 kernel smoke 验证重写。`kernelPolicyStatus=TestSigned` 表示本机启用了测试签名，不等于 Microsoft 生产内核签名。SMBIOS 物理过滤为显式 opt-in 且默认关闭；CPUID、物理网卡和 DPAPI 不由该驱动虚拟化；手动映射器和易受攻击驱动加载器仍被拒绝。
 
 内核控制面命令：
 
@@ -211,7 +211,11 @@ cd E:\环境\huanjing\account-manager
 npm install
 npm run lint
 npm run smoke
+npm run smoke:electron
+npm run smoke:native-electron
+npm run smoke:bootstrap
 npm run dist
+npm run smoke:portable
 ```
 
 产物位于 `account-manager\dist\`：`cac-account-manager-0.1.0-x64-portable.exe` 和 `cac-account-manager-0.1.0-x64-setup.exe`。账号 JSON 默认只导出元数据；包含登录会话时使用 Windows DPAPI 保护的 `safeStorage` 快照，不把 Cookie 明文写入导出文件。管理器删除账号只移除索引和代理绑定，不删除 Profile 目录。
@@ -288,7 +292,7 @@ probe {"hc":24,"tz":"Asia/Shanghai","offset":-480,"persona":true}
 
 安全提示：`-Fingerprint` 会安装 mitmproxy CA 到当前用户 Root 存储，并用 `--proxy-server` 接管 Claude 的 Chromium 流量；不使用该开关时不安装 CA、不改代理。
 
-CA 安装/删除已改为静默自动化：`cert-silent.ps1` 检测标准安全警告窗口并自动确认，不再需要手动点击。删除命令：
+CA 安装/删除已改为无交互静默自动化：安装使用 `Import-Certificate`，删除只按当前 Profile 证书文件计算 SHA-1 指纹后删除对应的 CurrentUser Root 注册表项，不调用 `certutil`，不会弹出根证书确认窗口。删除命令：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.ps1 -Action remove-ca -Profile work
@@ -300,7 +304,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-profile.
 
 用户态已覆盖这些表面的可访问路径：`EnumDeviceDrivers`、`NtQuerySystemInformation(SystemModuleInformation)`、`GetIfTable2/GetIfEntry2`、`GetAdapters*`、`SetupDiGetClassDevsW`、`NtDeviceIoControlFile` 和原始设备 `CreateFileW`。在 `empty` 策略下，驱动列表、设备枚举和原始设备打开会被清空或拒绝。
 
-当前最高上限已经实现为：签名（本机为测试签名）WDM 控制面、per-PID 策略注册/退出清理、NativeBridge 子进程注册、动态 WFP 出口规则和用户态设备读取覆盖。仍未实现的是 NDIS 轻量过滤器、WFP callout 驱动、驱动内部的硬件读取重写、DPAPI/凭据硬件绑定以及物理 BIOS/SMBIOS/CPUID 的宿主级替换；这些不是普通 DLL Hook 能可靠完成的功能，审计不会把它们标记为已隔离。
+当前稳定的非 VM 上限已经实现为：测试签名 WDM 存储过滤、per-PID 策略注册/退出清理、内核审计、NativeBridge 同镜像子进程注入、动态 WFP 回环出口边界、用户态设备读取改写，以及网页登录的 CDP 主世界指纹与 SOCKS5H 远端目标 DNS。注册 PID 的磁盘序列号已经由 kernel smoke 验证重写；SMBIOS 物理过滤保持 opt-in 关闭。NDIS LWF 在 Windows 11 22631 上出现可复现蓝屏，项目保持禁用，不把它列入稳定覆盖。物理 NIC、宿主 CPUID/BIOS 固件、DPAPI/Credential Manager、外部 COM 服务和绕过已覆盖 API 的直接内核读取仍不属于已验证隔离范围。
 
 ## 致谢
 

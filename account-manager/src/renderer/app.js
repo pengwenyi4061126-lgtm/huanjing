@@ -11,7 +11,8 @@ const model = {
   encryptionAvailable: false,
   search: '',
   status: 'all',
-  view: 'accounts'
+  view: 'accounts',
+  refreshSequence: 0
 }
 
 const $ = (selector) => document.querySelector(selector)
@@ -63,7 +64,9 @@ async function withBusy(button, task) {
 }
 
 async function refresh() {
+  const sequence = ++model.refreshSequence
   const [snapshot, pool] = await Promise.all([api.getState(), api.listProxies()])
+  if (sequence !== model.refreshSequence) return
   model.accounts = snapshot.accounts || []
   model.settings = snapshot.settings || {}
   model.events = snapshot.events || []
@@ -88,7 +91,7 @@ function renderAll() {
 
 function renderAccounts() {
   const active = model.accounts.filter((account) => account.status === 'running').length
-  const loggedIn = model.accounts.filter((account) => account.status === 'logged-in').length
+  const loggedIn = model.accounts.filter((account) => account.session?.authenticated === true).length
   const bound = model.accounts.filter((account) => account.proxyId).length
   $('#account-metrics').innerHTML = [
     ['账号总数', model.accounts.length, ''],
@@ -111,7 +114,7 @@ function renderAccounts() {
 }
 
 function statusText(status) {
-  return ({ running: '运行中', 'logged-in': '已登录', ready: '待启动', error: '错误' }[status] || '待启动')
+  return ({ running: '运行中', starting: '启动中', 'logged-in': '已登录', 'auth-pending': '验证中', ready: '待启动', error: '错误' }[status] || '待启动')
 }
 
 function renderAccountRow(account) {
@@ -119,12 +122,14 @@ function renderAccountRow(account) {
   const session = account.session || {}
   const action = account.status === 'running'
     ? `<button class="row-action" data-action="stop-account" data-id="${escapeHtml(account.id)}">停止</button>`
+    : account.status === 'starting'
+      ? '<button class="row-action primary" type="button" disabled>启动中…</button>'
     : `<button class="row-action primary" data-action="activate-account" data-id="${escapeHtml(account.id)}">启动</button>`
   return `<tr>
     <td><div class="account-name"><span class="avatar">${escapeHtml(initials(account))}</span><div><strong>${escapeHtml(account.label || account.profileName)}</strong><span>${escapeHtml(account.email || '未填写邮箱')}</span></div></div></td>
     <td><div class="profile-cell"><b>${escapeHtml(account.profileName)}</b><span>${account.runtimePid ? `PID ${escapeHtml(account.runtimePid)}` : '独立数据目录'}</span></div></td>
     <td><div class="proxy-cell"><b>${proxy ? escapeHtml(proxy.displayUrl) : '未绑定'}</b><span>${proxy ? escapeHtml(proxy.id) : '自动绑定关闭'}</span></div></td>
-    <td><div class="proxy-cell"><b>${session.cookieCount ? `${session.cookieCount} Cookies` : '无快照'}</b><span>${session.savedAt ? escapeHtml(formatTime(session.savedAt)) : '未保存'}</span></div></td>
+    <td><div class="proxy-cell"><b>${session.authenticated ? '已验证会话' : (session.cookieCount ? `${session.cookieCount} Cookies` : '无快照')}</b><span>${session.savedAt ? escapeHtml(formatTime(session.savedAt)) : '未保存'}</span></div></td>
     <td><span class="status ${escapeHtml(account.status)}">${statusText(account.status)}</span></td>
     <td class="muted mono">${escapeHtml(formatTime(account.lastUsedAt))}</td>
     <td><div class="row-actions">${action}<button class="row-action" data-action="login-account" data-id="${escapeHtml(account.id)}">网页登录</button><button class="row-action" data-action="edit-account" data-id="${escapeHtml(account.id)}">编辑</button><button class="row-action danger" data-action="delete-account" data-id="${escapeHtml(account.id)}">删除</button></div></td>
@@ -169,9 +174,17 @@ function closeModal() {
   $('#modal-root').innerHTML = ''
 }
 
+function nextProfileName() {
+  const used = new Set(model.accounts.map((account) => String(account.profileName || '').toLowerCase()))
+  let index = 1
+  while (used.has(String(index))) index++
+  return String(index)
+}
+
 function openAccountModal(existing = null) {
   const proxyOptions = ['<option value="">自动绑定 / 不绑定</option>', ...model.proxies.filter((proxy) => proxy.enabled).map((proxy) => `<option value="${escapeHtml(proxy.id)}" ${existing?.proxyId === proxy.id ? 'selected' : ''}>${escapeHtml(proxy.displayUrl)} · ${escapeHtml(proxy.id)}</option>`)].join('')
-  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-modal-close><div class="modal" role="dialog" aria-modal="true"><h2>${existing ? '编辑账号' : '新建账号'}</h2><form id="account-form"><label>显示名称<input name="label" maxlength="80" required value="${escapeHtml(existing?.label || '')}"></label><label>邮箱<input name="email" type="email" maxlength="320" value="${escapeHtml(existing?.email || '')}"></label><div class="form-grid"><label>Profile 名称<input name="profileName" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" required value="${escapeHtml(existing?.profileName || '')}"></label><label>SOCKS5 绑定<select name="proxyId">${proxyOptions}</select></label></div><label>网页登录地址<input name="loginUrl" type="url" required value="${escapeHtml(existing?.loginUrl || model.settings.loginUrl || 'https://claude.ai/login')}"></label><label>备注<textarea name="notes" maxlength="2000">${escapeHtml(existing?.notes || '')}</textarea></label><label class="check-row"><input name="enabled" type="checkbox" ${existing?.enabled !== false ? 'checked' : ''}><span>账号启用</span></label><div id="account-form-error" class="modal-error"></div><div class="modal-actions"><button class="button secondary" type="button" data-modal-close>取消</button><button class="button primary" type="submit">保存账号</button></div></form></div></div>`
+  const profileName = existing?.profileName || nextProfileName()
+  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-modal-close><div class="modal" role="dialog" aria-modal="true"><h2>${existing ? '编辑账号' : '新建账号'}</h2><form id="account-form"><label>显示名称<input name="label" maxlength="80" required value="${escapeHtml(existing?.label || '')}"></label><label>邮箱<input name="email" type="email" maxlength="320" value="${escapeHtml(existing?.email || '')}"></label><div class="form-grid"><label>Profile 名称<input name="profileName" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" required value="${escapeHtml(profileName)}"></label><label>SOCKS5 绑定<select name="proxyId">${proxyOptions}</select></label></div><label>网页登录地址<input name="loginUrl" type="url" required value="${escapeHtml(existing?.loginUrl || model.settings.loginUrl || 'https://claude.ai/login')}"></label><label>备注<textarea name="notes" maxlength="2000">${escapeHtml(existing?.notes || '')}</textarea></label><label class="check-row"><input name="enabled" type="checkbox" ${existing?.enabled !== false ? 'checked' : ''}><span>账号启用</span></label>${existing ? '' : '<label class="check-row"><input name="openLoginAfterSave" type="checkbox" checked><span>保存后打开网页登录</span></label>'}<div id="account-form-error" class="modal-error"></div><div class="modal-actions"><button class="button secondary" type="button" data-modal-close>取消</button><button class="button primary" type="submit">保存账号</button></div></form></div></div>`
   const backdrop = $('.modal-backdrop')
   backdrop.addEventListener('click', (event) => { if (event.target === backdrop || event.target.matches('[data-modal-close]')) closeModal() })
   $('#account-form').addEventListener('submit', async (event) => {
@@ -180,7 +193,7 @@ function openAccountModal(existing = null) {
     const submit = form.querySelector('button[type="submit"]')
     await withBusy(submit, async () => {
       try {
-        await api.saveAccount({
+        const saved = await api.saveAccount({
           id: existing?.id,
           label: form.elements.label.value,
           email: form.elements.email.value,
@@ -190,9 +203,15 @@ function openAccountModal(existing = null) {
           notes: form.elements.notes.value,
           enabled: form.elements.enabled.checked
         })
+        const openLoginAfterSave = !existing && Boolean(form.elements.openLoginAfterSave?.checked)
         closeModal()
         await refresh()
-        showToast(existing ? '账号已更新' : '账号已创建')
+        if (openLoginAfterSave) {
+          openLoginModal(saved)
+          showToast('账号已创建，请先完成网页登录')
+        } else {
+          showToast(existing ? '账号已更新' : '账号已创建')
+        }
       } catch (error) {
         $('#account-form-error').textContent = error.message || String(error)
         throw error
@@ -201,8 +220,58 @@ function openAccountModal(existing = null) {
   })
 }
 
+function openLoginModal(account) {
+  const proxy = proxyFor(account)
+  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-modal-close><div class="modal modal-wide" role="dialog" aria-modal="true"><h2>网页登录 · ${escapeHtml(account.label || account.profileName)}</h2><p>网页登录窗口使用该账号的独立会话、硬件画像和绑定 SOCKS5；打开登录页或 Magic Link 前会自动做真实出口检查，未通过时禁止直连。</p><div class="login-meta"><span>Profile <b>${escapeHtml(account.profileName)}</b></span><span>代理 <b>${escapeHtml(proxy?.displayUrl || '未绑定')}</b></span></div><form id="login-form"><label>登录页地址<input name="loginUrl" type="url" value="${escapeHtml(account.loginUrl || model.settings.loginUrl || 'https://claude.ai/login')}" required></label><label>完整 Magic Link<textarea name="magicLink" rows="4" placeholder="https://claude.ai/magic-link#..."></textarea></label><div id="login-proxy-audit" class="modal-note">正在执行登录代理检查，检查通过后才允许打开页面。</div><div id="login-form-error" class="modal-error"></div><div class="modal-actions"><button class="button secondary" type="button" data-modal-close>取消</button><button class="button secondary" id="check-login-proxy" type="button">重新检查代理</button><button class="button secondary" id="open-login-page" type="button">打开登录页</button><button class="button primary" id="open-magic-link" type="button">打开 Magic Link</button></div></form></div></div>`
+  const backdrop = $('.modal-backdrop')
+  const errorNode = $('#login-form-error')
+  const auditNode = $('#login-proxy-audit')
+  const form = $('#login-form')
+  const cancelLogin = () => {
+    void api.closeLogin()
+    closeModal()
+  }
+  backdrop.addEventListener('click', (event) => { if (event.target === backdrop || event.target.matches('[data-modal-close]')) cancelLogin() })
+  form.addEventListener('submit', (event) => event.preventDefault())
+
+  const openTarget = (button, target) => withBusy(button, async () => {
+    try {
+      const result = await api.openLogin(account.id, target)
+      auditNode.textContent = `代理正常：出口 ${result.externalIp} · Native PID ${result.nativePid} · ${result.dnsMode}`
+      closeModal()
+      showToast(`${result.target} 已打开，出口 ${result.proxy}`)
+    } catch (error) {
+      errorNode.textContent = error.message || String(error)
+      throw error
+    }
+  }).catch(() => undefined)
+
+  $('#open-login-page').addEventListener('click', (event) => openTarget(event.currentTarget, form.elements.loginUrl.value))
+  $('#open-magic-link').addEventListener('click', (event) => openTarget(event.currentTarget, form.elements.magicLink.value))
+  $('#check-login-proxy').addEventListener('click', (event) => withBusy(event.currentTarget, async () => {
+    try {
+      const result = await api.checkLoginProxy(account.id)
+      auditNode.textContent = `代理正常：出口 ${result.externalIp} · ${result.latencyMs}ms · ${result.dnsMode}`
+      showToast(`网页登录代理正常：${result.externalIp}`)
+    } catch (error) {
+      errorNode.textContent = error.message || String(error)
+      throw error
+    }
+  }).catch(() => undefined))
+
+  void (async () => {
+    try {
+      const result = await api.checkLoginProxy(account.id)
+      auditNode.textContent = `代理正常：出口 ${result.externalIp} · ${result.latencyMs}ms · ${result.dnsMode}`
+    } catch (error) {
+      auditNode.textContent = `代理检查失败：${error.message || String(error)}`
+      errorNode.textContent = error.message || String(error)
+    }
+  })()
+}
+
 function openProxyModal() {
-  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-modal-close><div class="modal" role="dialog" aria-modal="true"><h2>添加 SOCKS5 代理</h2><p>支持 socks5:// 或 socks5h://，用户名密码只通过子进程环境传给代理池脚本。</p><form id="proxy-form"><label>代理地址<input name="url" type="text" placeholder="socks5h://user:pass@host:1080" required></label><div id="proxy-form-error" class="modal-error"></div><div class="modal-actions"><button class="button secondary" type="button" data-modal-close>取消</button><button class="button primary" type="submit">添加并保存</button></div></form></div></div>`
+  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-modal-close><div class="modal modal-wide" role="dialog" aria-modal="true"><h2>添加 SOCKS5 代理</h2><p>支持批量粘贴，每行一条；自动识别 URL、host:port:user:pass、host|port|user|pass、host,port,user,pass 和 JSON 列表。</p><form id="proxy-form"><label>代理地址<textarea name="url" rows="8" placeholder="socks5h://user:pass@host:1080 | host:port:user:pass" required></textarea></label><div id="proxy-form-error" class="modal-error"></div><div class="modal-actions"><button class="button secondary" type="button" data-modal-close>取消</button><button class="button primary" type="submit">识别并导入</button></div></form></div></div>`
   const backdrop = $('.modal-backdrop')
   backdrop.addEventListener('click', (event) => { if (event.target === backdrop || event.target.matches('[data-modal-close]')) closeModal() })
   $('#proxy-form').addEventListener('submit', async (event) => {
@@ -211,10 +280,11 @@ function openProxyModal() {
     const submit = form.querySelector('button[type="submit"]')
     await withBusy(submit, async () => {
       try {
-        await api.addProxy(form.elements.url.value)
+        const result = await api.addProxy(form.elements.url.value)
         closeModal()
         await refresh()
-        showToast('代理已添加')
+        const skipped = (result.errors?.length || 0) + (result.duplicates?.length || 0) + (result.failed?.length || 0)
+        showToast(`\u5df2\u5bfc\u5165 ${result.added?.length || 0} \u6761\u4ee3\u7406${skipped ? `\uff0c\u8df3\u8fc7 ${skipped} \u6761` : ''}`, skipped ? 'error' : 'ok')
       } catch (error) {
         $('#proxy-form-error').textContent = error.message || String(error)
         throw error
@@ -255,7 +325,7 @@ async function handleAccountAction(action, id, button) {
     return
   }
   if (action === 'login-account') {
-    await withBusy(button, async () => { await api.openLogin(id); showToast('网页登录窗口已打开') }).catch(() => undefined)
+    openLoginModal(account)
     return
   }
   if (action === 'delete-account') {
@@ -328,6 +398,7 @@ function registerEvents() {
     model.events.push(event)
     model.events = model.events.slice(-100)
     renderActivity()
+    void refresh().catch(() => undefined)
   })
 }
 

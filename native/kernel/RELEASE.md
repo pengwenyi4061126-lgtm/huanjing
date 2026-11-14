@@ -8,8 +8,8 @@
 |---|---|
 | WDK | `10.0.26100.0` |
 | 架构 | `x64` |
-| 驱动 SHA-256 | `8C012E96F3A5FE713B98CBC87FB25F836EEBC3D2AD47899DD5B4D13880B63ABE` |
-| 状态 | `RUNNING_VERIFIED / CONTROL_PLANE_ONLY` |
+| 驱动 SHA-256 | `2D9BCFB150A8FDA3B4E700BC8E1B9A7EFC8C8A40A87550A1023C8CA71466136C` |
+| 状态 | `RUNNING_VERIFIED / STORAGE_FILTER_PLUS_CONTROL_PLANE` |
 | 签名 | 测试签名；不代表生产发布签名 |
 
 ## 可复现命令
@@ -17,7 +17,8 @@
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/kernel/build-driver.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/kernel/install-driver.ps1 -Force
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File native/kernel/install-driver.ps1 -VerifyOnly
 npm run audit:kernel
 ```
 
-该控制面只提供窄 IOCTL、per-PID 策略注册/查询和审计事件；它不实现 NDIS/WFP callout、SSDT/IDT/inline kernel hook，也不修改 CPUID、SMBIOS、物理网卡、磁盘固件、BIOS 或 DPAPI。
+当前稳定能力包括窄 IOCTL、per-PID 策略注册/查询、审计事件和注册 PID 的存储查询序列号重写；它不修改磁盘固件本体。SMBIOS 物理表模块是默认关闭的 opt-in 实验路径。驱动不实现 NDIS/WFP callout、SSDT/IDT/inline kernel hook，也不修改 CPUID、物理网卡、BIOS 固件芯片或 DPAPI。

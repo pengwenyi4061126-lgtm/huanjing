@@ -98,6 +98,36 @@ function Sync-NativeLayer {
             $changed = $true
         }
     }
+    $kernelSource = Join-Path $CAC_PACKAGE_ROOT "native\kernel\bin"
+    $kernelTarget = Join-Path $target "kernel\bin"
+    if (Test-Path -LiteralPath $kernelSource) {
+        New-Item -ItemType Directory -Path $kernelTarget -Force | Out-Null
+        foreach ($name in @("CacKernel.sys", "cac-kernelctl.exe", "kernel-smoke.exe", "CacKernel.sha256")) {
+            $from = Join-Path $kernelSource $name
+            if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
+            $to = Join-Path $kernelTarget $name
+            if (-not (Test-Path -LiteralPath $to) -or
+                (Get-CacSha256 $from) -ne (Get-CacSha256 $to)) {
+                Copy-Item -LiteralPath $from -Destination $to -Force
+                $changed = $true
+            }
+        }
+    }
+    $macSource = Join-Path $CAC_PACKAGE_ROOT "native\macfilter\bin"
+    $macTarget = Join-Path $target "macfilter\bin"
+    if (Test-Path -LiteralPath $macSource) {
+        New-Item -ItemType Directory -Path $macTarget -Force | Out-Null
+        foreach ($name in @("CacMacLwf.sys", "cac-macctl.exe", "CacMacLwf.sha256")) {
+            $from = Join-Path $macSource $name
+            if (-not (Test-Path -LiteralPath $from -PathType Leaf)) { continue }
+            $to = Join-Path $macTarget $name
+            if (-not (Test-Path -LiteralPath $to) -or
+                (Get-CacSha256 $from) -ne (Get-CacSha256 $to)) {
+                Copy-Item -LiteralPath $from -Destination $to -Force
+                $changed = $true
+            }
+        }
+    }
     return $changed
 }
 
@@ -442,7 +472,56 @@ function Ensure-ProfileLayout {
         Set-Content -LiteralPath $paths.IdentityPath -Value ($identity | ConvertTo-Json -Depth 5) -Encoding UTF8
     }
     [void](Resolve-CacProxyBinding -AccountKey ("claude-code:{0}" -f $paths.Name) -ExplicitProxy (Read-FileValue (Join-Path $paths.Root "proxy")))
+    [void](Push-CacKernelIdentity -Identity $identity -TempDir $paths.TempDir -ProfileRoot $paths.Root)
     return $paths
+}
+
+function Push-CacKernelIdentity {
+    param([psobject]$Identity, [string]$TempDir, [string]$ProfileRoot)
+    if ($null -eq $Identity) { return $false }
+    $kernelCtl = Join-Path $CAC_DIR 'native\kernel\bin\cac-kernelctl.exe'
+    if (-not (Test-Path -LiteralPath $kernelCtl -PathType Leaf)) { return $false }
+    $moduleFlags = 1  # storage only. SMBIOS physical probe is opt-in.
+    if ($ProfileRoot -and (Test-Path -LiteralPath (Join-Path $ProfileRoot 'kernel_smbios'))) {
+        if ((Get-Content -LiteralPath (Join-Path $ProfileRoot 'kernel_smbios') -Raw).Trim() -eq '1') {
+            $moduleFlags = 3
+        }
+    }
+    $payload = [ordered]@{
+        module_flags         = $moduleFlags
+        mac_address          = [string]$Identity.mac_address
+        system_uuid          = [string]$Identity.system_uuid
+        disk_serial          = [string]$Identity.disk_serial
+        disk_vendor          = "ATA"
+        disk_product         = "WDC WD10EZEX-08WN4A0"
+        disk_revision        = "01.01A01"
+        bios_vendor          = "American Megatrends Inc."
+        bios_version         = "5.17"
+        system_manufacturer  = "ASUS"
+        system_product       = "System Product Name"
+        system_version       = "System Version"
+        system_serial        = [string]$Identity.system_serial
+        baseboard_manufacturer = "ASUSTeK COMPUTER INC."
+        baseboard_product    = "PRIME B550M-K"
+        baseboard_serial     = [string]$Identity.board_serial
+    }
+    $tmp = Join-Path $TempDir 'kernel-identity.json'
+    try {
+        $payload | ConvertTo-Json -Compress |
+            Set-Content -LiteralPath $tmp -Encoding ASCII
+        & $kernelCtl identity-set --file $tmp 2>$null | Out-Null
+        $kernelOk = ($LASTEXITCODE -eq 0)
+        $macCtl = Join-Path $CAC_DIR 'native\macfilter\bin\cac-macctl.exe'
+        if ((Test-Path -LiteralPath $macCtl -PathType Leaf) -and
+            (-not [string]::IsNullOrWhiteSpace([string]$Identity.mac_address))) {
+            & $macCtl set --mac ([string]$Identity.mac_address) 2>$null | Out-Null
+        }
+        return $kernelOk
+    } catch {
+        return $false
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Read-ProfileIdentity {
@@ -957,6 +1036,7 @@ $env:HOSTNAME = [string]$identity.hostname
 $env:COMPUTERNAME = [string]$identity.hostname
 $env:CAC_MAC = [string]$identity.mac_address
 $env:CAC_MACHINE_ID = [string]$identity.machine_id
+[void](Push-CacKernelIdentity -Identity $identity -TempDir $temp -ProfileRoot $ed)
 $nativeReadPolicy = if (Test-Path (Join-Path $ed "native_read_policy")) {
     (Get-Content (Join-Path $ed "native_read_policy") -Raw).Trim()
 } else { "profile" }

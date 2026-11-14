@@ -149,22 +149,30 @@ $env:LIB = @(
 
 $cl = Join-Path $msvc.MsvcVersion 'bin\Hostx64\x64\cl.exe'
 $link = Join-Path $msvc.MsvcVersion 'bin\Hostx64\x64\link.exe'
-$source = Join-Path $root 'CacKernel.c'
+$sources = @(
+    (Join-Path $root 'CacKernel.c'),
+    (Join-Path $root 'IdentityFilter.c')
+)
+$objFiles = @()
 $objFile = Join-Path $obj 'CacKernel.obj'
 $sysPath = Join-Path $bin 'CacKernel.sys'
 $hashPath = Join-Path $bin 'CacKernel.sha256'
 
 Write-Host 'Compiling CacKernel.sys ...' -ForegroundColor Cyan
-& $cl /nologo /c /W4 /O2 /GS /GR- /Zl `
-    /D_AMD64_ /DAMD64 /D_WIN64 /DWIN32=100 /D_KERNEL_MODE=1 `
-    /D_WIN32_WINNT=0x0A00 /DNTDDI_VERSION=0x0A00000C `
-    /DUNICODE /D_UNICODE `
-    "/Fo$objFile" $source
-if ($LASTEXITCODE -ne 0) { throw "driver compile failed ($LASTEXITCODE)" }
+foreach ($source in $sources) {
+    $sourceObj = Join-Path $obj ("{0}.obj" -f [System.IO.Path]::GetFileNameWithoutExtension($source))
+    & $cl /nologo /c /W4 /O2 /GS /GR- /Zl `
+        /D_AMD64_ /DAMD64 /D_WIN64 /DWIN32=100 /D_KERNEL_MODE=1 `
+        /D_WIN32_WINNT=0x0A00 /DNTDDI_VERSION=0x0A00000C `
+        /DUNICODE /D_UNICODE `
+        "/Fo$sourceObj" $source
+    if ($LASTEXITCODE -ne 0) { throw "driver compile failed for $source ($LASTEXITCODE)" }
+    $objFiles += $sourceObj
+}
 
 Write-Host 'Linking CacKernel.sys ...' -ForegroundColor Cyan
 & $link /nologo /DRIVER /SUBSYSTEM:NATIVE /ENTRY:DriverEntry /NODEFAULTLIB `
-    /MACHINE:X64 "/OUT:$sysPath" $objFile `
+    /MACHINE:X64 "/OUT:$sysPath" $objFiles `
     ntoskrnl.lib hal.lib wdmsec.lib BufferOverflowK.lib libcntpr.lib
 if ($LASTEXITCODE -ne 0) { throw "driver link failed ($LASTEXITCODE)" }
 

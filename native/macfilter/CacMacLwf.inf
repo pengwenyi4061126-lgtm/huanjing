@@ -1,0 +1,53 @@
+;
+; CAC profile-MAC lightweight filter (NDIS 6 LWF).
+;
+[Version]
+Signature   = "$Windows NT$"
+Class       = NetService
+ClassGUID   = {4D36E974-E325-11CE-BFC1-08002BE10318}
+Provider    = %CacProvider%
+DriverVer   = 11/14/2026,1.0.0.3
+CatalogFile = cacmaclwf.cat
+
+[Manufacturer]
+%CacProvider% = CacMfgs,NTamd64
+
+[ControlFlags]
+ExcludeFromSelect = *
+
+[CacMfgs.NTamd64]
+%CacMacLwfDesc% = CacMacLwf.Inst, CacMacLwf
+
+[CacMacLwf.Inst.NTamd64]
+AddReg = CacMacLwf.AddReg
+Characteristics = 0x40028
+NetCfgInstanceId = "{b4320c2d-c807-4829-b8b8-054feddd024c}"
+CopyFiles = CacMacLwf.CopyFiles
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+CacMacLwf.sys = 1
+
+[DestinationDirs]
+CacMacLwf.CopyFiles = 12
+
+[CacMacLwf.CopyFiles]
+CacMacLwf.sys
+
+[CacMacLwf.AddReg]
+HKR, Ndi,Service,,"CacMacLwf"
+HKR, Ndi,CoServices,0x00010000,"CacMacLwf"
+HKR, Ndi,HelpText,,"CAC profile MAC lightweight filter"
+HKR, Ndi,FilterClass,,ms_medium_converter_128
+HKR, Ndi,FilterType,0x00010001,0x00000002
+HKR, Ndi,FilterRunType,0x00010001,0x00000002
+HKR, Ndi\Interfaces,UpperRange,,"noupper"
+HKR, Ndi\Interfaces,LowerRange,,"nolower"
+HKR, Ndi\Interfaces,FilterMediaTypes,,"ethernet, fddi, tokenring, wan, ppip"
+
+[Strings]
+CacProvider  = "CAC"
+DiskName     = "CAC Mac LWF Install Disk"
+CacMacLwfDesc = "CAC Profile MAC Lightweight Filter"

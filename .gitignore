@@ -3,6 +3,9 @@
 node_modules/
 account-manager/node_modules/
 account-manager/dist/
+account-manager/dist-verify*/
+*.tgz
+/debug.log
 *.swp
 *.swo
 *~
@@ -35,6 +38,17 @@ native/tests/*.txt
 native/dist/*.exp
 native/dist/*.lib
 native/dist/*.pdb
+native/macfilter/bin/
+native/macfilter/obj/
+native/macfilter/*.sys
+native/macfilter/*.cat
+native/macfilter/exp*/
+native/macfilter/package-*/
+native/macfilter/pkg*/
+native/macfilter/vmtest/*.sys
+native/macfilter/vmtest/*.exe
+native/macfilter/vmtest/*.cer
+native/macfilter/vmtest/*.cat
 .npm-cache-pack-test/
 __pycache__/
 *.pyc

@@ -458,7 +458,9 @@ function Write-DesktopStateFile {
         [int]$RootPid = 0,
         [string]$RootPath,
         [string]$RootStartUtc,
-        [string]$ErrorText
+        [string]$ErrorText,
+        [string]$CaPath,
+        [bool]$RemoveCa = $false
     )
     if ([string]::IsNullOrWhiteSpace($Path)) { return }
     $parent = Split-Path -Parent $Path
@@ -470,6 +472,8 @@ function Write-DesktopStateFile {
         rootPath    = $RootPath
         rootStartUtc = $RootStartUtc
         monitorPid  = $PID
+        caPath      = $CaPath
+        removeCa    = $RemoveCa
         error       = $ErrorText
         updatedUtc  = [DateTime]::UtcNow.ToString('o')
     } | ConvertTo-Json -Compress | Set-Content -LiteralPath $Path -Encoding UTF8
@@ -479,6 +483,34 @@ function Read-DesktopStateFile {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     try { return (Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json) } catch { return $null }
+}
+
+function Remove-StaleProfileLaunchCa {
+    param([Parameter(Mandatory = $true)][psobject]$Paths)
+
+    $statePath = Join-Path $Paths.LogsDir 'desktop-launch.json'
+    $launchState = Read-DesktopStateFile -Path $statePath
+    if ($null -eq $launchState -or -not [bool]$launchState.removeCa) { return }
+
+    $expectedCaPath = [System.IO.Path]::GetFullPath((Join-Path $Paths.MitmDir 'mitmproxy-ca-cert.cer'))
+    $recordedCaPath = ''
+    if (-not [string]::IsNullOrWhiteSpace([string]$launchState.caPath)) {
+        try { $recordedCaPath = [System.IO.Path]::GetFullPath([string]$launchState.caPath) } catch { $recordedCaPath = '' }
+    }
+    if (-not [string]::Equals($recordedCaPath, $expectedCaPath, [StringComparison]::OrdinalIgnoreCase)) {
+        Write-Host '[RECOVER] stale launch state has no matching Profile CA path; leaving certificate untouched.' -ForegroundColor Yellow
+        return
+    }
+
+    try {
+        if (-not (Remove-MitmCa -Path $expectedCaPath)) {
+            throw "Profile CA remains after removal: $expectedCaPath"
+        }
+        Write-DesktopStateFile -Path $statePath -State 'stopped' -Generation ([string]$launchState.generation)
+        Write-Host '[RECOVER] stale Profile CA removed.' -ForegroundColor Green
+    } catch {
+        throw "Stale Profile CA cleanup failed: $($_.Exception.Message)"
+    }
 }
 
 function Assert-DesktopNoReparsePoints {
@@ -567,6 +599,70 @@ function Initialize-ProfileIdentity {
     return [pscustomobject]$identity
 }
 
+function Push-DesktopKernelIdentity {
+    param([psobject]$Identity, [string]$TempDir, [string]$ProfileRoot)
+    if ($null -eq $Identity) { return $false }
+    $kernelCtl = Join-Path $script:OriginalUserProfile '.cac\native\kernel\bin\cac-kernelctl.exe'
+    if (-not (Test-Path -LiteralPath $kernelCtl -PathType Leaf)) { return $false }
+    if ([string]::IsNullOrWhiteSpace([string]$TempDir)) { return $false }
+    $moduleFlags = 1  # storage only. SMBIOS physical probe is opt-in.
+    if ($ProfileRoot -and (Test-Path -LiteralPath (Join-Path $ProfileRoot 'kernel_smbios'))) {
+        if ((Get-Content -LiteralPath (Join-Path $ProfileRoot 'kernel_smbios') -Raw).Trim() -eq '1') {
+            $moduleFlags = 3
+        }
+    }
+    $payload = [ordered]@{
+        module_flags          = $moduleFlags
+        mac_address           = [string]$Identity.mac_address
+        system_uuid           = [string]$Identity.system_uuid
+        disk_serial           = [string]$Identity.disk_serial
+        disk_vendor           = 'ATA'
+        disk_product          = 'WDC WD10EZEX-08WN4A0'
+        disk_revision         = '01.01A01'
+        bios_vendor           = 'American Megatrends Inc.'
+        bios_version          = '5.17'
+        system_manufacturer   = 'ASUS'
+        system_product        = 'System Product Name'
+        system_version        = 'System Version'
+        system_serial         = [string]$Identity.system_serial
+        baseboard_manufacturer = 'ASUSTeK COMPUTER INC.'
+        baseboard_product     = 'PRIME B550M-K'
+        baseboard_serial      = [string]$Identity.board_serial
+    }
+    $tmp = Join-Path $TempDir 'kernel-identity.json'
+    try {
+        $payload | ConvertTo-Json -Compress |
+            Set-Content -LiteralPath $tmp -Encoding ASCII
+        & $kernelCtl identity-set --file $tmp 2>$null | Out-Null
+        $kernelOk = ($LASTEXITCODE -eq 0)
+        $macCtl = Join-Path $script:OriginalUserProfile '.cac\native\macfilter\bin\cac-macctl.exe'
+        if ((Test-Path -LiteralPath $macCtl -PathType Leaf) -and
+            -not [string]::IsNullOrWhiteSpace([string]$Identity.mac_address)) {
+            & $macCtl set --mac ([string]$Identity.mac_address) 2>$null | Out-Null
+        }
+        return $kernelOk
+    } catch {
+        return $false
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Register-DesktopKernelPid {
+    param([int]$ProcessId, [psobject]$Paths, [string]$NativeReadPolicy)
+    $kernelCtl = Join-Path $script:OriginalUserProfile '.cac\native\kernel\bin\cac-kernelctl.exe'
+    if (-not (Test-Path -LiteralPath $kernelCtl -PathType Leaf)) { return $false }
+    if ($ProcessId -le 0 -or $null -eq $Paths) { return $false }
+    $flags = 1
+    if ($NativeReadPolicy -eq 'empty') { $flags = 3 }
+    try {
+        & $kernelCtl register --pid $ProcessId --profile $Paths.Name --flags $flags 2>$null | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
+
 function Get-PathSummary {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -652,6 +748,7 @@ function Initialize-ProfileLayout {
     foreach ($folder in $folders) {
         New-Item -ItemType Directory -Path $folder -Force -ErrorAction Stop | Out-Null
     }
+    $nativePolicy = 'profile'
     $nativePolicyPath = Join-Path $Paths.Root 'native_read_policy'
     if (-not (Test-Path -LiteralPath $nativePolicyPath -PathType Leaf)) {
         [System.IO.File]::WriteAllText($nativePolicyPath, "profile`r`n", (New-Object System.Text.UTF8Encoding($false)))
@@ -834,9 +931,6 @@ function Wait-ClaudeDesktopRoot {
     )
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadline) {
-        if ($null -ne $LauncherProcess -and $LauncherProcess.HasExited -and $LauncherProcess.ExitCode -ne 0) {
-            throw "Claude Desktop launcher exited with code $($LauncherProcess.ExitCode)"
-        }
         $candidates = @(Get-ClaudeDesktopProcesses -ExePath $ExePath)
         if (-not [string]::IsNullOrWhiteSpace($ExpectedUserDataDir)) {
             $expectedMarker = $ExpectedUserDataDir.TrimEnd('\')
@@ -883,6 +977,9 @@ function Wait-ClaudeDesktopRoot {
             }
             if ($failed) { throw "NativeBridge failed for Claude Desktop PID $($candidate.Id)" }
             if ($ready) { return (Get-Process -Id ([int]$candidate.Id) -ErrorAction Stop) }
+        }
+        if ($null -ne $LauncherProcess -and $LauncherProcess.HasExited -and $LauncherProcess.ExitCode -ne 0) {
+            throw "Claude Desktop launcher exited with code $($LauncherProcess.ExitCode)"
         }
         Start-Sleep -Milliseconds 200
     }
@@ -1209,6 +1306,23 @@ function Start-ClaudeDesktop {
     $profileLock = Enter-DesktopProfileMutex -ProfileRoot $Paths.Root
     if ($null -eq $profileLock) { throw "Profile is busy: $($Paths.Root)" }
     Assert-DesktopNoReparsePoints -Path $Paths.Root
+
+    # A killed launcher can leave Claude children, relay, or MITM alive while
+    # the UI has already forgotten the runtime. Recover only processes proven
+    # to belong to this Profile before creating a new proxy generation.
+    $residual = @(Get-ProfileProcessIds -Paths $Paths)
+    if ($residual.Count -gt 0) {
+        Write-Host ("[RECOVER] stopping residual Profile processes: {0}" -f ($residual -join ', ')) -ForegroundColor Yellow
+        Stop-ProfileProcesses -Paths $Paths
+        Start-Sleep -Milliseconds 300
+        $remainingResidual = @(Get-ProfileProcessIds -Paths $Paths)
+        if ($remainingResidual.Count -gt 0) {
+            throw "Profile residual processes could not be stopped: $($remainingResidual -join ', ')"
+        }
+        Write-Host '[RECOVER] residual Profile processes cleared.' -ForegroundColor Green
+    }
+    Remove-StaleProfileLaunchCa -Paths $Paths
+
     # Fail before starting MITM or touching the profile when the Desktop process
     # is already active or the requested WindowsApps path is unavailable. The
     # second check below remains for races between preflight and CreateProcess.
@@ -1289,14 +1403,19 @@ function Start-ClaudeDesktop {
             $env:CAC_SHIM = $shim
             $env:CAC_MITM_LOG = Join-Path $Paths.LogsDir 'mitm-fingerprint.log'
             $env:CAC_MITM_PIDFILE = $mitmPidFile
-        New-Item -ItemType Directory -Path $Paths.MitmDir -Force | Out-Null
-        $mitmArguments = @('-q', '-s', $addon, '--listen-port', "$mitmPort",
-            '--set', "confdir=$($Paths.MitmDir)")
-        if ($null -ne $relay) { $mitmArguments += @('--mode', "upstream:$($relay.url)") }
-        $mitmProcess = Start-Process -FilePath $mitm `
-            -ArgumentList $mitmArguments `
+            New-Item -ItemType Directory -Path $Paths.MitmDir -Force | Out-Null
+            $mitmArguments = @('-q', '-s', $addon, '--listen-port', "$mitmPort",
+                '--set', "confdir=$($Paths.MitmDir)")
+            if ($null -ne $relay) { $mitmArguments += @('--mode', "upstream:$($relay.url)") }
+            $mitmStdout = Join-Path $Paths.LogsDir 'mitm-proxy.stdout.log'
+            $mitmStderr = Join-Path $Paths.LogsDir 'mitm-proxy.stderr.log'
+            Remove-Item -LiteralPath $mitmStdout, $mitmStderr -Force -ErrorAction SilentlyContinue
+            $mitmProcess = Start-Process -FilePath $mitm `
+                -ArgumentList $mitmArguments `
+                -RedirectStandardOutput $mitmStdout `
+                -RedirectStandardError $mitmStderr `
                 -PassThru -WindowStyle Hidden
-        Set-Content -LiteralPath $mitmProcessPidFile -Value "$($mitmProcess.Id)" -Encoding ASCII
+            Set-Content -LiteralPath $mitmProcessPidFile -Value "$($mitmProcess.Id)" -Encoding ASCII
         } finally {
             foreach ($name in $saved.Keys) {
                 [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process')
@@ -1340,6 +1459,7 @@ function Start-ClaudeDesktop {
             Start-Sleep -Milliseconds 200
         }
         $caInstalled = $false
+        $caInstallError = ''
         $caThumbprint = if (Test-Path -LiteralPath $caPath -PathType Leaf) {
             Get-CertificateThumbprintFromFile -Path $caPath
         } else { $null }
@@ -1349,15 +1469,18 @@ function Start-ClaudeDesktop {
         if (Test-Path -LiteralPath $caPath -PathType Leaf) {
             try {
                 $caInstalled = [bool](Install-MitmCa -Path $caPath)
+                $caInstallError = [string]$script:MitmCaInstallError
                 $caInstalledByLaunch = $caInstalled -and -not $caWasPresent
             } catch {
                 $caInstalled = $false
+                $caInstallError = $_.Exception.Message
             }
         }
         if (-not $caInstalled) {
+            $caErrorSuffix = if ([string]::IsNullOrWhiteSpace($caInstallError)) { '' } else { " ($caInstallError)" }
             return [pscustomobject]@{
                 started = $false; blocked = $true
-                error = "MITM CA installation failed for profile $($Paths.Name): $caPath"
+                error = "MITM CA installation failed for profile $($Paths.Name): $caPath$caErrorSuffix"
                 mode = $null; processId = $null; launchFile = $null; arguments = $null
                 userDataDir = $Paths.UserDataDir; nativeRequested = $UseInject; nativeUsed = $false
                 mitmPort = $mitmPort; fingerprintPersona = $personaPath; mitmPid = $null
@@ -1415,10 +1538,10 @@ function Start-ClaudeDesktop {
         $fingerprintArgs += "--proxy-server=$($relay.url)"
     }
     if ($null -ne $relay) {
-        $fingerprintArgs += '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1'
         $fingerprintArgs += '--disable-quic'
         $fingerprintArgs += '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
         $fingerprintArgs += '--proxy-bypass-list=localhost;127.0.0.1;[::1]'
+        $fingerprintArgs += '--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1"'
     }
 
     $nativeDir = Join-Path $script:OriginalUserProfile '.cac\native'
@@ -1498,6 +1621,10 @@ function Start-ClaudeDesktop {
         CAC_HTTP_PROXY_LOCAL = if ($null -ne $relay) { [string]$relay.url } else { '' }
         CAC_PROXY_ID         = if ($null -ne $proxyBinding) { [string]$proxyBinding.proxyId } else { '' }
         CAC_PROXY_SOURCE     = if ($null -ne $proxyBinding) { [string]$proxyBinding.source } else { '' }
+        # Chromium receives the authoritative proxy through --proxy-server.
+        # Rewriting WinHTTP proxy discovery inside NativeBridge conflicts with
+        # Chromium's network service and can surface ERR_PROXY_CONNECTION_FAILED.
+        CAC_NATIVE_DISABLE_NETWORK_HOOKS = if ($null -ne $relay) { '1' } else { '0' }
     }
     $nativePolicyPath = Join-Path $Paths.Root 'native_read_policy'
     if (Test-Path -LiteralPath $nativePolicyPath -PathType Leaf) {
@@ -1547,8 +1674,9 @@ function Start-ClaudeDesktop {
         foreach ($name in $environment.Keys) {
             [Environment]::SetEnvironmentVariable($name, [string]$environment[$name], 'Process')
         }
-            $launcherProcess = Start-Process -FilePath $launchFile -ArgumentList $arguments -PassThru -ErrorAction Stop
-            $startedProcess = $launcherProcess
+        [void](Push-DesktopKernelIdentity -Identity $identity -TempDir $Paths.Temp -ProfileRoot $Paths.Root)
+        $launcherProcess = Start-Process -FilePath $launchFile -ArgumentList $arguments -PassThru -ErrorAction Stop
+        $startedProcess = $launcherProcess
     } catch {
         $startError = $_.Exception.Message
     } finally {
@@ -1563,9 +1691,11 @@ function Start-ClaudeDesktop {
         -ExpectedUserDataDir $Paths.UserDataDir -LaunchStartedUtc $launchStartedUtc
     $startedProcess = $desktopProcess
     $processId = [int]$desktopProcess.Id
+    [void](Register-DesktopKernelPid -ProcessId $processId -Paths $Paths -NativeReadPolicy $nativePolicy)
     $desktopStartUtc = $desktopProcess.StartTime.ToUniversalTime().ToString('o')
     Write-DesktopStateFile -Path $launchStateFile -State 'active' -Generation $launchGeneration `
-        -RootPid $processId -RootPath ([string]$desktopProcess.Path) -RootStartUtc $desktopStartUtc
+        -RootPid $processId -RootPath ([string]$desktopProcess.Path) -RootStartUtc $desktopStartUtc `
+        -CaPath $caPath -RemoveCa ([bool]$caInstalledByLaunch)
 
     if ($UseFingerprint -and $processId -and $mitmPidFile) {
         Set-Content -LiteralPath $mitmPidFile -Value "$processId" -Encoding ASCII
@@ -1623,6 +1753,11 @@ function Start-ClaudeDesktop {
                 Write-Host "[CLEANUP] $errorText" -ForegroundColor Red
             }
             if ($null -ne $result) { $result.cleanupErrors = @($cleanupErrors) }
+            if (-not [string]::IsNullOrWhiteSpace($launchStateFile) -and
+                -not [string]::IsNullOrWhiteSpace($launchGeneration)) {
+                $failureText = if ($null -ne $result -and $result.error) { [string]$result.error } else { 'Desktop launch failed before lifecycle ownership was transferred' }
+                Write-DesktopStateFile -Path $launchStateFile -State 'failed' -Generation $launchGeneration -ErrorText $failureText
+            }
         }
         Exit-DesktopProfileMutex $profileLock
     }
@@ -1761,7 +1896,8 @@ function Get-ProfileProcessIds {
         'mitmproxy.exe',
         'python.exe',
         'pythonw.exe',
-        'node.exe'
+        'node.exe',
+        'powershell.exe'
     )
 
     try {
@@ -1783,6 +1919,8 @@ function Get-ProfileProcessIds {
         if ($relevantNames -notcontains $name.ToLowerInvariant()) { continue }
         $commandLine = [string]$row.CommandLine
         $executablePath = [string]$row.ExecutablePath
+        if ($name -ieq 'powershell.exe' -and
+            $commandLine -notmatch '(?i)(?:^|\s)-Action\s+monitor(?:\s|$)') { continue }
         $matched = $false
         foreach ($marker in $markers) {
             if ((Test-TextPathMarker -Text $commandLine -Marker $marker) -or
@@ -2030,8 +2168,8 @@ function Invoke-StopAction {
 
         foreach ($root in @($roots | Sort-Object Id -Unique)) {
             $result = Stop-ClaudeProcessTree -RootProcessId ([int]$root.Id) -Paths $paths -RootIdentity $root
-            foreach ($pid in @($result.collectedPids)) {
-                if (-not $stopped.Contains([int]$pid)) { [void]$stopped.Add([int]$pid) }
+            foreach ($collectedPid in @($result.collectedPids)) {
+                if (-not $stopped.Contains([int]$collectedPid)) { [void]$stopped.Add([int]$collectedPid) }
             }
             if ($result.error) { Write-Host "[STOP] $($result.error)" -ForegroundColor Yellow }
         }
@@ -2042,12 +2180,33 @@ function Invoke-StopAction {
         Stop-ProfileProcesses -Paths $paths
         Start-Sleep -Milliseconds 250
         $remaining = @(Get-ProfileProcessIds -Paths $paths)
+        $cleanupFailed = $false
+        $launchStateFile = Join-Path $paths.LogsDir 'desktop-launch.json'
+        $launchState = Read-DesktopStateFile -Path $launchStateFile
+        if ($null -ne $launchState -and [bool]$launchState.removeCa) {
+            $expectedCaPath = [System.IO.Path]::GetFullPath((Join-Path $paths.MitmDir 'mitmproxy-ca-cert.cer'))
+            $recordedCaPath = if ($launchState.caPath) { [System.IO.Path]::GetFullPath([string]$launchState.caPath) } else { '' }
+            if ([string]::Equals($recordedCaPath, $expectedCaPath, [StringComparison]::OrdinalIgnoreCase)) {
+                try {
+                    if (-not (Remove-MitmCa -Path $expectedCaPath)) {
+                        Write-Host "[STOP] Profile CA removal failed: $expectedCaPath" -ForegroundColor Red
+                        $cleanupFailed = $true
+                    }
+                } catch {
+                    Write-Host "[STOP] Profile CA removal failed: $($_.Exception.Message)" -ForegroundColor Red
+                    $cleanupFailed = $true
+                }
+            }
+        }
+        if ($remaining.Count -eq 0 -and -not $cleanupFailed -and $null -ne $launchState) {
+            Write-DesktopStateFile -Path $launchStateFile -State 'stopped' -Generation ([string]$launchState.generation)
+        }
         Write-Host ("[STOP] {0} stopped={1} remaining={2}" -f $name, $stopped.Count, $remaining.Count)
         if ($remaining.Count -gt 0) {
             Write-Host ("[STOP] remaining PIDs: {0}" -f ($remaining -join ', ')) -ForegroundColor Red
             return 1
         }
-        return 0
+        return [int]$cleanupFailed
     } finally {
         Exit-DesktopProfileMutex $profileLock
     }
@@ -2068,6 +2227,9 @@ function Invoke-CreateAction {
     $paths = Get-ProfilePaths -Name $name
     Initialize-ProfileLayout -Paths $paths | Out-Null
     Initialize-ProfileIdentity -Paths $paths | Out-Null
+    if ($Fingerprint) {
+        Initialize-ProfilePersona -Paths $paths -ExePath $Exe | Out-Null
+    }
     if (-not $SuppressProxyWarning) { Show-CacProxyCapacityWarning (Get-CacKnownAccountCapacityWarning) }
     Write-Host "[CREATE] $($paths.Name)"
     Write-Host "  root: $($paths.Root)"

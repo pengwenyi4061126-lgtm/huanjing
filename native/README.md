@@ -153,7 +153,7 @@ cpu.xgetbv            observed index
 
 ## Boundaries
 
-- NativeBridge remains a userland return-value layer. CacKernel is a separate SCM-loaded control plane for per-process registration/lifecycle evidence; `network_mode=enforce` adds a dynamic user-mode WFP session for the Claude image.
+- NativeBridge remains a userland return-value layer. CacKernel is a separate SCM-loaded storage filter and control plane for per-process registration/lifecycle evidence; `network_mode=enforce` adds a dynamic user-mode WFP session for the Claude image.
 - Physical disk, firmware and NIC state are unchanged on the host.
 - `DeviceIoControl` rewrite only handles the supported storage serial queries; other IOCTLs are observed and passed through.
 - An overlapped `DeviceIoControl` request is sanitized only when the bridge tracks the request and later observes completion through `GetOverlappedResult*` or IOCP. A `NtDeviceIoControlFile` request that returns `STATUS_PENDING` has no safe completion context in this bridge and is recorded as `unhandled`/PARTIAL.
@@ -162,7 +162,7 @@ cpu.xgetbv            observed index
 - CPU hooks are opt-in and hash-bound; no unsigned heuristic patch is applied by default.
 - SetupDi calls use the inline path first and the IAT/delay path as fallback. The empty policy clears the supported output buffers, but it does not create a coherent synthetic PnP device graph or change kernel PnP state. Any refused or missing install is recorded as FAIL/PARTIAL by the audit scripts.
 - Same-image renderer/utility injection is a process-lifecycle feature. Each intercepted child must report `native.bridge=ready`; failed or timed-out child injection is terminated. This still is not proof that every external COM server, broker or native helper was intercepted. Missing child evidence remains NOT_OBSERVED/PARTIAL.
-- The bridge and CacKernel do not virtualize host CPUID, SMBIOS, NDIS, driver-object, DPAPI or physical-hardware reads that bypass the covered userland APIs. The audit never treats a Node/Native hook or dynamic WFP rule as hardware isolation.
+- CacKernel rewrites supported storage identity queries for registered PIDs; its SMBIOS physical module is opt-in and disabled by default. The bridge and driver do not virtualize host CPUID, physical NIC/NDIS, DPAPI or arbitrary driver-object/hardware reads that bypass the covered paths. The audit never treats a Node/Native hook or dynamic WFP rule as full hardware isolation.
 
 ## Claude Desktop 5.1231.2
 

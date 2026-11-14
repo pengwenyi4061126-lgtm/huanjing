@@ -9,8 +9,12 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "lint": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js",
+    "lint": "node --check src/main.js && node --check src/login-fingerprint.js && node --check src/preload.js && node --check src/renderer/app.js",
     "smoke": "node scripts/smoke.js",
+    "smoke:electron": "electron scripts/electron-proxy-smoke.js",
+    "smoke:native-electron": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/electron-native-smoke.ps1",
+    "smoke:bootstrap": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/manager-bootstrap-smoke.ps1 -Mode development",
+    "smoke:portable": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/manager-bootstrap-smoke.ps1 -Mode portable",
     "dist": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1"
   },
   "devDependencies": {

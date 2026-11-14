@@ -237,10 +237,10 @@ if ($driver.present) {
         $capability = 'CONTROL_PLANE_READY'
     } elseif ($smokeVerified -and $lifecycleVerified) {
         $status = 'RUNNING_VERIFIED'
-        $capability = 'CONTROL_PLANE_ONLY'
+        $capability = 'STORAGE_FILTER_PLUS_CONTROL_PLANE'
     } else {
         $status = 'RUNNING_UNVERIFIED'
-        $capability = 'CONTROL_PLANE_ONLY'
+        $capability = 'STORAGE_FILTER_UNVERIFIED'
     }
 }
 
@@ -308,9 +308,11 @@ $result = [ordered]@{
         'WDK availability is not proof that a kernel driver exists or is loaded.'
         'A signed driver must be installed through the approved SCM/INF path.'
         'Manual mapping and vulnerable-driver loading are rejected by project policy.'
-        'RUNNING_VERIFIED proves the Authenticode-valid control-plane IOCTL, installed-file hash, per-PID policy, lifecycle callback, and audit smoke test.'
+        'RUNNING_VERIFIED proves the Authenticode-valid control-plane IOCTL, installed-file hash, per-PID policy, lifecycle callback, storage serial rewrite, and audit smoke test.'
         'kernelPolicyStatus=TestSigned means local test-signing mode; it is not Microsoft production kernel-policy validation.'
-        'The driver does not spoof CPUID, SMBIOS, NICs, disks, firmware, or DPAPI; it is not hardware isolation.'
+        'The driver rewrites storage identity for registered processes. SMBIOS physical filtering is opt-in and disabled by default.'
+        'CPUID remains a hash-bound user-mode manifest hook. The NDIS LWF is disabled after reproducible Windows 11 crashes; physical NIC identity and DPAPI are not virtualized.'
+        'This is the verified non-VM process boundary, not full hardware isolation.'
     )
 }
 

@@ -1,0 +1,262 @@
+{
+  "path": "E:\\环境\\huanjing\\native\\tests\\bin\\delay_probe2.exe",
+  "size": 139776,
+  "sha256": "45FC34D29001889679D0AC84A5EB71DDD743DB500AFA19211D9B1FD852C043C0",
+  "machine": "x64",
+  "image_base": "0x140000000",
+  "sections": [
+    {
+      "name": ".text",
+      "vsize": 83184,
+      "va": 4096,
+      "rawsize": 83456,
+      "rawptr": 1024,
+      "executable": true
+    },
+    {
+      "name": ".rdata",
+      "vsize": 44244,
+      "va": 90112,
+      "rawsize": 44544,
+      "rawptr": 84480,
+      "executable": false
+    },
+    {
+      "name": ".data",
+      "vsize": 7624,
+      "va": 135168,
+      "rawsize": 3072,
+      "rawptr": 129024,
+      "executable": false
+    },
+    {
+      "name": ".pdata",
+      "vsize": 4812,
+      "va": 143360,
+      "rawsize": 5120,
+      "rawptr": 132096,
+      "executable": false
+    },
+    {
+      "name": ".fptable",
+      "vsize": 256,
+      "va": 151552,
+      "rawsize": 512,
+      "rawptr": 137216,
+      "executable": false
+    },
+    {
+      "name": ".reloc",
+      "vsize": 1676,
+      "va": 155648,
+      "rawsize": 2048,
+      "rawptr": 137728,
+      "executable": false
+    }
+  ],
+  "opcode_counts": {
+    "cpuid": 8,
+    "xgetbv": 2,
+    "rdtsc": 0,
+    "rdtscp": 0,
+    "vmcall": 0
+  },
+  "opcode_rvas": {
+    "cpuid": [
+      9592,
+      9626,
+      9756,
+      9793,
+      9809,
+      79879,
+      79970,
+      79984
+    ],
+    "xgetbv": [
+      9901,
+      79912
+    ],
+    "rdtsc": [],
+    "rdtscp": [],
+    "vmcall": []
+  },
+  "candidates": [
+    {
+      "kind": "cpuid",
+      "hit_rva": 9592,
+      "entry_rva": 9585,
+      "entry_offset_from_hit": 7,
+      "prologue": "83ec1033c033c90fa281f16e74656c81",
+      "section": ".text"
+    },
+    {
+      "kind": "cpuid",
+      "hit_rva": 9626,
+      "entry_rva": 9610,
+      "entry_offset_from_hit": 16,
+      "prologue": "b80100000081f347656e750bd38d48ff",
+      "section": ".text"
+    },
+    {
+      "kind": "cpuid",
+      "hit_rva": 9756,
+      "entry_rva": 9691,
+      "entry_offset_from_hit": 65,
+      "prologue": "b90100010001000000480fa3c1731444",
+      "section": ".text"
+    },
+    {
+      "kind": "cpuid",
+      "hit_rva": 9793,
+      "entry_rva": 9785,
+      "entry_offset_from_hit": 8,
+      "prologue": "b8070000008d48fa0fa2448bd2b82400",
+      "section": ".text"
+    },
+    {
+      "kind": "cpuid",
+      "hit_rva": 9809,
+      "entry_rva": 9798,
+      "entry_offset_from_hit": 11,
+      "prologue": "b8240000003be87c0733c90fa2448bdb",
+      "section": ".text"
+    },
+    {
+      "kind": "cpuid",
+      "hit_rva": 79879,
+      "entry_rva": 79867,
+      "entry_offset_from_hit": 12,
+      "prologue": "b80100000044890535f000000fa2894c",
+      "section": ".text"
+    },
+    {
+      "kind": "cpuid",
+      "hit_rva": 79970,
+      "entry_rva": 79939,
+      "entry_offset_from_hit": 31,
+      "prologue": "b801000000448905edef0000eb07448b",
+      "section": ".text"
+    },
+    {
+      "kind": "cpuid",
+      "hit_rva": 79984,
+      "entry_rva": 79979,
+      "entry_offset_from_hit": 5,
+      "prologue": "b8070000000fa233c0f6c320741cc705",
+      "section": ".text"
+    },
+    {
+      "kind": "xgetbv",
+      "hit_rva": 9901,
+      "entry_rva": 9890,
+      "entry_offset_from_hit": 11,
+      "prologue": "bae71b0f833301000033c90f01d048c1",
+      "section": ".text"
+    },
+    {
+      "kind": "xgetbv",
+      "hit_rva": 79912,
+      "entry_rva": 79894,
+      "entry_offset_from_hit": 18,
+      "prologue": "895c24048954240c81f9001000187532",
+      "section": ".text"
+    }
+  ],
+  "imports": {
+    "KERNEL32.dll": [
+      "RaiseException",
+      "GetLastError",
+      "GetSystemInfo",
+      "VirtualProtect",
+      "VirtualQuery",
+      "FreeLibrary",
+      "GetModuleHandleW",
+      "GetProcAddress",
+      "LoadLibraryExA",
+      "QueryPerformanceCounter",
+      "GetCurrentProcessId",
+      "GetCurrentThreadId",
+      "GetSystemTimeAsFileTime",
+      "InitializeSListHead",
+      "RtlCaptureContext",
+      "RtlLookupFunctionEntry",
+      "RtlVirtualUnwind",
+      "IsDebuggerPresent",
+      "UnhandledExceptionFilter",
+      "SetUnhandledExceptionFilter",
+      "GetStartupInfoW",
+      "IsProcessorFeaturePresent",
+      "WriteConsoleW",
+      "RtlPcToFileHeader",
+      "RtlUnwindEx",
+      "SetLastError",
+      "EnterCriticalSection",
+      "LeaveCriticalSection",
+      "DeleteCriticalSection",
+      "InitializeCriticalSectionAndSpinCount",
+      "TlsAlloc",
+      "TlsGetValue",
+      "TlsSetValue",
+      "TlsFree",
+      "LoadLibraryExW",
+      "EncodePointer",
+      "GetCurrentProcess",
+      "TerminateProcess",
+      "GetStdHandle",
+      "WriteFile",
+      "GetModuleFileNameW",
+      "ExitProcess",
+      "GetModuleHandleExW",
+      "GetCommandLineA",
+      "GetCommandLineW",
+      "HeapAlloc",
+      "HeapFree",
+      "FlsAlloc",
+      "FlsGetValue",
+      "FlsSetValue",
+      "FlsFree",
+      "InitializeCriticalSectionEx",
+      "CompareStringW",
+      "LCMapStringW",
+      "GetFileType",
+      "FindClose",
+      "FindFirstFileExW",
+      "FindNextFileW",
+      "IsValidCodePage",
+      "GetACP",
+      "GetOEMCP",
+      "GetCPInfo",
+      "MultiByteToWideChar",
+      "WideCharToMultiByte",
+      "GetEnvironmentStringsW",
+      "FreeEnvironmentStringsW",
+      "SetEnvironmentVariableW",
+      "SetStdHandle",
+      "GetStringTypeW",
+      "GetProcessHeap",
+      "FlushFileBuffers",
+      "GetConsoleOutputCP",
+      "GetConsoleMode",
+      "GetFileSizeEx",
+      "SetFilePointerEx",
+      "HeapSize",
+      "HeapReAlloc",
+      "CloseHandle",
+      "CreateFileW"
+    ]
+  },
+  "delay_imports": {
+    "IPHLPAPI.DLL": [
+      "GetAdaptersAddresses"
+    ]
+  },
+  "exports": [],
+  "strings": {
+    "GetAdaptersAddresses": {
+      "count_at_least": 1,
+      "rvas": [
+        131898
+      ]
+    }
+  }
+}

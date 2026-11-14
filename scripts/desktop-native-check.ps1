@@ -188,22 +188,20 @@ for ($index = 0; $index -lt $events.Count; $index++) {
     }
 }
 if ($attachIndexes.Count -eq 0) { throw "No NativeBridge attach event found: $auditPath" }
-$sessionStartIndex = [int]$attachIndexes[$attachIndexes.Count - 1]
 $rootPid = $null
-$childEvents = @($events | Where-Object {
-    $_.surface -eq 'native.child' -and $_.action -in @('injected', 'launcher-injected')
+$mainAttachIndexes = @($attachIndexes | Where-Object {
+    [string]$events[[int]$_].detail -match 'process=main'
 })
-if ($childEvents.Count -gt 0) {
-    $lastChild = $childEvents[$childEvents.Count - 1]
-    $rootPid = [uint32]$lastChild.pid
-    $rootAttachIndexes = @($attachIndexes | Where-Object {
-        [uint32]$events[[int]$_].pid -eq $rootPid
-    })
-    if ($rootAttachIndexes.Count -gt 0) {
-        $sessionStartIndex = [int]$rootAttachIndexes[$rootAttachIndexes.Count - 1]
-    }
+if ($mainAttachIndexes.Count -gt 0) {
+    $sessionStartIndex = [int]$mainAttachIndexes[$mainAttachIndexes.Count - 1]
+    $rootPid = [uint32]$events[$sessionStartIndex].pid
+} else {
+    $sessionStartIndex = [int]$attachIndexes[$attachIndexes.Count - 1]
 }
 $session = @($events | Select-Object -Skip $sessionStartIndex)
+$childEvents = @($session | Where-Object {
+    $_.surface -eq 'native.child' -and $_.action -in @('injected', 'launcher-injected')
+})
 
 $failureActions = @('refused', 'missing', 'inline-refused', 'inline-missing')
 $failures = @($session | Where-Object {
@@ -342,6 +340,7 @@ foreach ($row in $metadataObserved) {
         continue
     }
     $commandLineObserved++
+    $isMain = ([int]$row.pid -eq [int]$rootPid) -or ([string]$row.processType -eq 'main')
 
     $profileArgument = '--user-data-dir=' + $expectedUserDataDir
     if (Test-CommandLineValue -CommandLine $commandLine -Value $profileArgument) {
@@ -364,12 +363,16 @@ foreach ($row in $metadataObserved) {
             })
             [void]$processFailureReasons.Add("proxy-argument-not-local:$($row.pid)")
         }
-    } elseif ($proxyConfiguration.configured) {
+    } elseif ($proxyConfiguration.configured -and $isMain) {
         [void]$proxyArgumentMissing.Add([int]$row.pid)
         [void]$processFailureReasons.Add("proxy-argument-missing:$($row.pid)")
     }
 
-    if ($proxyConfiguration.configured) {
+    # Chromium renderer/utility/GPU children inherit the browser Network
+    # Service proxy state; they do not reliably repeat the root switches.
+    # Require the resolver/WebRTC/QUIC boundary on the root only and validate
+    # child traffic through runtime socket evidence instead.
+    if ($proxyConfiguration.configured -and $isMain) {
         foreach ($requiredProxySwitch in @(
             '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1',
             '--disable-quic',
@@ -386,7 +389,6 @@ foreach ($row in $metadataObserved) {
         }
     }
 
-    $isMain = ([int]$row.pid -eq [int]$rootPid) -or ([string]$row.processType -eq 'main')
     if ($isMain -and $attachEvents.Count -gt 0) {
         foreach ($requiredChromiumSwitch in @('--no-sandbox', '--disable-gpu-sandbox')) {
             if (-not (Test-CommandLineValue -CommandLine $commandLine -Value $requiredChromiumSwitch)) {
