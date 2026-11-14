@@ -1,0 +1,55 @@
+{
+  "name": "cac-account-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron account and isolated Desktop Profile manager for cac-windows",
+  "main": "src/main.js",
+  "author": "cac-windows",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "lint": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js",
+    "smoke": "node scripts/smoke.js",
+    "dist": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1"
+  },
+  "devDependencies": {
+    "electron": "39.6.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.cac.windows.accountmanager",
+    "productName": "CAC Account Manager",
+    "asar": true,
+    "files": ["src/**/*", "package.json", "README.md"],
+    "extraResources": [
+      {
+        "from": "../scripts",
+        "to": "cac-runtime/scripts",
+        "filter": [
+          "desktop-profile.ps1",
+          "proxy-pool.ps1",
+          "proxy-pool-lib.ps1",
+          "cert-silent.ps1",
+          "mitm_fingerprint.py",
+          "fingerprint-shim.js",
+          "fingerprint-cdp.js"
+        ]
+      },
+      { "from": "../native/dist", "to": "cac-runtime/native/dist" },
+      { "from": "../src", "to": "cac-runtime/src", "filter": ["relay.js"] }
+    ],
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "artifactName": "cac-account-manager-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    }
+  }
+}

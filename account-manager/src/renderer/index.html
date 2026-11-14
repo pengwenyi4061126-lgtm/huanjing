@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CAC Account Manager</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">C</span><div><strong>CAC Account Manager</strong><small>Desktop Profile Console</small></div></div>
+      <div class="topbar-actions">
+        <span id="security-state" class="security-badge">加密状态读取中</span>
+        <button class="icon-button" data-action="refresh" title="刷新数据">↻</button>
+        <button class="icon-button" data-action="open-data" title="打开数据目录">⌂</button>
+      </div>
+    </header>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="nav-label">工作区</div>
+        <button class="nav-item active" data-view="accounts"><span>▦</span>账号</button>
+        <button class="nav-item" data-view="proxies"><span>⇄</span>代理池</button>
+        <button class="nav-item" data-view="settings"><span>⚙</span>设置</button>
+        <div class="sidebar-spacer"></div>
+        <div class="runtime-card">
+          <div class="runtime-title">运行边界</div>
+          <div id="runtime-root" class="mono muted">读取中</div>
+          <div class="runtime-row"><span>Profile</span><b id="profile-count">0</b></div>
+          <div class="runtime-row"><span>代理</span><b id="proxy-count">0</b></div>
+        </div>
+      </aside>
+      <main class="content">
+        <section id="view-accounts" class="view active-view">
+          <div class="page-heading">
+            <div><div class="eyebrow">ACCOUNT CONTROL</div><h1>账号</h1><p>用独立 Profile 管理网页登录会话、代理绑定和 Desktop 启动。</p></div>
+            <div class="heading-actions">
+              <button class="button secondary" data-action="import">⇧ 导入 JSON</button>
+              <button class="button secondary" data-action="export">⇩ 导出 JSON</button>
+              <button class="button primary" data-action="add-account">＋ 新建账号</button>
+            </div>
+          </div>
+          <div id="account-metrics" class="metrics"></div>
+          <div class="toolbar">
+            <label class="search-box"><span>⌕</span><input id="account-search" type="search" placeholder="搜索名称、邮箱、Profile"></label>
+            <select id="status-filter" class="select"><option value="all">全部状态</option><option value="running">运行中</option><option value="logged-in">已登录</option><option value="ready">待启动</option></select>
+            <span id="account-capacity" class="toolbar-note"></span>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>账号</th><th>Profile</th><th>代理</th><th>会话</th><th>状态</th><th>最近使用</th><th></th></tr></thead><tbody id="account-rows"></tbody></table></div>
+        </section>
+
+        <section id="view-proxies" class="view">
+          <div class="page-heading"><div><div class="eyebrow">SOCKS5 ROUTING</div><h1>代理池</h1><p>代理池状态、容量、绑定关系和远端 DNS 验活。</p></div><div class="heading-actions"><button class="button primary" data-action="add-proxy">＋ 添加 SOCKS5</button></div></div>
+          <div id="proxy-metrics" class="metrics"></div>
+          <div class="table-wrap"><table><thead><tr><th>代理</th><th>状态</th><th>承载</th><th>最近检查</th><th>操作</th></tr></thead><tbody id="proxy-rows"></tbody></table></div>
+          <div class="binding-panel"><div class="panel-title">当前绑定</div><div id="binding-rows" class="binding-list"></div></div>
+        </section>
+
+        <section id="view-settings" class="view">
+          <div class="page-heading"><div><div class="eyebrow">RUNTIME SETTINGS</div><h1>设置</h1><p>控制 Desktop 可执行文件、Native/Fingerprint 启动开关和代理池容量。</p></div></div>
+          <form id="settings-form" class="settings-form">
+            <label>Claude Desktop 可执行文件<input name="desktopExe" type="text" required></label>
+            <label>网页登录地址<input name="loginUrl" type="url" required></label>
+            <div class="form-grid"><label>每代理承载<input name="accountsPerProxy" type="number" min="1" max="100" required></label><label>告警倍数<input name="warningMultiplier" type="number" min="1" max="20" required></label></div>
+            <label class="check-row"><input name="autoBind" type="checkbox"><span>新账号自动绑定代理</span></label>
+            <label class="check-row"><input name="launchInject" type="checkbox"><span>启动 Desktop Native 注入</span></label>
+            <label class="check-row"><input name="launchFingerprint" type="checkbox"><span>启动 Desktop Fingerprint MITM</span></label>
+            <div class="form-actions"><button class="button primary" type="submit">保存设置</button><button class="button secondary" type="button" data-action="open-runtime">打开运行时目录</button></div>
+          </form>
+          <div class="notice"><strong>数据边界</strong><span>管理器索引位于用户 AppData；Desktop 会话位于每个 Profile。导出默认不含 Cookie 值。</span></div>
+        </section>
+
+        <section class="activity-panel"><div class="panel-title">活动日志</div><div id="activity-log" class="activity-log"></div></section>
+      </main>
+    </div>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-root"></div>
+  <script src="./app.js"></script>
+</body>
+</html>

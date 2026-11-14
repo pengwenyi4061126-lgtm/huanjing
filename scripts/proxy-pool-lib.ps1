@@ -358,6 +358,57 @@ function Ensure-CacProxyBinding {
     }
 }
 
+function Set-CacProxyBinding {
+    param(
+        [Parameter(Mandatory=$true)][string]$AccountKey,
+        [Parameter(Mandatory=$true)][string]$ProxyId
+    )
+    $key = $AccountKey.Trim()
+    $requestedProxyId = $ProxyId.Trim()
+    if ([string]::IsNullOrWhiteSpace($key)) { throw 'AccountKey cannot be empty' }
+    if ([string]::IsNullOrWhiteSpace($requestedProxyId)) { throw 'ProxyId cannot be empty' }
+    return Invoke-CacProxyPoolLocked {
+        $state = Get-CacProxyPoolStateCore
+        $proxy = Get-CacProxyPoolEntry $state $requestedProxyId
+        if ($null -eq $proxy -or -not [bool]$proxy.enabled) {
+            throw "Proxy is missing or disabled: $requestedProxyId"
+        }
+
+        $existing = @($state.bindings | Where-Object { [string]$_.accountKey -ieq $key } | Select-Object -First 1)[0]
+        if ($null -ne $existing -and [string]$existing.proxyId -ieq [string]$proxy.id) {
+            return $existing
+        }
+
+        $kept = @($state.bindings | Where-Object { [string]$_.accountKey -ine $key })
+        $counts = Get-CacProxyBindingCounts ([pscustomobject]@{ proxies = $state.proxies; bindings = $kept })
+        $limit = [Math]::Max(1, [int]$state.settings.accountsPerProxy)
+        if ([int]$counts[[string]$proxy.id] -ge $limit) {
+            throw "Proxy capacity exhausted: $($proxy.id) ($limit accounts per proxy)"
+        }
+
+        $binding = [pscustomobject][ordered]@{
+            accountKey = $key
+            proxyId    = [string]$proxy.id
+            updatedUtc = [DateTime]::UtcNow.ToString('o')
+        }
+        $state.bindings = $kept + @($binding)
+        Save-CacProxyPoolStateCore $state | Out-Null
+        return $binding
+    }
+}
+
+function Remove-CacProxyBinding {
+    param([Parameter(Mandatory=$true)][string]$AccountKey)
+    $key = $AccountKey.Trim()
+    if ([string]::IsNullOrWhiteSpace($key)) { throw 'AccountKey cannot be empty' }
+    return Invoke-CacProxyPoolLocked {
+        $state = Get-CacProxyPoolStateCore
+        $state.bindings = @($state.bindings | Where-Object { [string]$_.accountKey -ine $key })
+        Save-CacProxyPoolStateCore $state | Out-Null
+        return $state
+    }
+}
+
 function Get-CacProxyForAccount {
     param([Parameter(Mandatory=$true)][string]$AccountKey, [string]$ExplicitProxy)
     if (-not [string]::IsNullOrWhiteSpace($ExplicitProxy)) {

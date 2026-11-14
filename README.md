@@ -202,6 +202,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\proxy-pool.ps1 -
 
 代理池容量提示默认按“账号数 > 启用代理数 × 2”弹窗；每代理承载数默认 2，可用 `-Action settings -AccountsPerProxy N -WarningMultiplier 2` 调整。上游代理服务器自己的域名仍由本机解析；目标站点域名不会在本机解析。Claude Code 调起系统外部浏览器的场景不受 Desktop Chromium 参数控制，Desktop 内嵌登录浏览器会继承该链。
 
+### CAC Account Manager EXE
+
+仓库内新增 `account-manager` Electron 工程，提供账号卡片、Profile 切换、网页登录会话、JSON 导入/导出、SOCKS5 代理池、显式绑定/解绑、代理远端 DNS 验活和活动日志。管理器复用本目录的 Desktop/代理脚本，不维护第二套 Profile 或 relay 状态。
+
+```powershell
+cd E:\环境\huanjing\account-manager
+npm install
+npm run lint
+npm run smoke
+npm run dist
+```
+
+产物位于 `account-manager\dist\`：`cac-account-manager-0.1.0-x64-portable.exe` 和 `cac-account-manager-0.1.0-x64-setup.exe`。账号 JSON 默认只导出元数据；包含登录会话时使用 Windows DPAPI 保护的 `safeStorage` 快照，不把 Cookie 明文写入导出文件。管理器删除账号只移除索引和代理绑定，不删除 Profile 目录。
+
 > **为什么必须通过 `claude` wrapper（或 cac 菜单）启动？** claude.exe 是 Bun 打包的单文件程序，内置了预编译的 JSC 字节码。默认情况下运行时直接执行字节码，**内嵌的 JS 源码根本不会被读取，补丁等于没打**。wrapper 启动时会设置 `BUN_JSC_useCodeCache=false`，强制 Bun 放弃字节码、回退到（已打补丁的）源码执行。代价是启动慢约 0.3 秒。直接双击或用绝对路径运行 claude.exe 不会带上这个变量，补丁不生效。
 
 ### Desktop 子进程注入与沙箱

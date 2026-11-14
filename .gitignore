@@ -1,6 +1,8 @@
 .DS_Store
 .npmrc
 node_modules/
+account-manager/node_modules/
+account-manager/dist/
 *.swp
 *.swo
 *~

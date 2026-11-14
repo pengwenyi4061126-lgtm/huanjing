@@ -10,7 +10,7 @@
 #   powershell -NoProfile -File .\desktop-profile.ps1 -Action cleanup -Profile work
 
 param(
-    [ValidateSet('create','list','launch','status','ab','cleanup','remove-ca','monitor')][string]$Action = 'status',
+    [ValidateSet('create','list','launch','status','stop','ab','cleanup','remove-ca','monitor')][string]$Action = 'status',
     [string]$Profile,
     [string]$Exe = 'C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\claude.exe',
     [string]$MitmDump,
@@ -34,7 +34,8 @@ param(
     [string]$LaunchStateFile,
     [string]$LaunchGeneration,
     [string]$MonitorReadyFile,
-    [switch]$RemoveCaAfterExit
+    [switch]$RemoveCaAfterExit,
+    [switch]$SuppressProxyWarning
 )
 
 $ErrorActionPreference = 'Stop'
@@ -2003,6 +2004,55 @@ function Write-AntDidInfo {
     Write-Host "    SHA256=$($Info.sha256)" -ForegroundColor Gray
 }
 
+function Invoke-StopAction {
+    $name = Resolve-ProfileName -Requested $Profile
+    $paths = Get-ProfilePaths -Name $name
+    $profileLock = $null
+    try {
+        $profileLock = Enter-DesktopProfileMutex -ProfileRoot $paths.Root
+        if ($null -eq $profileLock) { throw "Profile is busy: $($paths.Root)" }
+        if (-not (Test-Path -LiteralPath $paths.Root -PathType Container)) {
+            Write-Host "[STOP] profile not found: $name" -ForegroundColor Yellow
+            return 0
+        }
+
+        $stopped = New-Object 'System.Collections.Generic.List[int]'
+        $roots = @()
+        try {
+            $profileIds = @(Get-ProfileProcessIds -Paths $paths)
+            foreach ($candidateId in $profileIds) {
+                $root = Get-ClaudeRootIdentity -ProcessId ([int]$candidateId) -Paths $paths
+                if ($null -ne $root) { $roots += $root }
+            }
+        } catch {
+            throw "Unable to inspect profile processes: $($_.Exception.Message)"
+        }
+
+        foreach ($root in @($roots | Sort-Object Id -Unique)) {
+            $result = Stop-ClaudeProcessTree -RootProcessId ([int]$root.Id) -Paths $paths -RootIdentity $root
+            foreach ($pid in @($result.collectedPids)) {
+                if (-not $stopped.Contains([int]$pid)) { [void]$stopped.Add([int]$pid) }
+            }
+            if ($result.error) { Write-Host "[STOP] $($result.error)" -ForegroundColor Yellow }
+        }
+
+        # Stop detached profile-owned helpers after the authenticated root tree
+        # pass. Get-ProfileProcessIds requires a path/profile marker, so this
+        # does not fall back to a global `claude.exe` kill.
+        Stop-ProfileProcesses -Paths $paths
+        Start-Sleep -Milliseconds 250
+        $remaining = @(Get-ProfileProcessIds -Paths $paths)
+        Write-Host ("[STOP] {0} stopped={1} remaining={2}" -f $name, $stopped.Count, $remaining.Count)
+        if ($remaining.Count -gt 0) {
+            Write-Host ("[STOP] remaining PIDs: {0}" -f ($remaining -join ', ')) -ForegroundColor Red
+            return 1
+        }
+        return 0
+    } finally {
+        Exit-DesktopProfileMutex $profileLock
+    }
+}
+
 function Write-JsonNoBom {
     param(
         [string]$Path,
@@ -2018,7 +2068,7 @@ function Invoke-CreateAction {
     $paths = Get-ProfilePaths -Name $name
     Initialize-ProfileLayout -Paths $paths | Out-Null
     Initialize-ProfileIdentity -Paths $paths | Out-Null
-    Show-CacProxyCapacityWarning (Get-CacKnownAccountCapacityWarning)
+    if (-not $SuppressProxyWarning) { Show-CacProxyCapacityWarning (Get-CacKnownAccountCapacityWarning) }
     Write-Host "[CREATE] $($paths.Name)"
     Write-Host "  root: $($paths.Root)"
     foreach ($relative in $script:LayoutFolders) {
@@ -2343,6 +2393,7 @@ try {
         'create'  { $exitCode = Invoke-CreateAction }
         'list'    { $exitCode = Invoke-ListAction }
         'status'  { $exitCode = Invoke-StatusAction }
+        'stop'    { $exitCode = Invoke-StopAction }
         'launch'  { $exitCode = Invoke-LaunchAction }
         'ab'      { $exitCode = Invoke-AbAction }
         'cleanup' { $exitCode = Invoke-CleanupAction }

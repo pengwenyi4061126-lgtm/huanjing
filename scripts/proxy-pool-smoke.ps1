@@ -11,6 +11,9 @@ try {
     $state = Get-CacProxyPoolState
     if (@($state.proxies).Count -ne 2) { throw 'proxy count mismatch' }
     if (@($state.proxies | Where-Object { $_.url -notlike 'socks5h://*' }).Count -ne 0) { throw 'socks5 was not normalized to socks5h' }
+    $explicit = Set-CacProxyBinding -AccountKey 'desktop:single-key-check' -ProxyId ([string]$state.proxies[0].id)
+    if ($null -eq $explicit -or [string]$explicit.accountKey -ne 'desktop:single-key-check') { throw 'explicit single-key bind mismatch' }
+    Remove-CacProxyBinding -AccountKey 'desktop:single-key-check' | Out-Null
     $keys = @('account-1','account-2','account-3','account-4')
     $result = Rebalance-CacProxyBindings -AccountKeys $keys
     if (@($result.state.bindings).Count -ne 4) { throw 'binding count mismatch at hard capacity' }

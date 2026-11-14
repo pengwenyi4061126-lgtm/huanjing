@@ -1,6 +1,6 @@
 #requires -Version 5.1
 param(
-    [ValidateSet('list','add','remove','auto-bind','rebalance','unbind-all','settings')][string]$Action = 'list',
+    [ValidateSet('list','add','remove','bind','unbind','auto-bind','rebalance','unbind-all','settings')][string]$Action = 'list',
     [string]$Proxy,
     [string]$Id,
     [string[]]$AccountKey,
@@ -48,6 +48,7 @@ try {
     switch ($Action) {
         'list' { Show-Pool }
         'add' {
+            if (-not $Proxy) { $Proxy = [Environment]::GetEnvironmentVariable('CAC_PROXY_POOL_INPUT', 'Process') }
             if (-not $Proxy) { throw 'add requires -Proxy socks5h://user:pass@host:port' }
             $entry = Add-CacProxyPoolEntry -ProxyUrl $Proxy -ProxyId $Id
             Write-Host ("[ADD] {0} {1}" -f $entry.id, (Mask-CacProxyUrl $entry.url)) -ForegroundColor Green
@@ -56,6 +57,18 @@ try {
             if (-not $Id) { throw 'remove requires -Id proxy-xxxxxxxxxxxx' }
             Remove-CacProxyPoolEntry -ProxyId $Id | Out-Null
             Write-Host "[REMOVE] $Id" -ForegroundColor Green
+        }
+        'bind' {
+            $keys = @(Get-RequestedAccountKeys)
+            if ($keys.Count -ne 1 -or -not $Id) { throw 'bind requires exactly one -AccountKey and -Id proxy-xxxxxxxxxxxx' }
+            $binding = Set-CacProxyBinding -AccountKey ([string]$keys[0]) -ProxyId $Id
+            Write-Host ("[BIND] {0} -> {1}" -f $binding.accountKey, $binding.proxyId) -ForegroundColor Green
+        }
+        'unbind' {
+            $keys = @(Get-RequestedAccountKeys)
+            if ($keys.Count -ne 1) { throw 'unbind requires exactly one -AccountKey' }
+            Remove-CacProxyBinding -AccountKey ([string]$keys[0]) | Out-Null
+            Write-Host ("[UNBIND] {0}" -f ([string]$keys[0])) -ForegroundColor Green
         }
         'unbind-all' {
             Clear-CacProxyPoolBindings | Out-Null
