@@ -158,7 +158,7 @@ npm run native:wfp:smoke
 
 `audit:desktop` 默认对未观察到的 WMI、异步 DeviceIoControl、CPU manifest 或进程快照返回非零；`-RequireKernel` 要求看到 `kernel.policy=verified`，`-RequireWfp` 要求看到 WFP 安装证据；`-AllowPartial` 只允许查看当前会话证据，不会把未观察到的路径标记为已覆盖。完整验收仍以 `desktop-native-check.json` 的 `status=PASS` 为准。
 
-Desktop 审计会按 NativeBridge 会话中的每个 PID读取 `ParentProcessId`、`ExecutablePath` 和 `CommandLine`，并把父子 PID、`--user-data-dir` Profile 参数、仅回环的 `--proxy-server`/DNS/QUIC/WebRTC 参数以及 Native 模式的 Chromium `--no-sandbox`、`--disable-gpu-sandbox` 和子进程 `--type` 参数写入 `processMetadata`/`processAssertions`。进程树已在审计前退出时，字段写为 `observed=false`，结果为 `PARTIAL`；这类查看命令不会启动真实 Desktop。
+Desktop 审计会按 NativeBridge 会话中的每个 PID 读取 `ParentProcessId`、`ExecutablePath` 和 `CommandLine`，并把父子 PID、`--user-data-dir` Profile 参数、Native 模式的 Chromium `--no-sandbox`、`--disable-gpu-sandbox` 和子进程 `--type` 参数写入 `processMetadata`/`processAssertions`。当前 Claude Desktop 版本拒绝 `--proxy-server`、`--host-resolver-rules`、`--disable-quic` 和 WebRTC 覆盖命令行参数，因此审计不再要求这些参数；它改为验证 NativeBridge `api.winhttp* = enforce-local` 运行时证据、`network_mode=enforce` 下的 WFP 安装证据和实际 socket 现场。进程树已在审计前退出时，字段写为 `observed=false`，结果为 `PARTIAL`；这类查看命令不会启动真实 Desktop。
 
 `audit:native` 只读取 `%USERPROFILE%\.cac\envs\<name>` 下的 Claude Code 证据；Claude Desktop 必须使用 `audit:desktop`，两者的日志目录和结论不能混用。
 

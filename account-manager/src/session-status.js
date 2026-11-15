@@ -13,7 +13,10 @@ function isUuid(value) {
 
 function findCookie(cookies, names) {
   const accepted = new Set(Array.isArray(names) ? names : [names])
-  return cookies.find((cookie) => accepted.has(cookie?.name) && cookie?.value) || null
+  const nowSeconds = Date.now() / 1000
+  return cookies.find((cookie) => accepted.has(cookie?.name) && cookie?.value &&
+    (cookie.expirationDate == null || !Number.isFinite(Number(cookie.expirationDate)) ||
+      Number(cookie.expirationDate) > nowSeconds)) || null
 }
 
 function analyzeClaudeSession(cookies) {

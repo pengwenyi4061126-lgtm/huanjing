@@ -79,6 +79,11 @@ function normalizeProxyGeo(payload, options = {}) {
 
 function profileGenesisEnvironment(profile) {
   if (!profile || profile.source !== 'first-socks5') throw new Error('Profile 初始化缺少首个 SOCKS5 画像')
+  if (profile.timezone !== FIXED_US_TIMEZONE || profile.locale !== FIXED_US_LOCALE ||
+      !Array.isArray(profile.languages) || profile.languages.length !== FIXED_US_LANGUAGES.length ||
+      profile.languages.some((language, index) => language !== FIXED_US_LANGUAGES[index])) {
+    throw new Error('Profile timezone/language must match fixed America/New_York and en-US,en')
+  }
   return {
     CAC_PROFILE_TIMEZONE: profile.timezone,
     CAC_PROFILE_LOCALE: profile.locale,

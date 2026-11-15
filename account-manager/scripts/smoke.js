@@ -6,15 +6,23 @@ const path = require('node:path')
 
 const root = path.resolve(__dirname, '..')
 const { normalizeProxyUrl, parseProxyInput } = require(path.join(root, 'src', 'proxy-input.js'))
+const { inspectClaudeResponse } = require(path.join(root, 'src', 'socks-client.js'))
 const {
   isClaudeDeepLink,
   isClaudeMagicLink,
+  loginPageStage,
   maskLoginTarget,
   normalizeLoginTarget,
   normalizeWebLoginTarget,
-  webUrlFromClaudeDeepLink
+  webUrlFromClaudePopup
 } = require(path.join(root, 'src', 'login-input.js'))
 const { analyzeClaudeSession, isClaudeCookie } = require(path.join(root, 'src', 'session-status.js'))
+assert.equal(webUrlFromClaudePopup('https://claude.ai/magic-link?client=desktop_app#fixture'), null)
+assert.equal(webUrlFromClaudePopup('claude://claude.ai/magic-link#fixture'), null)
+assert.equal(webUrlFromClaudePopup('https://accounts.google.com/'), null)
+assert.equal(webUrlFromClaudePopup('http://claude.ai/login'), null)
+assert.match(fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8'), /webUrlFromClaudePopup\(url\)/)
+assert.match(fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8'), /manager:close-login', \(\) => closeLoginWithCapture\(\)/)
 const {
   chromiumCookieExpiresUtc,
   chromiumSameSite,
@@ -56,7 +64,8 @@ assert.match(mainSource, /probeConfiguredLoginProxy/)
 assert.match(mainSource, /installLoginWebContentsPersona/)
 assert.doesNotMatch(mainSource, /addScriptToExecuteOnNewDocument/)
 assert.match(mainSource, /loginOpenInProgress/)
-assert.match(mainSource, /rmSync\(auditPath, \{ force: true \}\)/)
+assert.match(mainSource, /login-native-\$\{Date\.now\(\)\}-\$\{process\.pid\}-\$\{crypto\.randomUUID\(\)\}\.jsonl/)
+assert.doesNotMatch(mainSource, /rmSync\(auditPath, \{ force: true \}\)/)
 assert.match(mainSource, /window-switch/)
 assert.match(mainSource, /host-resolver-rules/)
 assert.match(mainSource, /disable_non_proxied_udp/)
@@ -65,10 +74,11 @@ assert.match(mainSource, /probeSocks5Profile/)
 assert.match(mainSource, /path\.join\(HOST_USERPROFILE, '\.cac', 'proxy-pool\.json'\)/)
 assert.match(mainSource, /Profile .*存在未归属的旧设备画像/)
 assert.match(mainSource, /'-Action', 'cleanup', '-Profile', account\.profileName/)
-assert.match(mainSource, /账号、代理绑定、登录会话、Cookies、缓存和 Profile 画像/)
-assert.match(mainSource, /session\.fromPartition\(accountLoginPartition\(account\), \{ cache: false \}\)/)
+assert.match(mainSource, /已删除账号、代理绑定和 Desktop Profile；网页登录数据已清空/)
+assert.match(mainSource, /session\.fromPath\(accountLoginSessionPath\(account\), \{ cache: false \}\)/)
+assert.match(mainSource, /removedOrphanWebSessions/)
 assert.match(mainSource, /restoreLoginCookies\(account, configured\.sess\)/)
-assert.doesNotMatch(mainSource, /session\.fromPath\(/)
+assert.match(mainSource, /await sess\.clearData\(\)/)
 assert.match(mainSource, /cleanupLegacyLoginArtifacts\(\)/)
 assert.match(mainSource, /entry\.name\.startsWith\('cac-account-'\)/)
 assert.match(socksClientSource, /socks5-domain-atyp-3/)
@@ -83,6 +93,13 @@ assert.equal(normalizeProxyUrl('host.example:1080:user:pass'), 'socks5h://user:p
 assert.equal(normalizeProxyUrl('socks5://host.example:1080:user:pass'), 'socks5h://user:pass@host.example:1080')
 assert.equal(normalizeProxyUrl('host.example|1080|user|pass'), 'socks5h://user:pass@host.example:1080')
 assert.equal(normalizeProxyUrl('user:pass@host.example:1080'), 'socks5h://user:pass@host.example:1080')
+const encodedCity = normalizeProxyUrl('host.example:1080:miya_g-US_c-Kansas%20City_sid-1:pass')
+assert.equal(decodeURIComponent(new URL(encodedCity).username), 'miya_g-US_c-Kansas%20City_sid-1')
+assert.equal(normalizeProxyUrl(encodedCity), encodedCity)
+assert.deepEqual(inspectClaudeResponse({ statusCode: 403, headers: new Map([['cf-mitigated', 'challenge']]) }), {
+  statusCode: 403, httpOk: false, challenge: true
+})
+assert.equal(inspectClaudeResponse({ statusCode: 200, headers: new Map() }).httpOk, true)
 const proxyBatch = parseProxyInput('host.example:1080:user:pass\nhost2.example,1081,user2,pass2\nhost.example:1080:user:pass')
 assert.equal(proxyBatch.entries.length, 2)
 assert.equal(proxyBatch.duplicates.length, 1)
@@ -90,9 +107,12 @@ assert.equal(proxyBatch.errors.length, 0)
 const magicLink = 'https://claude.ai/magic-link#opaque-token:ZW1haWxAZXhhbXBsZS5jb20='
 assert.equal(isClaudeMagicLink(magicLink), true)
 assert.equal(normalizeLoginTarget(magicLink), magicLink)
-assert.equal(normalizeWebLoginTarget('https://claude.ai/magic-link?client=desktop_app#opaque-token'), 'https://claude.ai/magic-link#opaque-token')
+assert.throws(() => normalizeWebLoginTarget('https://claude.ai/magic-link?client=desktop_app#opaque-token'), /Desktop 专用/)
 assert.equal(isClaudeDeepLink('claude://claude.ai/magic-link?client=desktop_app#opaque-token'), true)
-assert.equal(webUrlFromClaudeDeepLink('claude://claude.ai/magic-link?client=desktop_app#opaque-token'), 'https://claude.ai/magic-link#opaque-token')
+assert.equal(loginPageStage(magicLink), 'magic-link')
+assert.equal(loginPageStage('https://claude.ai/login?email=private'), 'email-login')
+assert.equal(loginPageStage('https://claude.ai/chats'), 'chat')
+assert.equal(loginPageStage('https://accounts.google.com/'), 'external')
 assert.equal(maskLoginTarget(magicLink), 'https://claude.ai/magic-link#…')
 assert.throws(() => normalizeLoginTarget('https://claude.ai/magic-link'), /缺少登录令牌/)
 assert.throws(() => normalizeLoginTarget('http://claude.ai/magic-link#opaque-token'), /必须使用 HTTPS/)
@@ -193,6 +213,17 @@ const fixedProfile = normalizeProxyGeo({
 assert.equal(fixedProfile.timezone, FIXED_US_TIMEZONE)
 assert.equal(fixedProfile.locale, FIXED_US_LOCALE)
 assert.deepEqual(fixedProfile.languages, FIXED_US_LANGUAGES)
+const genesisEnv = profileGenesisEnvironment(fixedProfile)
+assert.equal(genesisEnv.CAC_PROFILE_TIMEZONE, FIXED_US_TIMEZONE)
+assert.equal(genesisEnv.CAC_PROFILE_LOCALE, FIXED_US_LOCALE)
+assert.equal(genesisEnv.CAC_PROFILE_LANGUAGES, FIXED_US_LANGUAGES.join(','))
+for (const override of [
+  { timezone: 'Asia/Shanghai' },
+  { locale: 'zh-CN' },
+  { languages: ['zh-CN', 'zh'] }
+]) {
+  assert.throws(() => profileGenesisEnvironment({ ...fixedProfile, ...override }), /must match fixed/)
+}
 assert.equal(profileGenesisEnvironment(proxyProfile).CAC_PROFILE_ORIGIN_PROXY_ID, 'proxy-first')
 assert.equal(profileGenesisEnvironment(proxyProfile).CAC_PROFILE_ORIGIN_PROVIDER, 'ipapi.co')
 const firstProxyPersona = {

@@ -43,9 +43,9 @@ function normalizeWebLoginTarget(value, fallback = 'https://claude.ai/login') {
   const target = normalizeLoginTarget(value, fallback)
   const url = new URL(target)
   if (isClaudeMagicLink(target) && url.searchParams.get('client') === 'desktop_app') {
-    url.searchParams.delete('client')
+    throw new Error('这是 Desktop 专用 Magic Link，不能改写为网页登录链接；请从当前网页登录窗口重新申请邮件链接')
   }
-  return url.toString()
+  return target
 }
 
 function isClaudeDeepLink(value) {
@@ -58,11 +58,29 @@ function isClaudeDeepLink(value) {
   }
 }
 
-function webUrlFromClaudeDeepLink(value) {
-  if (!isClaudeDeepLink(value)) return null
-  const url = new URL(String(value || '').trim().replace(/^claude:/i, 'https:'))
-  if (url.searchParams.get('client') === 'desktop_app') url.searchParams.delete('client')
-  return url.toString()
+function webUrlFromClaudePopup(value) {
+  try {
+    const url = new URL(String(value || '').trim())
+    if (url.protocol !== 'https:' || !CLAUDE_HOSTS.has(url.hostname.toLowerCase())) return null
+    return normalizeWebLoginTarget(url.toString())
+  } catch {
+    return null
+  }
+}
+
+function loginPageStage(value) {
+  try {
+    const url = new URL(String(value || '').trim())
+    if (url.protocol !== 'https:' || !CLAUDE_HOSTS.has(url.hostname.toLowerCase())) return 'external'
+    const route = url.pathname.replace(/\/+$/, '').toLowerCase()
+    if (['/login', '/signin', '/sign-in'].includes(route)) return 'email-login'
+    if (route === '/magic-link') return 'magic-link'
+    if (['/new', '/signup', '/sign-up'].includes(route)) return 'onboarding'
+    if (route === '/chats' || route === '/chat' || route.startsWith('/chat/')) return 'chat'
+    return 'claude-page'
+  } catch {
+    return 'invalid'
+  }
 }
 
 function maskLoginTarget(value) {
@@ -77,10 +95,11 @@ function maskLoginTarget(value) {
 module.exports = {
   isClaudeMagicLink,
   isClaudeDeepLink,
+  loginPageStage,
   maskLoginTarget,
   normalizeLoginTarget,
   normalizeLoginUrl,
   normalizeMagicLink,
   normalizeWebLoginTarget,
-  webUrlFromClaudeDeepLink
+  webUrlFromClaudePopup
 }

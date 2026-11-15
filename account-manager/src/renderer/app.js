@@ -102,7 +102,10 @@ function renderAccounts() {
 
   const enabledProxyCount = model.proxies.filter((proxy) => proxy.enabled).length
   const capacity = enabledProxyCount * Number(model.settings.accountsPerProxy || 2)
-  $('#account-capacity').textContent = enabledProxyCount ? `代理容量 ${model.accounts.length}/${capacity}` : '暂无启用代理'
+  const occupied = model.proxies.filter((proxy) => proxy.enabled).reduce((total, proxy) => total + proxy.accountCount, 0)
+  const available = model.proxies.filter((proxy) => proxy.enabled)
+    .reduce((total, proxy) => total + Math.max(0, Number(model.settings.accountsPerProxy || 2) - proxy.accountCount), 0)
+  $('#account-capacity').textContent = enabledProxyCount ? `全局绑定 ${occupied}/${capacity} · 可用空位 ${available}` : '暂无启用代理'
   const search = model.search.toLowerCase()
   const rows = model.accounts.filter((account) => {
     const haystack = `${account.label} ${account.email} ${account.profileName}`.toLowerCase()
@@ -114,7 +117,7 @@ function renderAccounts() {
 }
 
 function statusText(status) {
-  return ({ running: '运行中', starting: '启动中', 'logged-in': '已登录', 'auth-pending': '验证中', ready: '待启动', error: '错误' }[status] || '待启动')
+  return ({ running: '运行中', starting: '启动中', 'logged-in': 'Cookie快照', 'auth-pending': '待登录', ready: '待启动', error: '错误' }[status] || '待启动')
 }
 
 function renderAccountRow(account) {
@@ -132,7 +135,7 @@ function renderAccountRow(account) {
     <td><div class="account-name"><span class="avatar">${escapeHtml(initials(account))}</span><div><strong>${escapeHtml(account.label || account.profileName)}</strong><span>${escapeHtml(account.email || '未填写邮箱')}</span></div></div></td>
     <td><div class="profile-cell"><b>${escapeHtml(account.profileName)}</b><span>${account.runtimePid ? `PID ${escapeHtml(account.runtimePid)}` : escapeHtml(imageLabel)}</span></div></td>
     <td><div class="proxy-cell"><b>${proxy ? escapeHtml(proxy.displayUrl) : '未绑定'}</b><span>${proxy ? escapeHtml(proxy.id) : '登录与启动禁止直连'}</span></div></td>
-    <td><div class="proxy-cell"><b>${session.authenticated ? '已验证会话' : (session.cookieCount ? `${session.cookieCount} Cookies` : '无快照')}</b><span>${session.savedAt ? escapeHtml(formatTime(session.savedAt)) : '未保存'}</span></div></td>
+    <td><div class="proxy-cell"><b>${session.authenticated ? '本地 Cookie 快照' : (session.cookieCount ? `${session.cookieCount} Cookies` : '无快照')}</b><span>${session.savedAt ? escapeHtml(formatTime(session.savedAt)) : '未保存'}</span></div></td>
     <td><span class="status ${escapeHtml(account.status)}">${statusText(account.status)}</span></td>
     <td class="muted mono">${escapeHtml(formatTime(account.lastUsedAt))}</td>
     <td><div class="row-actions">${action}<button class="row-action" data-action="login-account" data-id="${escapeHtml(account.id)}">${loginLabel}</button><button class="row-action" data-action="edit-account" data-id="${escapeHtml(account.id)}">编辑</button><button class="row-action danger" data-action="delete-account" data-id="${escapeHtml(account.id)}">删除</button></div></td>
@@ -230,52 +233,55 @@ function openLoginModal(account) {
   const proxy = proxyFor(account)
   const image = account.session?.deviceImage || {}
   const imageLabel = image.timezone && image.locale ? `${image.timezone} · ${image.locale}` : '未锁定'
-  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-modal-close><div class="modal modal-wide" role="dialog" aria-modal="true"><h2>网页登录 · ${escapeHtml(account.label || account.profileName)}</h2><p>网页登录窗口使用该账号的独立会话、锁定画像和绑定 SOCKS5；代理检查未通过时禁止加载页面。</p><div class="login-meta"><span>Profile <b>${escapeHtml(account.profileName)}</b></span><span>画像 <b>${escapeHtml(imageLabel)}</b></span><span>代理 <b>${escapeHtml(proxy?.displayUrl || '未绑定')}</b></span></div><form id="login-form"><label>登录页地址<input name="loginUrl" type="url" value="${escapeHtml(account.loginUrl || model.settings.loginUrl || 'https://claude.ai/login')}" required></label><label>完整 Magic Link<textarea name="magicLink" rows="4" placeholder="https://claude.ai/magic-link#..."></textarea></label><div id="login-proxy-audit" class="modal-note">正在执行登录代理检查，检查通过后才允许打开页面。</div><div id="login-form-error" class="modal-error"></div><div class="modal-actions"><button class="button secondary" type="button" data-modal-close>取消</button><button class="button secondary" id="check-login-proxy" type="button">重新检查代理</button><button class="button secondary" id="open-login-page" type="button">打开登录页</button><button class="button primary" id="open-magic-link" type="button">打开 Magic Link</button></div></form></div></div>`
-  const backdrop = $('.modal-backdrop')
+  $('#modal-root').innerHTML = `<div class="modal-backdrop"><div class="modal modal-wide" role="dialog" aria-modal="true"><h2>网页登录 · ${escapeHtml(account.label || account.profileName)}</h2><p>网页登录窗口使用该账号的独立会话、锁定画像和绑定 SOCKS5；代理检查未通过时禁止加载页面。</p><div class="login-meta"><span>Profile <b>${escapeHtml(account.profileName)}</b></span><span>画像 <b>${escapeHtml(imageLabel)}</b></span><span>代理 <b>${escapeHtml(proxy?.displayUrl || '未绑定')}</b></span></div><form id="login-form"><label>登录页地址<input name="loginUrl" type="url" value="${escapeHtml(account.loginUrl || model.settings.loginUrl || 'https://claude.ai/login')}" required></label><label>完整 Magic Link<textarea name="magicLink" rows="4" placeholder="https://claude.ai/magic-link#..."></textarea></label><div id="login-proxy-audit" class="modal-note">未检查代理</div><div id="login-form-error" class="modal-error"></div><div class="modal-actions"><button class="button secondary" id="cancel-login" type="button">取消</button><button class="button secondary" id="check-login-proxy" type="button">检查代理</button><button class="button secondary" id="open-login-page" type="button">打开登录页</button><button class="button primary" id="open-magic-link" type="button">打开 Magic Link</button></div></form></div></div>`
   const errorNode = $('#login-form-error')
   const auditNode = $('#login-proxy-audit')
   const form = $('#login-form')
-  const cancelLogin = () => {
-    void api.closeLogin()
-    closeModal()
+  const egressLabel = (result) => {
+    const ip2 = result?.ip2Location
+    if (!ip2?.externalIp) return `IPify ${result.externalIp}${ip2?.error ? ' · IP2Location 未确认' : ''}`
+    return `IPify ${result.externalIp} · IP2Location ${ip2.externalIp}${ip2.sameAsIpify ? '（同一出口）' : '（双栈出口）'}`
   }
-  backdrop.addEventListener('click', (event) => { if (event.target === backdrop || event.target.matches('[data-modal-close]')) cancelLogin() })
+  let loginActionPending = false
+  const runLoginAction = async (button, task) => {
+    if (loginActionPending) return
+    loginActionPending = true
+    try { await withBusy(button, task) } catch { } finally { loginActionPending = false }
+  }
+  $('#cancel-login').addEventListener('click', (event) => runLoginAction(event.currentTarget, async () => {
+    await api.closeLogin()
+    closeModal()
+  }))
   form.addEventListener('submit', (event) => event.preventDefault())
 
-  const openTarget = (button, target) => withBusy(button, async () => {
+  const openTarget = (button, target) => runLoginAction(button, async () => {
     try {
       const result = await api.openLogin(account.id, target)
-      auditNode.textContent = `代理正常：出口 ${result.externalIp} · Native PID ${result.nativePid} · ${result.dnsMode}`
-      closeModal()
-      showToast(`${result.target} 已打开，出口 ${result.proxy}`)
+      auditNode.textContent = `代理正常：${egressLabel(result)} · Native PID ${result.nativePid} · ${result.dnsMode}${result.target === 'Magic Link' ? ' · 登录状态待确认' : ''}`
+      errorNode.textContent = ''
+      if (result.target === 'Magic Link') form.elements.magicLink.value = ''
+      showToast(result.target === 'Magic Link'
+        ? 'Magic Link 已提交到当前登录窗口；尚未确认登录，请查看页面和事件日志'
+        : (result.navigated ? `${result.target} 已打开，出口 ${result.proxy}` : '已显示当前登录窗口，代理会话保持不变'))
     } catch (error) {
       errorNode.textContent = error.message || String(error)
       throw error
     }
-  }).catch(() => undefined)
+  })
 
   $('#open-login-page').addEventListener('click', (event) => openTarget(event.currentTarget, form.elements.loginUrl.value))
   $('#open-magic-link').addEventListener('click', (event) => openTarget(event.currentTarget, form.elements.magicLink.value))
-  $('#check-login-proxy').addEventListener('click', (event) => withBusy(event.currentTarget, async () => {
+  $('#check-login-proxy').addEventListener('click', (event) => runLoginAction(event.currentTarget, async () => {
     try {
       const result = await api.checkLoginProxy(account.id)
-      auditNode.textContent = `代理正常：出口 ${result.externalIp} · ${result.latencyMs}ms · ${result.dnsMode}`
-      showToast(`网页登录代理正常：${result.externalIp}`)
+      auditNode.textContent = `代理正常：${egressLabel(result)} · ${result.latencyMs}ms · ${result.dnsMode}`
+      errorNode.textContent = ''
+      showToast(`网页登录代理正常：${egressLabel(result)}`)
     } catch (error) {
       errorNode.textContent = error.message || String(error)
       throw error
     }
-  }).catch(() => undefined))
-
-  void (async () => {
-    try {
-      const result = await api.checkLoginProxy(account.id)
-      auditNode.textContent = `代理正常：出口 ${result.externalIp} · ${result.latencyMs}ms · ${result.dnsMode}`
-    } catch (error) {
-      auditNode.textContent = `代理检查失败：${error.message || String(error)}`
-      errorNode.textContent = error.message || String(error)
-    }
-  })()
+  }))
 }
 
 function openProxyModal() {
@@ -346,7 +352,16 @@ async function handleProxyAction(action, id, button) {
   if (action === 'test-proxy') {
     await withBusy(button, async () => {
       const result = await api.testProxy(id)
-      showToast(`出口 ${result.externalIp} · ${result.latencyMs}ms`)
+      const target = result.claude?.challenge
+        ? '脚本探针遇 403 验证，浏览器结果未判定'
+        : result.claude?.httpOk
+          ? `脚本探针 Claude HTTP ${result.claude.statusCode}`
+          : `脚本探针 Claude ${result.claude?.statusCode ? `HTTP ${result.claude.statusCode}` : '连接失败'}，浏览器结果未判定`
+      const ip2 = result.ip2Location
+      const egress = ip2?.externalIp
+        ? `IPify ${result.externalIp} · IP2Location ${ip2.externalIp}${ip2.sameAsIpify ? '' : '（双栈）'}`
+        : `IPify ${result.externalIp}`
+      showToast(`SOCKS5 ${egress} · ${target}`)
       await refresh()
     }).catch(() => undefined)
     return

@@ -9,9 +9,10 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "lint": "node --check src/main.js && node --check src/login-fingerprint.js && node --check src/device-image.js && node --check src/proxy-profile.js && node --check src/socks-client.js && node --check src/preload.js && node --check src/renderer/app.js && node --check scripts/electron-proxy-smoke.js && node --check ../scripts/fingerprint-shim.js",
-    "smoke": "node scripts/smoke.js",
+    "lint": "node --check src/main.js && node --check src/account-session.js && node --check src/login-fingerprint.js && node --check src/device-image.js && node --check src/proxy-profile.js && node --check src/socks-client.js && node --check src/preload.js && node --check src/renderer/app.js && node --check scripts/session-smoke.js && node --check scripts/login-window-smoke.js && node --check scripts/proxy-encoded-smoke.js && node --check scripts/electron-login-session-smoke.js && node --check scripts/electron-proxy-smoke.js && node --check ../scripts/fingerprint-shim.js",
+    "smoke": "node scripts/smoke.js && node scripts/session-smoke.js && node scripts/login-window-smoke.js && node scripts/proxy-encoded-smoke.js",
     "smoke:electron": "electron scripts/electron-proxy-smoke.js",
+    "smoke:login-session": "node scripts/electron-login-session-smoke.js",
     "smoke:native-electron": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/electron-native-smoke.ps1",
     "smoke:bootstrap": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/manager-bootstrap-smoke.ps1 -Mode development",
     "smoke:portable": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/manager-bootstrap-smoke.ps1 -Mode portable",

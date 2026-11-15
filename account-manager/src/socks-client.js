@@ -192,6 +192,8 @@ async function requestHttpsOverSocks(rawUrl, host, requestPath, timeoutMs = 1500
   })
   try {
     await waitForTls(secure, timeoutMs)
+    const agent = new https.Agent({ keepAlive: false })
+    agent.createConnection = () => secure
     return await new Promise((resolve, reject) => {
       let settled = false
       const finish = (error, value) => {
@@ -205,8 +207,7 @@ async function requestHttpsOverSocks(rawUrl, host, requestPath, timeoutMs = 1500
         host,
         port: 443,
         path: requestPath,
-        agent: false,
-        createConnection: () => secure,
+        agent,
         headers: {
           Accept: 'application/json,text/plain;q=0.9',
           'Accept-Encoding': 'identity',
@@ -240,6 +241,9 @@ async function requestHttpsOverSocks(rawUrl, host, requestPath, timeoutMs = 1500
         })
       })
       request.setTimeout(timeoutMs, () => request.destroy(new Error('SOCKS5 HTTPS 请求超时')))
+      request.once('socket', (assigned) => {
+        if (assigned !== secure) request.destroy(new Error('SOCKS5 HTTPS request bypassed the proxy socket'))
+      })
       request.once('error', (error) => finish(error))
       request.end()
     })
@@ -248,7 +252,32 @@ async function requestHttpsOverSocks(rawUrl, host, requestPath, timeoutMs = 1500
   }
 }
 
-async function testSocks5(rawUrl, timeoutMs = 15000) {
+function inspectClaudeResponse(response) {
+  const statusCode = Number(response.statusCode || 0)
+  return {
+    statusCode,
+    httpOk: statusCode >= 200 && statusCode < 400,
+    challenge: statusCode === 403 && String(response.headers.get('cf-mitigated') || '').toLowerCase() === 'challenge'
+  }
+}
+
+function parseIp2LocationExit(body) {
+  const title = String(body || '').match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] || ''
+  const candidate = title.replace(/&nbsp;/gi, ' ').trim().split(/\s+/, 1)[0].replace(/^\[|\]$/g, '')
+  return net.isIP(candidate) ? candidate : ""
+}
+
+async function probeIp2Location(rawUrl, timeoutMs = 15000) {
+  const response = await requestHttpsOverSocks(rawUrl, 'www.ip2location.com', '/demo', timeoutMs)
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(`IP2Location HTTP ${response.statusCode}`)
+  }
+  const externalIp = parseIp2LocationExit(response.body)
+  if (!externalIp) throw new Error('IP2Location 未返回可识别的出口 IP')
+  return { externalIp, statusCode: response.statusCode }
+}
+
+async function testSocks5(rawUrl, timeoutMs = 15000, options = {}) {
   const started = Date.now()
   const response = await requestHttpsOverSocks(rawUrl, 'api.ipify.org', '/?format=json', timeoutMs)
   if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -258,12 +287,30 @@ async function testSocks5(rawUrl, timeoutMs = 15000) {
   try { externalIp = JSON.parse(response.body).ip || response.body } catch { }
   externalIp = String(externalIp || '').trim()
   if (!net.isIP(externalIp)) throw new Error('代理返回了无效的出口 IP 响应')
-  return {
+  const result = {
     success: true,
     latencyMs: Date.now() - started,
     externalIp,
     dnsMode: 'socks5-domain-atyp-3'
   }
+  try {
+    const ip2Location = await probeIp2Location(rawUrl, timeoutMs)
+    result.ip2Location = {
+      ...ip2Location,
+      sameAsIpify: ip2Location.externalIp === externalIp
+    }
+  } catch (error) {
+    result.ip2Location = { error: error.message || String(error) }
+  }
+  if (options.probeClaude) {
+    try {
+      const claudeResponse = await requestHttpsOverSocks(rawUrl, 'claude.ai', '/login', timeoutMs)
+      result.claude = inspectClaudeResponse(claudeResponse)
+    } catch (error) {
+      result.claude = { httpOk: false, challenge: false, error: error.message }
+    }
+  }
+  return result
 }
 
 async function probeSocks5Profile(rawUrl, proxyId, options = {}) {
@@ -296,6 +343,9 @@ async function probeSocks5Profile(rawUrl, proxyId, options = {}) {
 }
 
 module.exports = {
+  inspectClaudeResponse,
+  parseIp2LocationExit,
+  probeIp2Location,
   probeSocks5Profile,
   requestHttpsOverSocks,
   socks5Connect,

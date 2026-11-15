@@ -17,6 +17,7 @@ const {
   FIXED_US_TIMEZONE
 } = require('../src/proxy-profile')
 const { probeSocks5Profile } = require('../src/socks-client')
+const { normalizeProxyUrl } = require('../src/proxy-input')
 
 app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1')
 app.commandLine.appendSwitch('disable-quic')
@@ -134,9 +135,43 @@ function requestThroughSession(sess, url) {
   })
 }
 
+async function probeBrowserPage(win, sess, targetUrl) {
+  let statusCode = 0
+  const target = new URL(targetUrl)
+  const onHeadersReceived = (details, callback) => {
+    if (details.resourceType === 'mainFrame' && details.url.startsWith(target.origin)) {
+      statusCode = Number(details.statusCode || 0)
+    }
+    callback({})
+  }
+  sess.webRequest.onHeadersReceived(onHeadersReceived)
+  try {
+    await win.loadURL(target.href)
+    const snapshot = await win.webContents.executeJavaScript(`(() => ({
+      title: document.title,
+      href: location.href
+    }))()`)
+    // IP2Location puts the detected client address at the start of its title.
+    // Its body can contain unrelated IPv4 values, so do not treat body matches
+    // as the observed proxy exit.
+    const title = String(snapshot.title || '')
+    const titleCandidate = title.trim().split(/\s+/, 1)[0].replace(/^\[|\]$/g, '')
+    return {
+      statusCode,
+      title,
+      href: String(snapshot.href || ''),
+      reportedIp: netModule.isIP(titleCandidate) ? titleCandidate : ''
+    }
+  } finally {
+    sess.webRequest.onHeadersReceived(null)
+  }
+}
+
 async function main() {
   const poolPath = path.join(os.homedir(), '.cac', 'proxy-pool.json')
-  const pool = JSON.parse(fs.readFileSync(poolPath, 'utf8'))
+  const pool = process.env.CAC_PROXY_SMOKE_URL
+    ? { proxies: [{ id: 'manual-probe', url: normalizeProxyUrl(process.env.CAC_PROXY_SMOKE_URL) }] }
+    : JSON.parse(fs.readFileSync(poolPath, 'utf8'))
   const items = (pool.proxies || []).filter((entry) => entry.enabled !== false)
   if (!items.length) throw new Error('no enabled proxy in pool')
   if (!fs.existsSync(relayPath)) throw new Error(`relay not found: ${relayPath}`)
@@ -184,7 +219,9 @@ async function main() {
     timezone: proxyProfile.timezone,
     locale: proxyProfile.locale,
     languages: proxyProfile.languages,
-    ua: 'CAC-Electron-Profile-Smoke/1.0',
+    ua: process.env.CAC_PROXY_SMOKE_CLAUDE === '1'
+      ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`
+      : 'CAC-Electron-Profile-Smoke/1.0',
     platform: 'Win32',
     hardwareConcurrency: 8,
     deviceMemory: 8,
@@ -202,6 +239,10 @@ async function main() {
     webrtc: 'filter-private'
   }
   applyLoginSessionPersona(sess, persona)
+  if (process.env.CAC_PROXY_SMOKE_CLAUDE === '1') {
+    const claude = await requestThroughSession(sess, 'https://claude.ai/login')
+    console.log(`[INFO] Electron session Claude login HTTP ${claude.statusCode}`)
+  }
   resolution = String(await sess.resolveProxy('https://claude.ai/login') || '').trim()
   if (!new RegExp(`127\\.0\\.0\\.1:${port}`).test(resolution) || /\bDIRECT\b/i.test(resolution)) {
     throw new Error(`proxy resolution is ${resolution || 'DIRECT'}`)
@@ -214,6 +255,28 @@ async function main() {
   })
   await win.loadURL('about:blank')
   const runtime = await installLoginWebContentsPersona(win.webContents, { persona, script: source })
+  if (process.env.CAC_PROXY_SMOKE_CLAUDE === '1') {
+    let loginStatus = 0
+    sess.webRequest.onHeadersReceived((details, callback) => {
+      if (details.resourceType === 'mainFrame' && details.url.startsWith('https://claude.ai/login')) {
+        loginStatus = details.statusCode
+      }
+      callback({})
+    })
+    try {
+      await win.loadURL('https://claude.ai/login')
+      console.log(`[INFO] BrowserWindow Claude login HTTP ${loginStatus} title=${win.webContents.getTitle()}`)
+    } finally {
+      sess.webRequest.onHeadersReceived(null)
+    }
+  }
+  const browserProbeUrl = String(process.env.CAC_PROXY_SMOKE_BROWSER_URL || '').trim()
+  if (browserProbeUrl) {
+    const browserProbe = await probeBrowserPage(win, sess, browserProbeUrl)
+    if (!browserProbe.reportedIp) throw new Error('browser probe did not expose an IP2Location title exit')
+    const matchedExit = browserProbe.reportedIp === externalIp
+    console.log(`[INFO] BrowserWindow IP2Location HTTP ${browserProbe.statusCode} ip2LocationExit=${browserProbe.reportedIp} ipifyExit=${externalIp} sameExit=${matchedExit}`)
+  }
   await win.loadURL('data:text/html;charset=utf-8,<title>fingerprint-smoke</title>')
   const observed = await win.webContents.executeJavaScript(`({
     ua: navigator.userAgent,

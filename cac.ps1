@@ -424,11 +424,20 @@ function Action-EnvDelete {
     $recycleDir = Join-Path $CAC_DIR "recycle"
     New-Item -ItemType Directory -Path $recycleDir -Force | Out-Null
     $dest = Join-Path $recycleDir "$name-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    $source = Get-EnvDir $name
+    $moved = $false
     try {
-        Move-Item (Get-EnvDir $name) $dest -Force
-        Write-OK "'$name' 已移至回收站"
+        Move-Item -LiteralPath $source -Destination $dest -ErrorAction Stop
+        $moved = $true
+        Remove-CacProxyBinding -AccountKey "claude-code:$name" | Out-Null
+        Write-OK "'$name' 已移至回收站，代理绑定已解除"
     } catch {
-        Write-Err "删除失败: $_"
+        $failure = $_
+        if ($moved) {
+            try { Move-Item -LiteralPath $dest -Destination $source -ErrorAction Stop }
+            catch { Write-Err "回滚环境失败: $_" }
+        }
+        Write-Err "删除失败: $failure"
     }
     Wait-AnyKey
 }

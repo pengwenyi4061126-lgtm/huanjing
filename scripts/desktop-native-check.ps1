@@ -256,6 +256,9 @@ $wfpInstalled = @($session | Where-Object {
 $wfpFailures = @($session | Where-Object {
     $_.surface -eq 'wfp.policy' -and $_.action -eq 'failed'
 })
+$proxyRuntimeEvents = @($session | Where-Object {
+    [string]$_.surface -like 'api.winhttp*' -and [string]$_.action -eq 'enforce-local'
+})
 $networkMode = 'profile'
 $networkModePath = Join-Path $root 'network_mode'
 if (Test-Path -LiteralPath $networkModePath -PathType Leaf) {
@@ -319,7 +322,7 @@ $profileArgumentMismatches = New-Object 'System.Collections.Generic.List[object]
 $proxyArgumentObserved = 0
 $proxyArgumentMissing = New-Object 'System.Collections.Generic.List[int]'
 $proxyArgumentInvalid = New-Object 'System.Collections.Generic.List[object]'
-$proxySwitchesMissing = New-Object 'System.Collections.Generic.List[object]'
+$proxyRejectedSwitches = New-Object 'System.Collections.Generic.List[object]'
 $chromiumArgumentMissing = New-Object 'System.Collections.Generic.List[object]'
 $parentProcessIdObserved = 0
 $executablePathObserved = 0
@@ -364,27 +367,28 @@ foreach ($row in $metadataObserved) {
             [void]$processFailureReasons.Add("proxy-argument-not-local:$($row.pid)")
         }
     } elseif ($proxyConfiguration.configured -and $isMain) {
+        # Claude 5.1231.2 rejects command-line proxy/debug switches. The
+        # current transport is NativeBridge + local MITM/relay, so a missing
+        # --proxy-server argument is expected and is not a failure.
         [void]$proxyArgumentMissing.Add([int]$row.pid)
-        [void]$processFailureReasons.Add("proxy-argument-missing:$($row.pid)")
     }
 
-    # Chromium renderer/utility/GPU children inherit the browser Network
-    # Service proxy state; they do not reliably repeat the root switches.
-    # Require the resolver/WebRTC/QUIC boundary on the root only and validate
-    # child traffic through runtime socket evidence instead.
+    # Do not require rejected Chromium command-line switches. They make the
+    # current Claude Desktop build refuse to start. Their presence is itself
+    # a failure; runtime proxy/WFP evidence is checked below.
     if ($proxyConfiguration.configured -and $isMain) {
-        foreach ($requiredProxySwitch in @(
-            '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1',
+        foreach ($rejectedProxySwitch in @(
+            '--host-resolver-rules=',
             '--disable-quic',
-            '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
-            '--proxy-bypass-list=localhost;127.0.0.1;[::1]'
+            '--force-webrtc-ip-handling-policy=',
+            '--proxy-bypass-list='
         )) {
-            if (-not (Test-CommandLineValue -CommandLine $commandLine -Value $requiredProxySwitch)) {
-                [void]$proxySwitchesMissing.Add([ordered]@{
+            if (Test-CommandLineValue -CommandLine $commandLine -Value $rejectedProxySwitch) {
+                [void]$proxyRejectedSwitches.Add([ordered]@{
                     pid = [int]$row.pid
-                    expected = $requiredProxySwitch
+                    observed = $rejectedProxySwitch
                 })
-                [void]$processFailureReasons.Add("proxy-switch-missing:$($row.pid)")
+                [void]$processFailureReasons.Add("rejected-proxy-switch-present:$($row.pid)")
             }
         }
     }
@@ -435,10 +439,12 @@ $processAssertions = [ordered]@{
     proxy = [ordered]@{
         configured = [bool]$proxyConfiguration.configured
         source = [string]$proxyConfiguration.source
+        transport = 'native-runtime+local-relay'
+        commandLineRequired = $false
         argumentObserved = $proxyArgumentObserved
         missing = $proxyArgumentMissing.ToArray()
         invalid = $proxyArgumentInvalid.ToArray()
-        missingRelaySwitches = $proxySwitchesMissing.ToArray()
+        rejectedSwitches = $proxyRejectedSwitches.ToArray()
     }
     chromium = [ordered]@{
         nativeFlagsRequired = [bool]($attachEvents.Count -gt 0)
@@ -472,6 +478,8 @@ $result = [ordered]@{
         processMetadataMissing = $metadataMissing.Count
         profileArgumentObserved = $profileArgumentObserved
         proxyArgumentObserved = $proxyArgumentObserved
+        proxyRuntimeEvents = $proxyRuntimeEvents.Count
+        proxyTransport = 'native-runtime+local-relay'
         chromiumArgumentFailures = $chromiumArgumentMissing.Count
         processTypes = $processTypes
         mainAttached = [bool]($processTypes.Contains('main'))
@@ -557,6 +565,10 @@ if ($networkMode -eq 'enforce' -and $wfpInstalled.Count -eq 0) {
     $failureReasons.Add('wfp-enforce-not-installed')
 }
 if ($wfpFailures.Count -gt 0) { $pass = $false; $failureReasons.Add("wfp-install-failures:$($wfpFailures.Count)") }
+if ($proxyConfiguration.configured -and $proxyRuntimeEvents.Count -eq 0) {
+    $pass = $false
+    $failureReasons.Add('proxy-runtime-evidence-missing')
+}
 if (-not $pass -and $failureReasons.Count -eq 0) { $failureReasons.Add('required-evidence-missing') }
 if ($Strict) {
     foreach ($reason in $partialReasons) { $failureReasons.Add("strict:$reason") }

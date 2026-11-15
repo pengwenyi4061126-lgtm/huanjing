@@ -34,6 +34,7 @@ param(
     [string]$LaunchStateFile,
     [string]$LaunchGeneration,
     [string]$MonitorReadyFile,
+    [switch]$NativeRequired,
     [switch]$RemoveCaAfterExit,
     [switch]$SuppressProxyWarning
 )
@@ -532,6 +533,118 @@ function Read-DesktopStateFile {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     try { return (Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json) } catch { return $null }
+}
+
+function Write-DesktopHealthFile {
+    param(
+        [string]$Path,
+        [string]$State,
+        [string]$Generation,
+        [int]$RootPid = 0,
+        [string]$RootPath,
+        [string]$RootStartUtc,
+        [string]$RelayState = 'not-configured',
+        [string]$MitmState = 'not-configured',
+        [string[]]$Warnings = @(),
+        [string[]]$Faults = @(),
+        [bool]$Fatal = $false,
+        [string]$FatalReason
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    $parent = Split-Path -Parent $Path
+    if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    $tempPath = '{0}.{1}.{2}.tmp' -f $Path, $PID, ([Guid]::NewGuid().ToString('N'))
+    $payload = [ordered]@{
+        schema       = 1
+        state        = $State
+        generation   = $Generation
+        rootPid      = $RootPid
+        rootPath     = $RootPath
+        rootStartUtc = $RootStartUtc
+        relayState   = $RelayState
+        mitmState    = $MitmState
+        warnings     = @($Warnings | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        faults       = @($Faults | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        fatal        = $Fatal
+        fatalReason  = $FatalReason
+        updatedUtc   = [DateTime]::UtcNow.ToString('o')
+    }
+    try {
+        $payload | ConvertTo-Json -Depth 8 -Compress | Set-Content -LiteralPath $tempPath -Encoding UTF8
+        Move-Item -LiteralPath $tempPath -Destination $Path -Force
+    } catch {
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-DesktopNativeFaults {
+    param(
+        [string]$AuditPath,
+        [int[]]$ProcessIds = @(),
+        [DateTime]$SinceUtc = [DateTime]::MinValue
+    )
+    if ([string]::IsNullOrWhiteSpace($AuditPath) -or -not (Test-Path -LiteralPath $AuditPath -PathType Leaf)) {
+        return @()
+    }
+    $pidSet = @{}
+    foreach ($processId in @($ProcessIds)) {
+        if ([int]$processId -gt 0) { $pidSet[[int]$processId] = $true }
+    }
+    $faults = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($line in @(Get-Content -LiteralPath $AuditPath -Tail 512 -ErrorAction SilentlyContinue)) {
+        try {
+            $event = $line | ConvertFrom-Json
+            $eventPid = [int]$event.pid
+            if ($pidSet.Count -gt 0 -and -not $pidSet.ContainsKey($eventPid)) { continue }
+            if ($SinceUtc -ne [DateTime]::MinValue -and -not [string]::IsNullOrWhiteSpace([string]$event.utc)) {
+                try {
+                    $eventUtc = [DateTime]::Parse([string]$event.utc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+                    if ($eventUtc -lt $SinceUtc.AddSeconds(-2)) { continue }
+                } catch { }
+            }
+            $surface = [string]$event.surface
+            $action = [string]$event.action
+            $detail = [string]$event.detail
+            $fault = $null
+            if ($surface -eq 'native.bridge' -and $action -eq 'failed') {
+                $fault = "native.bridge failed: $detail"
+            } elseif ($surface -eq 'wfp.policy' -and $action -eq 'failed') {
+                $fault = "wfp.policy failed: $detail"
+            } elseif ($surface -eq 'kernel.policy' -and $action -match '^(unavailable|register-failed|query-failed|verify-failed)$') {
+                $fault = "kernel.policy ${action}: $detail"
+            } elseif ($surface -eq 'api.install' -and $action -eq 'complete' -and $detail -match 'failures=(\d+)' -and [int]$Matches[1] -gt 0) {
+                $fault = "api.install complete: $detail"
+            }
+            if (-not [string]::IsNullOrWhiteSpace($fault) -and -not ($faults -contains $fault)) {
+                [void]$faults.Add($fault)
+            }
+        } catch { }
+    }
+    return @($faults)
+}
+
+function Get-DesktopProxyHealthWarning {
+    param(
+        [psobject]$Paths,
+        [string]$RelayState,
+        [string]$MitmState
+    )
+    $warnings = New-Object 'System.Collections.Generic.List[string]'
+    if ($RelayState -notin @('not-configured', 'alive')) {
+        [void]$warnings.Add("proxy relay state: $RelayState")
+    }
+    if ($MitmState -notin @('not-configured', 'alive')) {
+        [void]$warnings.Add("MITM state: $MitmState")
+    }
+    $relayLog = Join-Path $Paths.LogsDir 'proxy-relay.log'
+    if (Test-Path -LiteralPath $relayLog -PathType Leaf) {
+        $lastHealthLine = @(Get-Content -LiteralPath $relayLog -Tail 80 -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match 'upstream (unreachable|recovered):' } | Select-Object -Last 1)
+        if ($lastHealthLine.Count -gt 0 -and [string]$lastHealthLine[0] -match 'upstream unreachable:') {
+            [void]$warnings.Add('SOCKS upstream unreachable; Claude remains loopback-only')
+        }
+    }
+    return @($warnings)
 }
 
 function Remove-StaleProfileLaunchCa {
@@ -1282,7 +1395,8 @@ function Start-DesktopLifecycleMonitor {
         [string]$CaPath,
         [string]$LaunchStateFile,
         [string]$LaunchGeneration,
-        [string]$MonitorReadyFile
+        [string]$MonitorReadyFile,
+        [bool]$NativeRequired = $false
     )
     if ($DesktopPid -le 0) { throw 'Desktop lifecycle monitor requires a root PID' }
     $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
@@ -1341,6 +1455,7 @@ function Start-DesktopLifecycleMonitor {
     if ($LaunchStateFile) { $arguments += @('-LaunchStateFile', (ConvertTo-ProcessArgument $LaunchStateFile)) }
     if ($LaunchGeneration) { $arguments += @('-LaunchGeneration', (ConvertTo-ProcessArgument $LaunchGeneration)) }
     if ($MonitorReadyFile) { $arguments += @('-MonitorReadyFile', (ConvertTo-ProcessArgument $MonitorReadyFile)) }
+    if ($NativeRequired) { $arguments += '-NativeRequired' }
     if ($RemoveCa) { $arguments += '-RemoveCaAfterExit' }
     $monitor = Start-Process -FilePath $powershell -ArgumentList $arguments -PassThru -WindowStyle Hidden -ErrorAction Stop
     try {
@@ -1370,12 +1485,20 @@ function Invoke-DesktopMonitorAction {
     $profileLock = $null
     $rootIdentity = $null
     $allowCleanup = $false
+    $hardFailure = $false
+    $failureReason = $null
+    $healthPath = $null
     $rootIdentityValid = ($WatchPid -gt 0 -and
         -not [string]::IsNullOrWhiteSpace($WatchPath) -and
         -not [string]::IsNullOrWhiteSpace($WatchStartUtc))
     try {
         try { $paths = Get-ProfilePaths -Name (Resolve-ProfileName -Requested $Profile) } catch {
             [void]$errors.Add("Desktop monitor profile resolution failed: $($_.Exception.Message)")
+        }
+        if ($null -ne $paths) {
+            $healthPath = Join-Path $paths.LogsDir 'desktop-health.json'
+            Write-DesktopHealthFile -Path $healthPath -State 'starting' -Generation $LaunchGeneration `
+                -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc -Fatal:$false
         }
         if (-not $rootIdentityValid) {
             [void]$errors.Add("Desktop root identity is incomplete; refusing PID-only monitoring")
@@ -1391,14 +1514,44 @@ function Invoke-DesktopMonitorAction {
                     -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc
                 $state = Get-TrackedProcessState -ProcessId $WatchPid -ExpectedPath $WatchPath -ExpectedStartUtc $WatchStartUtc
                 while ($state -eq 'alive') {
+                    $relayState = 'not-configured'
+                    if ($RelayPid -gt 0) {
+                        $relayState = Get-TrackedProcessState -ProcessId $RelayPid -ExpectedPath $RelayPath -ExpectedStartUtc $RelayStartUtc
+                    }
+                    $mitmState = 'not-configured'
+                    if ($MitmPid -gt 0) {
+                        $mitmState = Get-TrackedProcessState -ProcessId $MitmPid -ExpectedPath $MitmPath -ExpectedStartUtc $MitmStartUtc
+                    }
+                    $profileProcessIds = @()
+                    try { $profileProcessIds = @(Get-ProfileProcessIds -Paths $paths) } catch { }
+                    $nativeFaults = if ($NativeRequired) {
+                        @(Get-DesktopNativeFaults -AuditPath (Join-Path $paths.AuditDir 'native-hook.jsonl') `
+                            -ProcessIds $profileProcessIds -SinceUtc $rootStart)
+                    } else { @() }
+                    $proxyWarnings = @(Get-DesktopProxyHealthWarning -Paths $paths -RelayState $relayState -MitmState $mitmState)
+                    if ($nativeFaults.Count -gt 0) {
+                        $hardFailure = $true
+                        $failureReason = ($nativeFaults -join '; ')
+                        $allowCleanup = $true
+                        Write-DesktopHealthFile -Path $healthPath -State 'failed' -Generation $LaunchGeneration `
+                            -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc `
+                            -RelayState $relayState -MitmState $mitmState -Warnings $proxyWarnings `
+                            -Faults $nativeFaults -Fatal:$true -FatalReason $failureReason
+                        break
+                    }
+                    $healthState = if ($proxyWarnings.Count -gt 0) { 'degraded' } else { 'ready' }
+                    Write-DesktopHealthFile -Path $healthPath -State $healthState -Generation $LaunchGeneration `
+                        -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc `
+                        -RelayState $relayState -MitmState $mitmState -Warnings $proxyWarnings `
+                        -Faults @() -Fatal:$false
                     Start-Sleep -Milliseconds 500
                     $state = Get-TrackedProcessState -ProcessId $WatchPid -ExpectedPath $WatchPath -ExpectedStartUtc $WatchStartUtc
                 }
-                if ($state -eq 'exited') {
+                if ($state -eq 'exited' -and -not $hardFailure) {
                     $allowCleanup = $true
                 } elseif ($state -eq 'reused') {
                     [void]$errors.Add("Desktop root PID $WatchPid was reused; cleanup refused")
-                } else {
+                } elseif (-not $hardFailure) {
                     [void]$errors.Add("Desktop root PID $WatchPid identity became unavailable; cleanup refused")
                 }
             }
@@ -1458,8 +1611,20 @@ function Invoke-DesktopMonitorAction {
                             -CaPath $CaPath -RemoveCa ([bool]$RemoveCaAfterExit))
                         foreach ($errorText in $cleanupErrors) { [void]$errors.Add($errorText) }
                         if ($cleanupErrors.Count -eq 0) {
-                            Write-DesktopStateFile -Path $LaunchStateFile -State 'stopped' -Generation $LaunchGeneration `
-                                -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc
+                            if ($hardFailure) {
+                                Write-DesktopStateFile -Path $LaunchStateFile -State 'failed' -Generation $LaunchGeneration `
+                                    -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc -ErrorText $failureReason
+                                Write-DesktopHealthFile -Path $healthPath -State 'failed' -Generation $LaunchGeneration `
+                                    -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc `
+                                    -RelayState 'stopped' -MitmState 'stopped' -Faults @($failureReason) `
+                                    -Fatal:$true -FatalReason $failureReason
+                            } else {
+                                Write-DesktopStateFile -Path $LaunchStateFile -State 'stopped' -Generation $LaunchGeneration `
+                                    -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc
+                                Write-DesktopHealthFile -Path $healthPath -State 'stopped' -Generation $LaunchGeneration `
+                                    -RootPid $WatchPid -RootPath $WatchPath -RootStartUtc $WatchStartUtc `
+                                    -RelayState 'stopped' -MitmState 'stopped' -Fatal:$false
+                            }
                         }
                     } else {
                         if ($rootIdentityValid -and -not $stateMatches) {
@@ -1932,7 +2097,8 @@ function Start-ClaudeDesktop {
     $monitorPid = Start-DesktopLifecycleMonitor -Paths $Paths -DesktopPid $processId `
         -Relay $relay -MitmProcess $mitmProcess -MitmPidFile $mitmPidFile `
         -MitmProcessPidFile $mitmProcessPidFile -RemoveCa $caInstalledByLaunch -CaPath $caPath `
-        -LaunchStateFile $launchStateFile -LaunchGeneration $launchGeneration -MonitorReadyFile $monitorReadyFile
+        -LaunchStateFile $launchStateFile -LaunchGeneration $launchGeneration -MonitorReadyFile $monitorReadyFile `
+        -NativeRequired ([bool]$nativeUsed)
     $resourceTransferred = $true
 
     return [pscustomobject]@{

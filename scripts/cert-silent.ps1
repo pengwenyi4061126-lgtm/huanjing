@@ -57,6 +57,62 @@ function Test-MitmCaInstalled {
 
 $script:MitmCaInstallError = ''
 
+function Quote-CertutilArgument {
+    param([Parameter(Mandatory = $true)][string]$Value)
+    return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+function Invoke-CertutilSilent {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [int]$TimeoutMilliseconds = 15000
+    )
+
+    $certutil = Join-Path $env:SystemRoot 'System32\certutil.exe'
+    if (-not (Test-Path -LiteralPath $certutil -PathType Leaf)) {
+        return [pscustomobject]@{ ExitCode = -1; Output = ''; Error = "certutil not found: $certutil" }
+    }
+
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $certutil
+    $startInfo.Arguments = ($Arguments | ForEach-Object { Quote-CertutilArgument -Value ([string]$_) }) -join ' '
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            return [pscustomobject]@{ ExitCode = -1; Output = ''; Error = 'certutil process failed to start' }
+        }
+        # A hidden, redirected stdin prevents any certificate trust prompt from
+        # waiting on an interactive console. The command remains non-interactive.
+        try { $process.StandardInput.Close() } catch { }
+        if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+            try { $process.Kill() } catch { }
+            try { $process.WaitForExit(2000) } catch { }
+            return [pscustomobject]@{ ExitCode = -2; Output = ''; Error = "certutil timed out after $TimeoutMilliseconds ms" }
+        }
+        $output = ''
+        $errorText = ''
+        try { $output = $process.StandardOutput.ReadToEnd() } catch { }
+        try { $errorText = $process.StandardError.ReadToEnd() } catch { }
+        return [pscustomobject]@{
+            ExitCode = [int]$process.ExitCode
+            Output = (($output, $errorText | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ' ').Trim()
+            Error = ''
+        }
+    } catch {
+        return [pscustomobject]@{ ExitCode = -1; Output = ''; Error = $_.Exception.Message }
+    } finally {
+        try { $process.Dispose() } catch { }
+    }
+}
+
 function Install-MitmCa {
     param(
         [string]$Path,
@@ -83,32 +139,16 @@ function Install-MitmCa {
         if (Test-MitmCaInstalled -Thumbprint $expectedThumbprint) { return $true }
 
         $errors = New-Object 'System.Collections.Generic.List[string]'
-        try {
-            Import-Module PKI -ErrorAction Stop
-            Import-Certificate -FilePath $Path -CertStoreLocation Cert:\CurrentUser\Root -ErrorAction Stop | Out-Null
-        } catch {
-            [void]$errors.Add("Import-Certificate: $($_.Exception.Message)")
-        }
+        $certutilResult = Invoke-CertutilSilent -Arguments @('-user', '-f', '-addstore', 'Root', $Path)
         if (Test-MitmCaInstalled -Thumbprint $expectedThumbprint) { return $true }
-
-        $certutil = Join-Path $env:SystemRoot 'System32\certutil.exe'
-        if (Test-Path -LiteralPath $certutil -PathType Leaf) {
-            try {
-                $certutilOutput = @(& $certutil '-user' '-f' '-addstore' 'Root' $Path 2>&1)
-                $certutilExitCode = $LASTEXITCODE
-                if (Test-MitmCaInstalled -Thumbprint $expectedThumbprint) { return $true }
-                $summary = (($certutilOutput | ForEach-Object { [string]$_ }) -join ' ').Trim()
-                if ($summary.Length -gt 240) { $summary = $summary.Substring(0, 240) }
-                if ($certutilExitCode -ne 0) {
-                    [void]$errors.Add("certutil exit ${certutilExitCode}: $summary")
-                } elseif (-not [string]::IsNullOrWhiteSpace($summary)) {
-                    [void]$errors.Add("certutil did not publish the certificate: $summary")
-                }
-            } catch {
-                [void]$errors.Add("certutil: $($_.Exception.Message)")
-            }
-        } else {
-            [void]$errors.Add("certutil not found: $certutil")
+        $summary = [string]$certutilResult.Output
+        if ($summary.Length -gt 240) { $summary = $summary.Substring(0, 240) }
+        if (-not [string]::IsNullOrWhiteSpace([string]$certutilResult.Error)) {
+            [void]$errors.Add("certutil: $($certutilResult.Error)")
+        } elseif ([int]$certutilResult.ExitCode -ne 0) {
+            [void]$errors.Add("certutil exit $($certutilResult.ExitCode): $summary")
+        } elseif (-not [string]::IsNullOrWhiteSpace($summary)) {
+            [void]$errors.Add("certutil did not publish the certificate: $summary")
         }
 
         if ($errors.Count -gt 0) {
@@ -143,6 +183,9 @@ function Remove-MitmCa {
         $_.Thumbprint.Replace(' ', '').ToUpperInvariant() -eq $thumbprint
     })
     if ($certs.Count -eq 0) { return $true }
+    # Do not call certutil -delstore here. Windows can surface a Root-store
+    # deletion confirmation for that operation even when the process is hidden.
+    # Remove only the exact Profile thumbprint from HKCU, then verify the store.
     Remove-MitmCertificateRegistryEntry -Thumbprint $thumbprint
     return (@(Get-MitmCa | Where-Object {
         $_.Thumbprint.Replace(' ', '').ToUpperInvariant() -eq $thumbprint
