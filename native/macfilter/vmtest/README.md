@@ -34,6 +34,56 @@ $pw = Read-Host 'Guest password' -AsSecureString
 
 每次快照回滚后先执行该准备脚本，再进行任何驱动实验。
 
+## MAC 层验证结果（2026-11-16，Build 22631.7376）
+
+目标 MAC：`02:44:08:1a:18:33`（当前 CAC `profile-a` 的 `mac_address`）。
+
+| 检查点 | 结果 |
+| --- | --- |
+| VMX `ethernet0.addressType` | `static` |
+| VMX `ethernet0.address` | `02:44:08:1a:18:33` |
+| Guest `NetworkAddress` | 空（已清除，确认 MAC 来自虚拟硬件） |
+| `Get-NetAdapter` / WMI / `ipconfig /all` | 三处均为 `02-44-08-1A-18-33` |
+| 整机重启后 | 仍为 `02-44-08-1A-18-33` |
+| DHCPv6 DUID | 重启后变为 `...-02-44-08-1A-18-33` |
+| 自动登录 | `1 / Administrator / 1`，重启后直接进桌面 |
+| `CacMacLwf` | `Stopped / Manual`，未加载，无蓝屏 |
+| PnP 实例 ID | 仍是 `...\000C29FFFFF2A9EA00`（原 VMware PCI 序列号） |
+
+结论：
+
+- MAC 本身在 VM 硬件层稳定，不依赖 `CacMacLwf`，也不依赖 Guest
+  `NetworkAddress` 覆盖。
+- 22631 上不稳定的不是“改 MAC”，而是 NDIS LWF 的 OID 完成链；
+  因此 MAC 用 VMX 静态地址，LWF 保持停止。
+- 改装现有 VM 会保留原 PCI 序列号。要彻底消除，必须在**首次安装
+  Windows 之前**给新 VM 设好静态 MAC，或每个 Profile 重建 VM；新装后
+  PnP 序列号、DUID、NDIS、WMI 才会从第一刻起一致。
+
+执行：
+
+```powershell
+$pw = Read-Host 'Guest password' -AsSecureString
+.\set-vm-mac.ps1 `
+    -VmxPath 'D:\Downloads\vm\Windows 10 x64.vmx' `
+    -MacAddress '02:44:08:1a:18:33' `
+    -GuestPassword $pw `
+    -ForceStop `
+    -ResultPath '.\vm-mac-result.json'
+```
+
+回滚最近一次 VMX 备份：
+
+```powershell
+.\set-vm-mac.ps1 `
+    -VmxPath 'D:\Downloads\vm\Windows 10 x64.vmx' `
+    -Rollback -ForceStop
+```
+
+脚本会备份 VMX、设置静态 MAC、清空 Guest `NetworkAddress`、回读三处 MAC，
+并输出 `clean`。`clean=false` 表示 MAC 已生效但仍有 PnP 等硬件历史残留。
+本次原始证据在 `evidence\2026-11-16-*.json`。
+
 ## Stage A（现有 Win10 22H2 VM 即可）
 
 验证我们自己的代码：注册成功、模块附着、OID 重写计数、

@@ -1,0 +1,24 @@
+﻿{
+    "phase":  "before",
+    "time":  "2026-11-16T02:56:38.6503789+08:00",
+    "adapter":  {
+                    "Name":  "Ethernet0",
+                    "Status":  "Up",
+                    "MacAddress":  "00-0C-29-F2-A9-EA",
+                    "InterfaceDescription":  "Intel(R) 82574L Gigabit Network Connection"
+                },
+    "advanced":  {
+                     "DisplayName":  "Locally Administered Address",
+                     "RegistryKeyword":  "NetworkAddress",
+                     "DisplayValue":  null,
+                     "RegistryValue":  null
+                 },
+    "wmi":  [
+                {
+                    "Name":  "Intel(R) 82574L Gigabit Network Connection",
+                    "MACAddress":  "00:0C:29:F2:A9:EA",
+                    "PNPDeviceID":  "PCI\\VEN_8086\u0026DEV_10D3\u0026SUBSYS_07D015AD\u0026REV_00\\000C29FFFFF2A9EA00"
+                }
+            ],
+    "ipconfig":  "\r\nWindows IP 配置\r\n\r\n   主机名  . . . . . . . . . . . . . : DESKTOP-614945G\r\n   主 DNS 后缀 . . . . . . . . . . . : \r\n   节点类型  . . . . . . . . . . . . : 混合\r\n   IP 路由已启用 . . . . . . . . . . : 否\r\n   WINS 代理已启用 . . . . . . . . . : 否\r\n   DNS 后缀搜索列表  . . . . . . . . : localdomain\r\n\r\n以太网适配器 Ethernet0:\r\n\r\n   连接特定的 DNS 后缀 . . . . . . . : localdomain\r\n   描述. . . . . . . . . . . . . . . : Intel(R) 82574L Gigabit Network Connection\r\n   物理地址. . . . . . . . . . . . . : 00-0C-29-F2-A9-EA\r\n   DHCP 已启用 . . . . . . . . . . . : 是\r\n   自动配置已启用. . . . . . . . . . : 是\r\n   本地链接 IPv6 地址. . . . . . . . : fe80::606b:a6fb:cdf:7c40%3(首选) \r\n   IPv4 地址 . . . . . . . . . . . . : 192.168.174.134(首选) \r\n   子网掩码  . . . . . . . . . . . . : 255.255.255.0\r\n   获得租约的时间  . . . . . . . . . : 2026年11月16日 2:48:33\r\n   租约过期的时间  . . . . . . . . . : 2026年11月16日 3:18:33\r\n   默认网关. . . . . . . . . . . . . : 192.168.174.2\r\n   DHCP 服务器 . . . . . . . . . . . : 192.168.174.254\r\n   DHCPv6 IAID . . . . . . . . . . . : 83889193\r\n   DHCPv6 客户端 DUID  . . . . . . . : 00-01-00-01-32-8A-4E-26-00-0C-29-F2-A9-EA\r\n   DNS 服务器  . . . . . . . . . . . : 192.168.174.2\r\n   主 WINS 服务器  . . . . . . . . . : 192.168.174.2\r\n   TCPIP 上的 NetBIOS  . . . . . . . : 已启用\r\n"
+}

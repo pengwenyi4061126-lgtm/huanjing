@@ -52,3 +52,6 @@ native/macfilter/vmtest/*.cat
 .npm-cache-pack-test/
 __pycache__/
 *.pyc
+
+# local VM evidence scratch
+/artifacts/

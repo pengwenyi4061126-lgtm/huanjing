@@ -1,0 +1,58 @@
+{
+  "ok": true,
+  "clean": false,
+  "time": "2026-11-16T03:03:55.2315867+08:00",
+  "vmx": "D:\\Downloads\\vm\\Windows 10 x64.vmx",
+  "mac": "02:44:08:1a:18:33",
+  "backup": "D:\\Downloads\\vm\\Windows 10 x64.vmx.bak-20261116-030353",
+  "guest": {
+    "ok": true,
+    "time": "2026-11-16T03:04:32.9693443+08:00",
+    "user": "DESKTOP-614945G\\Administrator",
+    "build": "22631",
+    "ubr": 7376,
+    "lastBoot": "2026-11-15T19:04:00.5Z",
+    "adapter": {
+      "Name": "Ethernet0",
+      "Status": "Up",
+      "MacAddress": "02-44-08-1A-18-33",
+      "InterfaceDescription": "Intel(R) 82574L Gigabit Network Connection",
+      "ifIndex": 3,
+      "InterfaceGuid": "{0E0E273E-99E6-4F47-85F3-6C33EF8FB717}"
+    },
+    "networkAddress": {
+      "DisplayName": "Locally Administered Address",
+      "RegistryKeyword": "NetworkAddress",
+      "DisplayValue": null,
+      "RegistryValue": null
+    },
+    "wmi": [
+      {
+        "Name": "Intel(R) 82574L Gigabit Network Connection",
+        "MACAddress": "02:44:08:1A:18:33",
+        "PNPDeviceID": "PCI\\VEN_8086&DEV_10D3&SUBSYS_07D015AD&REV_00\\000C29FFFFF2A9EA00"
+      }
+    ],
+    "pnp": [
+      {
+        "Status": "OK",
+        "Problem": 0,
+        "FriendlyName": "Intel(R) 82574L Gigabit Network Connection",
+        "InstanceId": "PCI\\VEN_8086&DEV_10D3&SUBSYS_07D015AD&REV_00\\000C29FFFFF2A9EA00"
+      }
+    ],
+    "dhcpv6Duid": "00-01-00-01-32-8B-B9-1E-02-44-08-1A-18-33",
+    "autoLogin": {
+      "AutoAdminLogon": "1",
+      "DefaultUserName": "Administrator",
+      "ForceAutoLogon": "1"
+    },
+    "cacMacLwf": {
+      "Name": "CacMacLwf",
+      "State": "Stopped",
+      "StartMode": "Manual"
+    },
+    "ipconfig": "\r\nWindows IP 配置\r\n\r\n   主机名  . . . . . . . . . . . . . : DESKTOP-614945G\r\n   主 DNS 后缀 . . . . . . . . . . . : \r\n   节点类型  . . . . . . . . . . . . : 混合\r\n   IP 路由已启用 . . . . . . . . . . : 否\r\n   WINS 代理已启用 . . . . . . . . . : 否\r\n"
+  },
+  "residualWarning": "PnP InstanceId does not contain the new MAC; a retrofitted VM can retain the original PCI serial. Rebuild the VM for a clean serial."
+}

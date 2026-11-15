@@ -1,0 +1,50 @@
+﻿{
+    "phase":  "after-reboot",
+    "time":  "2026-11-16T02:58:04.0393542+08:00",
+    "user":  "DESKTOP-614945G\\Administrator",
+    "build":  "22631",
+    "ubr":  7376,
+    "lastBoot":  "\/Date(1794769059500)\/",
+    "adapter":  {
+                    "Name":  "Ethernet0",
+                    "Status":  "Up",
+                    "MacAddress":  "02-44-08-1A-18-33",
+                    "InterfaceDescription":  "Intel(R) 82574L Gigabit Network Connection",
+                    "ifIndex":  3
+                },
+    "advanced":  {
+                     "DisplayName":  "Locally Administered Address",
+                     "RegistryKeyword":  "NetworkAddress",
+                     "DisplayValue":  "0244081A1833",
+                     "RegistryValue":  [
+                                           "0244081A1833"
+                                       ]
+                 },
+    "wmi":  [
+                {
+                    "Name":  "Intel(R) 82574L Gigabit Network Connection",
+                    "MACAddress":  "02:44:08:1A:18:33",
+                    "PNPDeviceID":  "PCI\\VEN_8086\u0026DEV_10D3\u0026SUBSYS_07D015AD\u0026REV_00\\000C29FFFFF2A9EA00"
+                }
+            ],
+    "pnp":  [
+                {
+                    "Status":  "OK",
+                    "Problem":  0,
+                    "FriendlyName":  "Intel(R) 82574L Gigabit Network Connection",
+                    "InstanceId":  "PCI\\VEN_8086\u0026DEV_10D3\u0026SUBSYS_07D015AD\u0026REV_00\\000C29FFFFF2A9EA00"
+                }
+            ],
+    "dhcpv6Duid":  "00-01-00-01-32-8A-4E-26-00-0C-29-F2-A9-EA",
+    "autoLogin":  {
+                      "AutoAdminLogon":  "1",
+                      "DefaultUserName":  "Administrator",
+                      "ForceAutoLogon":  "1"
+                  },
+    "cacMacLwf":  {
+                      "Name":  "CacMacLwf",
+                      "State":  "Stopped",
+                      "StartMode":  "Manual"
+                  },
+    "ipconfig":  "\r\nWindows IP 配置\r\n\r\n   主机名  . . . . . . . . . . . . . : DESKTOP-614945G\r\n   主 DNS 后缀 . . . . . . . . . . . : \r\n   节点类型  . . . . . . . . . . . . : 混合\r\n   IP 路由已启用 . . . . . . . . . . : 否\r\n   WINS 代理已启用 . . . . . . . . . : 否\r\n"
+}
