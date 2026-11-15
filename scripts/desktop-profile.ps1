@@ -86,6 +86,17 @@ function Get-Sha256 {
     }
 }
 
+function Get-StringSha256 {
+    param([string]$Value)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes([string]$Value)
+        return ([System.BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToUpperInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
+
 function Get-DeclaredSha256 {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -149,7 +160,10 @@ function Get-FreeTcpPort {
 }
 
 function Get-ChromiumPersonaVersion {
-    param([string]$ExePath)
+    param(
+        [string]$ExePath,
+        [switch]$IgnoreConfigured
+    )
 
     $electronVersion = ''
     if (-not [string]::IsNullOrWhiteSpace($ExePath)) {
@@ -165,7 +179,10 @@ function Get-ChromiumPersonaVersion {
         $electronMajor = [int]$Matches[1]
     }
 
-    $configuredChromium = [Environment]::GetEnvironmentVariable('CAC_CHROMIUM_VERSION', 'Process')
+    $configuredChromium = $null
+    if (-not $IgnoreConfigured) {
+        $configuredChromium = [Environment]::GetEnvironmentVariable('CAC_CHROMIUM_VERSION', 'Process')
+    }
     if ($configuredChromium -notmatch '^\d+\.\d+\.\d+\.\d+$') {
         $configuredChromium = $null
     }
@@ -209,20 +226,27 @@ function Initialize-ProfilePersona {
     )
     New-Item -ItemType Directory -Path $Paths.Root -Force | Out-Null
     $path = Join-Path $Paths.Root 'fingerprint.json'
-    $browser = Get-ChromiumPersonaVersion -ExePath $ExePath
-    $existingPersona = $null
+    $lockPath = Join-Path $Paths.Root 'device-image.lock.json'
+    $hasLock = Test-Path -LiteralPath $lockPath -PathType Leaf
     if (Test-Path -LiteralPath $path -PathType Leaf) {
         try {
-            $existingPersona = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-            if ($existingPersona.ua -and $existingPersona.uaBrands -and
-                [string]$existingPersona.uaChromiumVersion -eq $browser.chromiumVersion) {
-                return $path
+            $existingPersona = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -ErrorAction Stop
+            foreach ($field in @('seed', 'ua', 'timezone', 'locale', 'uaElectronVersion', 'uaChromiumVersion')) {
+                if ([string]::IsNullOrWhiteSpace([string]$existingPersona.$field)) {
+                    throw "fingerprint.json is missing required field: $field"
+                }
             }
+            if ($null -eq $existingPersona.uaBrands -or $null -eq $existingPersona.languages) {
+                throw 'fingerprint.json is missing uaBrands or languages'
+            }
+            return $path
         } catch {
-            $existingPersona = $null
+            if ($hasLock) { throw "Locked fingerprint.json is invalid: $($_.Exception.Message)" }
         }
     }
+    if ($hasLock) { throw "Locked fingerprint.json is missing: $path" }
 
+    $browser = Get-ChromiumPersonaVersion -ExePath $ExePath
     $identity = Initialize-ProfileIdentity -Paths $Paths
     $locale = (Get-Culture).Name
     if ([string]::IsNullOrWhiteSpace($locale)) { $locale = 'en-US' }
@@ -282,22 +306,7 @@ function Initialize-ProfilePersona {
         wow64           = $false
     }
 
-    if ($null -ne $existingPersona) {
-        $persona = $existingPersona
-        $updates = [ordered]@{
-            ua                = $ua
-            uaBrands          = @($uaBrands)
-            uaMobile          = $false
-            uaPlatform        = 'Windows'
-            uaHighEntropy     = $uaHighEntropy
-            uaElectronVersion = $browser.electronVersion
-            uaChromiumVersion = $browser.chromiumVersion
-        }
-        foreach ($entry in $updates.GetEnumerator()) {
-            $persona | Add-Member -MemberType NoteProperty -Name $entry.Key -Value $entry.Value -Force
-        }
-    } else {
-        $persona = [ordered]@{
+    $persona = [ordered]@{
             schema              = 1
             seed                = "$($Paths.Name)|$([string]$identity.machine_id)"
             timezone            = Get-IanaTimeZone
@@ -336,7 +345,6 @@ function Initialize-ProfilePersona {
             canvasNoise         = 1
             audioNoise          = 0.0000001
             webrtc              = 'filter-private'
-        }
     }
     $json = $persona | ConvertTo-Json -Depth 8
     [System.IO.File]::WriteAllText($path, $json + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
@@ -382,6 +390,7 @@ function Get-ProfilePaths {
         LogsDir          = (Join-Path $root 'logs')
         UserDataDir      = (Join-Path $root 'home\AppData\Roaming\Claude')
         IdentityPath     = (Join-Path $root 'identity.json')
+        DeviceImageLock  = (Join-Path $root 'device-image.lock.json')
         AntDidPrimary    = (Join-Path $root 'home\AppData\Roaming\Claude\ant-did')
         AntDidFallback   = (Join-Path $root 'home\AppData\Local\Claude-3p\ant-did')
     }
@@ -561,14 +570,21 @@ function Get-DerivedHex {
 
 function Initialize-ProfileIdentity {
     param([psobject]$Paths)
+    $hasLock = Test-Path -LiteralPath $Paths.DeviceImageLock -PathType Leaf
     if (Test-Path -LiteralPath $Paths.IdentityPath -PathType Leaf) {
         try {
-            $existing = Get-Content -LiteralPath $Paths.IdentityPath -Raw | ConvertFrom-Json
-            if ($null -ne $existing -and -not [string]::IsNullOrWhiteSpace([string]$existing.machine_id)) {
-                return $existing
+            $existing = Get-Content -LiteralPath $Paths.IdentityPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            foreach ($field in @('machine_id', 'hostname', 'mac_address', 'username')) {
+                if ([string]::IsNullOrWhiteSpace([string]$existing.$field)) {
+                    throw "identity.json is missing required field: $field"
+                }
             }
-        } catch { }
+            return $existing
+        } catch {
+            if ($hasLock) { throw "Locked identity.json is invalid: $($_.Exception.Message)" }
+        }
     }
+    if ($hasLock) { throw "Locked identity.json is missing: $($Paths.IdentityPath)" }
 
     $machineId = [guid]::NewGuid().ToString('N')
     $uuid = [guid]::NewGuid().ToString().ToUpperInvariant()
@@ -597,6 +613,87 @@ function Initialize-ProfileIdentity {
     $encoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
     [System.IO.File]::WriteAllText($Paths.IdentityPath, ($identity | ConvertTo-Json -Depth 5), $encoding)
     return [pscustomobject]$identity
+}
+
+function Assert-ProfileDeviceImageLock {
+    param(
+        [psobject]$Paths,
+        [switch]$InitializeIfMissing
+    )
+    if (-not (Test-Path -LiteralPath $Paths.IdentityPath -PathType Leaf)) {
+        throw "Device image identity is missing: $($Paths.IdentityPath)"
+    }
+    $personaPath = Join-Path $Paths.Root 'fingerprint.json'
+    if (-not (Test-Path -LiteralPath $personaPath -PathType Leaf)) {
+        throw "Device image persona is missing: $personaPath"
+    }
+
+    try { $identity = Get-Content -LiteralPath $Paths.IdentityPath -Raw | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "Device image identity is invalid: $($_.Exception.Message)" }
+    try { $persona = Get-Content -LiteralPath $personaPath -Raw | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "Device image persona is invalid: $($_.Exception.Message)" }
+    if ([string]::IsNullOrWhiteSpace([string]$identity.machine_id)) { throw 'Device image machine_id is empty' }
+    if ([string]::IsNullOrWhiteSpace([string]$persona.seed)) { throw 'Device image seed is empty' }
+
+    $identitySha = Get-Sha256 -Path $Paths.IdentityPath
+    $personaSha = Get-Sha256 -Path $personaPath
+    $imageSha = Get-StringSha256 -Value "$identitySha`:$personaSha"
+    $lockPath = $Paths.DeviceImageLock
+    if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
+        try { $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw "Device image lock is invalid: $($_.Exception.Message)" }
+        if ([int]$lock.schema -ne 1) { throw "Unsupported device image lock schema: $([string]$lock.schema)" }
+        if (-not [string]::Equals([string]$lock.profile, [string]$Paths.Name, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Device image lock belongs to another Profile: $([string]$lock.profile)"
+        }
+        if ([string]$lock.identitySha256 -ne $identitySha) { throw 'identity.json changed after the device image was locked' }
+        if ([string]$lock.personaSha256 -ne $personaSha) { throw 'fingerprint.json changed after the device image was locked' }
+        if ([string]$lock.imageSha256 -ne $imageSha) { throw 'Device image composite digest does not match the locked files' }
+        if ([string]$lock.machineId -ne [string]$identity.machine_id) { throw 'Device image machine_id does not match its lock' }
+        if ([string]$lock.seed -ne [string]$persona.seed) { throw 'Device image seed does not match its lock' }
+        if ([string]$lock.electronVersion -ne [string]$persona.uaElectronVersion) { throw 'Device image Electron version does not match its lock' }
+        if ([string]$lock.chromiumVersion -ne [string]$persona.uaChromiumVersion) { throw 'Device image Chromium version does not match its lock' }
+        return $lock
+    }
+    if (-not $InitializeIfMissing) { throw "Device image lock is missing: $lockPath" }
+
+    $lock = [ordered]@{
+        schema            = 1
+        profile           = $Paths.Name
+        lockedUtc         = [DateTime]::UtcNow.ToString('o')
+        identitySha256    = $identitySha
+        personaSha256     = $personaSha
+        imageSha256       = $imageSha
+        machineId         = [string]$identity.machine_id
+        seed              = [string]$persona.seed
+        electronVersion   = [string]$persona.uaElectronVersion
+        chromiumVersion   = [string]$persona.uaChromiumVersion
+    }
+    $temporary = "$lockPath.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
+    try {
+        Write-JsonNoBom -Path $temporary -Value $lock
+        Move-Item -LiteralPath $temporary -Destination $lockPath -ErrorAction Stop
+    } finally {
+        Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+    }
+    return [pscustomobject]$lock
+}
+
+function Assert-ProfilePersonaRuntime {
+    param(
+        [psobject]$Paths,
+        [string]$ExePath
+    )
+    $personaPath = Join-Path $Paths.Root 'fingerprint.json'
+    try { $persona = Get-Content -LiteralPath $personaPath -Raw | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "Device image persona is invalid: $($_.Exception.Message)" }
+    $runtime = Get-ChromiumPersonaVersion -ExePath $ExePath -IgnoreConfigured
+    if ([string]$persona.uaElectronVersion -ne [string]$runtime.electronVersion -or
+        [string]$persona.uaChromiumVersion -ne [string]$runtime.chromiumVersion) {
+        throw ("Desktop runtime {0}/{1} does not match locked device image {2}/{3}" -f
+            $runtime.electronVersion, $runtime.chromiumVersion,
+            [string]$persona.uaElectronVersion, [string]$persona.uaChromiumVersion)
+    }
 }
 
 function Push-DesktopKernelIdentity {
@@ -1364,6 +1461,11 @@ function Start-ClaudeDesktop {
     # profile cannot publish its PID file and fail-closed monitoring breaks.
     Initialize-ProfileLayout -Paths $Paths -ForLaunch | Out-Null
     Assert-DesktopNoReparsePoints -Path $Paths.Root
+    if ($UseFingerprint) {
+        $personaPath = Initialize-ProfilePersona -Paths $Paths -ExePath $ExePath
+        Assert-ProfileDeviceImageLock -Paths $Paths -InitializeIfMissing | Out-Null
+        Assert-ProfilePersonaRuntime -Paths $Paths -ExePath $ExePath
+    }
     $launchGeneration = [Guid]::NewGuid().ToString('N')
     $launchStateFile = Join-Path $Paths.LogsDir 'desktop-launch.json'
     $monitorReadyFile = Join-Path $Paths.LogsDir ('.desktop-monitor-{0}.json' -f $launchGeneration)
@@ -1388,7 +1490,6 @@ function Start-ClaudeDesktop {
                 mitmPort = $null; fingerprintPersona = $null
             }
         }
-        $personaPath = Initialize-ProfilePersona -Paths $Paths -ExePath $ExePath
         $mitmPort = Get-FreeTcpPort
         $mitmPidFile = Join-Path $Paths.LogsDir 'mitm-claude.pid'
         $mitmProcessPidFile = Join-Path $Paths.LogsDir 'mitm-proxy.pid'
@@ -2229,6 +2330,7 @@ function Invoke-CreateAction {
     Initialize-ProfileIdentity -Paths $paths | Out-Null
     if ($Fingerprint) {
         Initialize-ProfilePersona -Paths $paths -ExePath $Exe | Out-Null
+        Assert-ProfileDeviceImageLock -Paths $paths -InitializeIfMissing | Out-Null
     }
     if (-not $SuppressProxyWarning) { Show-CacProxyCapacityWarning (Get-CacKnownAccountCapacityWarning) }
     Write-Host "[CREATE] $($paths.Name)"

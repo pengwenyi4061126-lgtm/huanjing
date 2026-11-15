@@ -120,6 +120,7 @@ function statusText(status) {
 function renderAccountRow(account) {
   const proxy = proxyFor(account)
   const session = account.session || {}
+  const loginLabel = session.authenticated ? '重新登录' : '首次登录'
   const action = account.status === 'running'
     ? `<button class="row-action" data-action="stop-account" data-id="${escapeHtml(account.id)}">停止</button>`
     : account.status === 'starting'
@@ -132,7 +133,7 @@ function renderAccountRow(account) {
     <td><div class="proxy-cell"><b>${session.authenticated ? '已验证会话' : (session.cookieCount ? `${session.cookieCount} Cookies` : '无快照')}</b><span>${session.savedAt ? escapeHtml(formatTime(session.savedAt)) : '未保存'}</span></div></td>
     <td><span class="status ${escapeHtml(account.status)}">${statusText(account.status)}</span></td>
     <td class="muted mono">${escapeHtml(formatTime(account.lastUsedAt))}</td>
-    <td><div class="row-actions">${action}<button class="row-action" data-action="login-account" data-id="${escapeHtml(account.id)}">网页登录</button><button class="row-action" data-action="edit-account" data-id="${escapeHtml(account.id)}">编辑</button><button class="row-action danger" data-action="delete-account" data-id="${escapeHtml(account.id)}">删除</button></div></td>
+    <td><div class="row-actions">${action}<button class="row-action" data-action="login-account" data-id="${escapeHtml(account.id)}">${loginLabel}</button><button class="row-action" data-action="edit-account" data-id="${escapeHtml(account.id)}">编辑</button><button class="row-action danger" data-action="delete-account" data-id="${escapeHtml(account.id)}">删除</button></div></td>
   </tr>`
 }
 
@@ -162,8 +163,8 @@ function renderSettings() {
   form.elements.accountsPerProxy.value = model.settings.accountsPerProxy || 2
   form.elements.warningMultiplier.value = model.settings.warningMultiplier || 2
   form.elements.autoBind.checked = model.settings.autoBind !== false
-  form.elements.launchInject.checked = model.settings.launchInject !== false
-  form.elements.launchFingerprint.checked = model.settings.launchFingerprint === true
+  form.elements.launchInject.checked = true
+  form.elements.launchFingerprint.checked = true
 }
 
 function renderActivity() {

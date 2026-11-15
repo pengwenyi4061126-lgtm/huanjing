@@ -34,6 +34,12 @@ const {
   installLoginWebContentsPersona
 } = require('./login-fingerprint')
 const {
+  assertRuntimeMatchesPersona,
+  evidenceMatches,
+  publicEvidence,
+  verifyDeviceImage
+} = require('./device-image')
+const {
   chromiumCookieExpiresUtc,
   chromiumCookieTimeNow,
   chromiumSameSite,
@@ -225,7 +231,7 @@ function defaultState() {
     settings: {
       desktopExe: DEFAULT_DESKTOP_EXE,
       launchInject: true,
-      launchFingerprint: false,
+      launchFingerprint: true,
       loginUrl: 'https://claude.ai/login',
       accountsPerProxy: 2,
       warningMultiplier: 2,
@@ -286,7 +292,8 @@ function normalizeAccount(input, existing) {
       domains: [],
       authenticated: false,
       authVerifiedAt: null,
-      encryptedCookies: null
+      encryptedCookies: null,
+      deviceImage: null
     }
   }
   if (!account.session.partition || account.session.partition === 'persist:cac-account-') {
@@ -305,8 +312,8 @@ function normalizeState(raw) {
   fresh.settings = {
     ...fresh.settings,
     desktopExe: String(settings.desktopExe || fresh.settings.desktopExe),
-    launchInject: settings.launchInject !== false,
-    launchFingerprint: settings.launchFingerprint === true,
+    launchInject: true,
+    launchFingerprint: true,
     loginUrl: normalizeLoginUrl(settings.loginUrl || fresh.settings.loginUrl),
     accountsPerProxy: Math.max(1, Math.min(100, Number(settings.accountsPerProxy) || 2)),
     warningMultiplier: Math.max(1, Math.min(20, Number(settings.warningMultiplier) || 2)),
@@ -486,24 +493,47 @@ async function waitForNativeBridgeReady(auditPath, pid, timeoutMs = 20000) {
   throw new Error(`网页登录 renderer/utility NativeBridge 未就绪（PID ${targetPid}）`)
 }
 
-async function loadDesktopFingerprint(account) {
-  const personaPath = path.join(desktopProfileRoot(account), 'fingerprint.json')
-  const shimPath = path.join(runtimeRoot, 'scripts', 'fingerprint-shim.js')
+async function loadLockedDeviceImage(account, options = {}) {
+  const profileRoot = desktopProfileRoot(account)
+  const identityPath = path.join(profileRoot, 'identity.json')
+  const personaPath = path.join(profileRoot, 'fingerprint.json')
+  const lockPath = path.join(profileRoot, 'device-image.lock.json')
+  let identityBuffer
+  let personaBuffer
+  let lock
   try {
-    const [personaText, shim] = await Promise.all([
-      fs.readFile(personaPath, 'utf8'),
-      fs.readFile(shimPath, 'utf8')
+    const [identityBytes, personaBytes, lockText] = await Promise.all([
+      fs.readFile(identityPath),
+      fs.readFile(personaPath),
+      fs.readFile(lockPath, 'utf8')
     ])
-    const persona = JSON.parse(personaText)
-    if (!persona || typeof persona !== 'object' || !persona.seed) throw new Error('fingerprint.json 缺少稳定 seed')
-    const serialized = JSON.stringify(persona).replace(/</g, '\\u003c')
-    return {
-      persona,
-      script: `window.__CAC_PERSONA__=${serialized};\n${shim}`
-    }
+    identityBuffer = identityBytes
+    personaBuffer = personaBytes
+    lock = JSON.parse(lockText.replace(/^\uFEFF/, ''))
   } catch (error) {
-    await recordEvent('warn', `网页登录未加载 Profile 指纹配置: ${error.message}`)
-    return null
+    throw new Error(`Profile device image cannot be read: ${error.message}`)
+  }
+  const evidence = verifyDeviceImage({
+    profileName: account.profileName,
+    identityBuffer,
+    personaBuffer,
+    lock
+  })
+  if (options.requireRuntime === true) assertRuntimeMatchesPersona(evidence.persona)
+  return evidence
+}
+
+async function loadDesktopFingerprint(account) {
+  const shimPath = path.join(runtimeRoot, 'scripts', 'fingerprint-shim.js')
+  const [evidence, shim] = await Promise.all([
+    loadLockedDeviceImage(account, { requireRuntime: true }),
+    fs.readFile(shimPath, 'utf8')
+  ])
+  const serialized = JSON.stringify(evidence.persona).replace(/</g, '\\u003c')
+  return {
+    evidence: publicEvidence(evidence),
+    persona: evidence.persona,
+    script: `window.__CAC_PERSONA__=${serialized};\n${shim}`
   }
 }
 
@@ -1244,6 +1274,14 @@ async function captureLoginSession(account, options = {}) {
   const cookies = (await sess.cookies.get({})).filter(isClaudeCookie)
   const auth = analyzeClaudeSession(cookies)
   const wasAuthenticated = account.session?.authenticated === true
+  let deviceImage = account.session?.deviceImage || null
+  if (auth.authenticated) {
+    const currentDeviceImage = publicEvidence(await loadLockedDeviceImage(account))
+    if (deviceImage && !evidenceMatches(deviceImage, currentDeviceImage)) {
+      throw new Error('The authenticated login session does not match the locked Profile device image')
+    }
+    deviceImage = currentDeviceImage
+  }
   const verifiedAt = auth.authenticated
     ? (account.session?.authVerifiedAt || nowIso())
     : null
@@ -1273,6 +1311,7 @@ async function captureLoginSession(account, options = {}) {
     sessionKeyName: auth.sessionKeyName,
     organizationId: auth.organizationId,
     encryptedCookies,
+    deviceImage,
     desktopSessionSyncKey: desktopSynced ? desktopSyncKey : (account.session?.desktopSessionSyncKey || null),
     desktopSessionSyncedAt: desktopSynced ? nowIso() : (account.session?.desktopSessionSyncedAt || null),
     desktopSessionSyncError: desktopSyncError
@@ -1328,6 +1367,9 @@ async function openLoginImpl(accountId, requestedUrl = '') {
     loginNative = configureLoginNativeEnvironment(account)
     loginFingerprint = await loadDesktopFingerprint(account)
     if (!loginFingerprint) throw new Error('Profile 指纹配置缺失，已阻止未一致化的网页登录')
+    if (account.session?.deviceImage && !evidenceMatches(account.session.deviceImage, loginFingerprint.evidence)) {
+      throw new Error('Web login device image does not match the image recorded by the first login')
+    }
     configured = await configureLoginSession(account)
     applyLoginSessionPersona(configured.sess, loginFingerprint.persona)
     proxyCheck = await probeConfiguredLoginProxy(account, configured, true)
@@ -1474,6 +1516,10 @@ async function openLoginImpl(accountId, requestedUrl = '') {
 async function restoreSession(accountId) {
   const account = state.accounts.find((item) => item.id === accountId)
   if (!account) throw new Error('账号不存在')
+  const currentDeviceImage = publicEvidence(await loadLockedDeviceImage(account))
+  if (account.session?.deviceImage && !evidenceMatches(account.session.deviceImage, currentDeviceImage)) {
+    throw new Error('The saved login session does not match the locked Profile device image')
+  }
   const cookies = decryptJson(account.session?.encryptedCookies)
   if (!Array.isArray(cookies)) throw new Error('当前机器无法解密该会话备份')
   const sess = accountLoginSession(account)
@@ -1499,6 +1545,7 @@ async function restoreSession(accountId) {
     const sync = await importCookiesIntoDesktopProfile(account, cookies)
     account.session = {
       ...account.session,
+      deviceImage: currentDeviceImage,
       desktopSessionSyncKey: getDesktopSessionSyncKey(cookies),
       desktopSessionSyncedAt: nowIso(),
       desktopSessionSyncError: null
@@ -1611,20 +1658,30 @@ async function activateAccountImpl(accountId) {
 
   try {
     await ensureProfile(account.profileName)
-    if (account.session?.authenticated === true) {
-      const storedCookies = decryptJson(account.session.encryptedCookies)
-      if (!Array.isArray(storedCookies)) throw new Error('网页登录会话备份无法解密，禁止启动未同步登录态的 Desktop')
-      const sync = await importCookiesIntoDesktopProfile(account, storedCookies)
-      account.session = {
-        ...account.session,
-        desktopSessionSyncKey: getDesktopSessionSyncKey(storedCookies),
-        desktopSessionSyncedAt: nowIso(),
-        desktopSessionSyncError: null
-      }
-      account.updatedAt = nowIso()
-      await saveState()
-      await recordEvent('info', `${account.label || account.profileName} Desktop 会话已同步（${sync.imported} 个 Cookie，${path.basename(sync.cookieDbPath)}）`)
+    const currentDeviceImage = publicEvidence(await loadLockedDeviceImage(account))
+    if (account.session?.deviceImage && !evidenceMatches(account.session.deviceImage, currentDeviceImage)) {
+      throw new Error('Desktop launch device image does not match the image recorded by the first login')
     }
+    if (account.session?.authenticated !== true || Number(account.session?.cookieCount || 0) < 1) {
+      throw new Error('The account has no verified first-login session; Desktop launch is blocked')
+    }
+    if (!account.session.deviceImage) {
+      account.session = { ...account.session, deviceImage: currentDeviceImage }
+      await recordEvent('info', `${account.label || account.profileName} 已迁移并锁定现有首次登录画像 ${currentDeviceImage.imageSha256.slice(0, 12)}`)
+    }
+    const storedCookies = decryptJson(account.session.encryptedCookies)
+    if (!Array.isArray(storedCookies)) throw new Error('网页登录会话备份无法解密，禁止启动未同步登录态的 Desktop')
+    const sync = await importCookiesIntoDesktopProfile(account, storedCookies)
+    account.session = {
+      ...account.session,
+      deviceImage: currentDeviceImage,
+      desktopSessionSyncKey: getDesktopSessionSyncKey(storedCookies),
+      desktopSessionSyncedAt: nowIso(),
+      desktopSessionSyncError: null
+    }
+    account.updatedAt = nowIso()
+    await saveState()
+    await recordEvent('info', `${account.label || account.profileName} Desktop 会话已同步（${sync.imported} 个 Cookie，${path.basename(sync.cookieDbPath)}）`)
     const pool = await readProxyState()
     const existingBinding = pool.bindings.find((item) => item.accountKey.toLowerCase() === `desktop:${account.profileName}`.toLowerCase())
     if (account.proxyId) {
@@ -1654,10 +1711,10 @@ async function activateAccountImpl(accountId) {
     const args = [
       '-Action', 'launch',
       '-Profile', account.profileName,
-      '-Exe', state.settings.desktopExe
+      '-Exe', state.settings.desktopExe,
+      '-Inject',
+      '-Fingerprint'
     ]
-    if (state.settings.launchInject) args.push('-Inject')
-    if (state.settings.launchFingerprint) args.push('-Fingerprint')
     const result = await runDesktopScript(args, {}, { fileCapture: true, timeoutMs: DESKTOP_START_TIMEOUT_MS })
     const output = `${result.stdout}\n${result.stderr}`.trim()
     if (result.code !== 0) throw new Error(output || 'Desktop 启动失败')
@@ -1885,6 +1942,10 @@ async function testSocks5(rawUrl) {
 async function saveAccount(input) {
   const existing = input?.id ? state.accounts.find((item) => item.id === input.id) : null
   const account = normalizeAccount(input || {}, existing)
+  if (existing && existing.profileName !== account.profileName &&
+      (existing.session?.deviceImage || Number(existing.session?.cookieCount || 0) > 0)) {
+    throw new Error('Profile 名称在首次登录画像锁定后不可修改')
+  }
   const duplicate = state.accounts.find((item) => item.id !== account.id && account.email && item.email.toLowerCase() === account.email.toLowerCase())
   if (duplicate) throw new Error(`邮箱已存在于账号 ${duplicate.label || duplicate.profileName}`)
   const profileOwner = findProfileOwner(account.profileName, account.id)
@@ -2081,8 +2142,8 @@ function registerIpc() {
     const desktopExe = String(input?.desktopExe || '').trim()
     if (!desktopExe) throw new Error('Desktop 可执行文件路径不能为空')
     state.settings.desktopExe = desktopExe
-    state.settings.launchInject = input?.launchInject !== false
-    state.settings.launchFingerprint = input?.launchFingerprint === true
+    state.settings.launchInject = true
+    state.settings.launchFingerprint = true
     state.settings.loginUrl = normalizeLoginUrl(input?.loginUrl || state.settings.loginUrl)
     state.settings.accountsPerProxy = Math.max(1, Math.min(100, Number(input?.accountsPerProxy) || 2))
     state.settings.warningMultiplier = Math.max(1, Math.min(20, Number(input?.warningMultiplier) || 2))

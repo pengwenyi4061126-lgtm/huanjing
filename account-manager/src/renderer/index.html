@@ -64,8 +64,8 @@
             <label>网页登录地址<input name="loginUrl" type="url" required></label>
             <div class="form-grid"><label>每代理承载<input name="accountsPerProxy" type="number" min="1" max="100" required></label><label>告警倍数<input name="warningMultiplier" type="number" min="1" max="20" required></label></div>
             <label class="check-row"><input name="autoBind" type="checkbox"><span>新账号自动绑定代理</span></label>
-            <label class="check-row"><input name="launchInject" type="checkbox"><span>启动 Desktop Native 注入</span></label>
-            <label class="check-row"><input name="launchFingerprint" type="checkbox"><span>启动 Desktop Fingerprint MITM</span></label>
+            <label class="check-row"><input name="launchInject" type="checkbox" checked disabled><span>Desktop Native 注入（画像一致性固定启用）</span></label>
+            <label class="check-row"><input name="launchFingerprint" type="checkbox" checked disabled><span>Desktop Fingerprint（画像一致性固定启用）</span></label>
             <div class="form-actions"><button class="button primary" type="submit">保存设置</button><button class="button secondary" type="button" data-action="open-runtime">打开运行时目录</button></div>
           </form>
           <div class="notice"><strong>数据边界</strong><span>管理器索引位于用户 AppData；Desktop 会话位于每个 Profile。导出默认不含 Cookie 值。</span></div>

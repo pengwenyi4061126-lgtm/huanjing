@@ -26,6 +26,14 @@ const {
   normalizeLanguages,
   validatePersona
 } = require(path.join(root, 'src', 'login-fingerprint.js'))
+const {
+  assertRuntimeMatchesPersona,
+  buildImageSha256,
+  evidenceMatches,
+  publicEvidence,
+  sha256,
+  verifyDeviceImage
+} = require(path.join(root, 'src', 'device-image.js'))
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 assert.equal(packageJson.name, 'cac-account-manager')
 assert.ok(packageJson.build.extraResources.length >= 3)
@@ -44,7 +52,7 @@ assert.match(mainSource, /rmSync\(auditPath, \{ force: true \}\)/)
 assert.match(mainSource, /window-switch/)
 assert.match(mainSource, /host-resolver-rules/)
 assert.match(mainSource, /disable_non_proxied_udp/)
-for (const file of ['src/main.js', 'src/preload.js', 'src/login-input.js', 'src/login-fingerprint.js', 'src/desktop-cookie.js', 'src/renderer/app.js', 'src/renderer/index.html', 'src/renderer/styles.css', 'scripts/electron-native-smoke.js', 'scripts/electron-native-smoke.ps1', 'scripts/manager-bootstrap-smoke.ps1']) {
+for (const file of ['src/main.js', 'src/preload.js', 'src/login-input.js', 'src/login-fingerprint.js', 'src/device-image.js', 'src/desktop-cookie.js', 'src/renderer/app.js', 'src/renderer/index.html', 'src/renderer/styles.css', 'scripts/electron-native-smoke.js', 'scripts/electron-native-smoke.ps1', 'scripts/manager-bootstrap-smoke.ps1']) {
   assert.ok(fs.existsSync(path.join(root, file)), `missing ${file}`)
 }
 const profileName = 'profile-a'
@@ -100,7 +108,10 @@ const persona = {
   ua: 'CAC-Smoke/1.0',
   timezone: 'America/New_York',
   locale: 'en-US',
-  languages: ['en-US', 'en', 'en-US']
+  languages: ['en-US', 'en', 'en-US'],
+  seed: 'profile-a|machine-a',
+  uaElectronVersion: '45.2.1',
+  uaChromiumVersion: '156.0.8078.75'
 }
 assert.deepEqual(normalizeLanguages(persona), ['en-US', 'en'])
 assert.equal(validatePersona(persona).timezone, 'America/New_York')
@@ -108,4 +119,34 @@ let appliedPersona = null
 applyLoginSessionPersona({ setUserAgent: (...args) => { appliedPersona = args } }, persona)
 assert.deepEqual(appliedPersona, ['CAC-Smoke/1.0', 'en-US,en'])
 assert.throws(() => validatePersona({}), /userAgent/)
+const identityBuffer = Buffer.from(`${JSON.stringify({ machine_id: 'machine-a' }, null, 2)}\n`)
+const personaBuffer = Buffer.from(`${JSON.stringify(persona, null, 2)}\n`)
+const identitySha256 = sha256(identityBuffer)
+const personaSha256 = sha256(personaBuffer)
+const lock = {
+  schema: 1,
+  profile: 'profile-a',
+  lockedUtc: '2026-11-15T00:00:00.000Z',
+  identitySha256,
+  personaSha256,
+  imageSha256: buildImageSha256(identitySha256, personaSha256),
+  machineId: 'machine-a',
+  seed: persona.seed,
+  electronVersion: persona.uaElectronVersion,
+  chromiumVersion: persona.uaChromiumVersion
+}
+const deviceImage = verifyDeviceImage({ profileName: 'profile-a', identityBuffer, personaBuffer, lock })
+assert.equal(deviceImage.imageSha256, lock.imageSha256)
+assert.equal(evidenceMatches(publicEvidence(deviceImage), publicEvidence(deviceImage)), true)
+assert.deepEqual(assertRuntimeMatchesPersona(persona, { electron: '45.2.1', chrome: '156.0.8078.75' }), {
+  electron: '45.2.1',
+  chromium: '156.0.8078.75'
+})
+assert.throws(() => assertRuntimeMatchesPersona(persona, { electron: '45.2.2', chrome: '156.0.8078.80' }), /does not match/)
+assert.throws(() => verifyDeviceImage({
+  profileName: 'profile-a',
+  identityBuffer,
+  personaBuffer: Buffer.from(`${JSON.stringify({ ...persona, locale: 'fr-FR' }, null, 2)}\n`),
+  lock
+}), /fingerprint\.json changed/)
 console.log('[PASS] account-manager source and packaging smoke')
