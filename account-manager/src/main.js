@@ -17,7 +17,6 @@ const os = require('node:os')
 const crypto = require('node:crypto')
 const nodeHttp = require('node:http')
 const nodeNet = require('node:net')
-const tls = require('node:tls')
 const { spawn, spawnSync } = require('node:child_process')
 const { maskProxyUrl, normalizeProxyUrl, parseProxyInput } = require('./proxy-input')
 const {
@@ -47,17 +46,24 @@ const {
   getDesktopSessionSyncKey,
   normalizeCookieForDesktop
 } = require('./desktop-cookie')
+const {
+  FIXED_US_LANGUAGES,
+  FIXED_US_LOCALE,
+  FIXED_US_TIMEZONE,
+  profileGenesisEnvironment
+} = require('./proxy-profile')
+const { probeSocks5Profile: probeSocks5ProfileThroughProxy, testSocks5 } = require('./socks-client')
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
 const DEFAULT_DESKTOP_EXE = 'C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe'
 const PROFILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 const SCHEMA_VERSION = 1
 const DESKTOP_START_TIMEOUT_MS = 90000
-const HOST_USERPROFILE = process.env.USERPROFILE || os.homedir()
+const HOST_USERPROFILE = path.resolve(process.env.USERPROFILE || os.homedir())
 const NATIVE_MANAGER_CHILD_SWITCH = '--cac-native-manager-child'
 const LOGIN_ENV_KEYS = [
   'APPDATA', 'LOCALAPPDATA', 'USERPROFILE', 'HOME', 'TEMP', 'TMP',
-  'TZ',
+  'TZ', 'LANG', 'LANGUAGE', 'LC_ALL',
   'CLAUDE_CONFIG_DIR', 'CAC_PROFILE_DIR', 'CAC_PROFILE_IDENTITY',
   'CAC_HOSTNAME', 'CAC_MACHINE_ID', 'CAC_MAC', 'CAC_USERNAME',
   'CAC_NATIVE_READ_POLICY', 'CAC_NATIVE_CPUID_MODE', 'CAC_NATIVE_AUDIT',
@@ -194,9 +200,39 @@ function reconcileRuntimeState() {
       ? 'logged-in'
       : 'ready'
     account.updatedAt = nowIso()
-    recovered.push(account.label || account.profileName)
+    recovered.push({
+      id: account.id,
+      label: account.label || account.profileName
+    })
   }
   return recovered
+}
+
+async function cleanupRecoveredProfiles(recovered) {
+  const errors = []
+  for (const item of recovered || []) {
+    const account = state?.accounts?.find((candidate) => candidate.id === item.id)
+    if (!account) continue
+    let lastError = null
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        // Reconcile the UI state and the Profile runtime state together. The
+        // lifecycle monitor normally handles this, but the manager must also
+        // recover stale launch state after a crash or an early process exit.
+        await stopAccount(account)
+        lastError = null
+        break
+      } catch (error) {
+        lastError = error
+        if (!/profile is busy/i.test(String(error?.message || '')) || attempt === 3) break
+        await sleep(250 * (attempt + 1))
+      }
+    }
+    if (lastError) {
+      errors.push(`${item.label}: ${lastError.message}`)
+    }
+  }
+  return errors
 }
 
 async function reconcileRuntimeStateAndPersist() {
@@ -205,8 +241,13 @@ async function reconcileRuntimeStateAndPersist() {
   if (!recovered.length) return
   runtimeReconcileInFlight = true
   try {
+    const cleanupErrors = await cleanupRecoveredProfiles(recovered)
     await saveState()
-    await recordEvent('warn', `检测到 Desktop 进程已退出，已恢复账号状态: ${recovered.join('、')}`)
+    const labels = recovered.map((item) => item.label).join('、')
+    const suffix = cleanupErrors.length > 0
+      ? `；Profile 回收失败: ${cleanupErrors.join(' | ')}`
+      : ''
+    await recordEvent('warn', `检测到 Desktop 进程已退出，已恢复账号状态: ${labels}${suffix}`)
   } finally {
     runtimeReconcileInFlight = false
   }
@@ -255,8 +296,16 @@ function findProfileOwner(profileName, accountId = '') {
   return state?.accounts?.find((item) => item.id !== accountId && String(item.profileName || '').toLowerCase() === normalized) || null
 }
 
+function accountLoginPartition(accountOrId) {
+  const rawId = typeof accountOrId === 'object' ? accountOrId?.id : accountOrId
+  const accountId = String(rawId || '').replace(/[^A-Za-z0-9_-]/g, '')
+  if (!accountId) throw new Error('Invalid account ID for isolated web login session')
+  return `cac-account-${accountId}`
+}
+
 function normalizeAccount(input, existing) {
   const base = existing || {}
+  const accountId = String(input.id || base.id || newId('acct'))
   const profileName = normalizeProfileName(input.profileName || base.profileName || 'default')
   const label = String(input.label ?? base.label ?? input.email ?? base.email ?? profileName).trim().slice(0, 80)
   const email = String(input.email ?? base.email ?? '').trim().slice(0, 320)
@@ -270,7 +319,7 @@ function normalizeAccount(input, existing) {
     status = hasSavedSession ? 'auth-pending' : 'ready'
   }
   const account = {
-    id: String(input.id || base.id || newId('acct')),
+    id: accountId,
     label,
     email,
     provider: 'Claude Desktop',
@@ -286,7 +335,7 @@ function normalizeAccount(input, existing) {
     createdAt: base.createdAt || nowIso(),
     updatedAt: nowIso(),
     session: sourceSession ? { ...sourceSession } : {
-      partition: `persist:cac-account-${String(input.id || base.id || '').replace(/[^A-Za-z0-9_-]/g, '')}`,
+      partition: accountLoginPartition(accountId),
       savedAt: null,
       cookieCount: 0,
       domains: [],
@@ -296,9 +345,9 @@ function normalizeAccount(input, existing) {
       deviceImage: null
     }
   }
-  if (!account.session.partition || account.session.partition === 'persist:cac-account-') {
-    account.session.partition = `persist:cac-account-${account.id.replace(/[^A-Za-z0-9_-]/g, '')}`
-  }
+  // Keep Chromium login state in memory. DPAPI-encrypted cookies are the only
+  // persistent web-login snapshot and are restored explicitly when needed.
+  account.session.partition = accountLoginPartition(account.id)
   return account
 }
 
@@ -368,14 +417,18 @@ function desktopProfileRoot(account) {
   )
 }
 
-function loginSessionPath(account) {
-  return path.join(desktopProfileRoot(account), 'login-session')
+function loginRelayPath(account) {
+  const base = path.resolve(app.getPath('userData'), 'login-relay')
+  const accountDir = String(account.id || '').replace(/[^A-Za-z0-9_-]/g, '_')
+  const target = path.resolve(base, accountDir)
+  if (!accountDir || !target.startsWith(`${base}${path.sep}`)) {
+    throw new Error('拒绝清理无效的网页登录中继目录')
+  }
+  return target
 }
 
 function accountLoginSession(account) {
-  const root = loginSessionPath(account)
-  fsSync.mkdirSync(root, { recursive: true })
-  return session.fromPath(root)
+  return session.fromPartition(accountLoginPartition(account), { cache: false })
 }
 
 function configureLoginNativeEnvironment(account) {
@@ -391,16 +444,19 @@ function configureLoginNativeEnvironment(account) {
   }
   const profileRoot = desktopProfileRoot(account)
   const identityPath = path.join(profileRoot, 'identity.json')
+  const personaPath = path.join(profileRoot, 'fingerprint.json')
   const auditDir = path.join(profileRoot, 'audit')
   const auditPath = path.join(auditDir, 'login-native.jsonl')
   if (!fsSync.existsSync(identityPath)) throw new Error(`Profile identity.json 不存在: ${identityPath}`)
   fsSync.mkdirSync(auditDir, { recursive: true })
   try { fsSync.rmSync(auditPath, { force: true }) } catch { }
   let identity
+  let persona
   try {
     identity = JSON.parse(fsSync.readFileSync(identityPath, 'utf8'))
+    persona = JSON.parse(fsSync.readFileSync(personaPath, 'utf8'))
   } catch (error) {
-    throw new Error(`Profile identity.json 无法读取: ${error.message}`)
+    throw new Error(`Profile 画像文件无法读取: ${error.message}`)
   }
   const native = nativeManagerRuntime()
   if (process.platform === 'win32' && !fsSync.existsSync(native.bridge)) {
@@ -422,7 +478,14 @@ function configureLoginNativeEnvironment(account) {
   if (!['neutral', 'empty', 'passthrough'].includes(cpuidMode)) {
     cpuidMode = nativeReadPolicy === 'empty' ? 'empty' : 'neutral'
   }
-  const tzValue = readProfileFileValue('tz', '')
+  const tzValue = String(persona.timezone || '').trim()
+  const localeValue = String(persona.locale || '').trim()
+  const languageValues = Array.isArray(persona.languages)
+    ? persona.languages.map((value) => String(value || '').trim()).filter(Boolean)
+    : []
+  if (!tzValue || !localeValue || !languageValues.length) {
+    throw new Error('Profile 指纹缺少锁定的 timezone/locale/languages')
+  }
   const env = {
     APPDATA: path.join(profileRoot, 'home', 'AppData', 'Roaming'),
     LOCALAPPDATA: path.join(profileRoot, 'home', 'AppData', 'Local'),
@@ -443,6 +506,10 @@ function configureLoginNativeEnvironment(account) {
     CAC_WFP_REQUIRED: '1',
     CAC_KERNEL_POLICY_REQUIRED: '0',
     CAC_NATIVE_DLL: native.bridge,
+    TZ: tzValue,
+    LANG: localeValue,
+    LANGUAGE: languageValues.join(':'),
+    LC_ALL: localeValue,
     TEMP: path.join(profileRoot, 'temp'),
     TMP: path.join(profileRoot, 'temp')
   }
@@ -450,7 +517,6 @@ function configureLoginNativeEnvironment(account) {
   for (const [key, value] of Object.entries(env)) {
     if (value) process.env[key] = value
   }
-  if (tzValue) process.env.TZ = tzValue
   for (const directory of [env.APPDATA, env.LOCALAPPDATA, env.USERPROFILE, env.CLAUDE_CONFIG_DIR]) {
     fsSync.mkdirSync(directory, { recursive: true })
   }
@@ -491,6 +557,19 @@ async function waitForNativeBridgeReady(auditPath, pid, timeoutMs = 20000) {
     await sleep(100)
   }
   throw new Error(`网页登录 renderer/utility NativeBridge 未就绪（PID ${targetPid}）`)
+}
+
+async function waitForRendererProcessId(webContents, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!webContents || webContents.isDestroyed()) throw new Error('网页登录 renderer 已提前退出')
+    const pid = typeof webContents.getOSProcessId === 'function'
+      ? Number(webContents.getOSProcessId())
+      : 0
+    if (pid > 0) return pid
+    await sleep(50)
+  }
+  throw new Error('网页登录 renderer PID 获取超时，已阻止未审计登录')
 }
 
 async function loadLockedDeviceImage(account, options = {}) {
@@ -742,10 +821,64 @@ async function loadState() {
     state = defaultState()
   }
   const recovered = reconcileRuntimeState()
+  const cleanupErrors = await cleanupRecoveredProfiles(recovered)
   await saveState()
   if (recovered.length) {
-    await recordEvent('warn', `检测到 Desktop 进程已退出，已恢复账号状态: ${recovered.join('、')}`)
+    const labels = recovered.map((item) => item.label).join('、')
+    const suffix = cleanupErrors.length > 0
+      ? `；Profile 回收失败: ${cleanupErrors.join(' | ')}`
+      : ''
+    await recordEvent('warn', `检测到 Desktop 进程已退出，已恢复账号状态: ${labels}${suffix}`)
   }
+}
+
+async function cleanupLegacyLoginArtifacts() {
+  const userDataRoot = path.resolve(app.getPath('userData'))
+  const activeRelayNames = new Set((state?.accounts || []).map((account) =>
+    String(account.id || '').replace(/[^A-Za-z0-9_-]/g, '_')
+  ))
+  let removedRelayDirectories = 0
+  let removedLegacyPartitions = 0
+  let removedProfileSessions = 0
+
+  const relayRoot = path.resolve(userDataRoot, 'login-relay')
+  try {
+    const entries = await fs.readdir(relayRoot, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory() || activeRelayNames.has(entry.name)) continue
+      const target = path.resolve(relayRoot, entry.name)
+      if (!target.startsWith(`${relayRoot}${path.sep}`)) continue
+      await fs.rm(target, { recursive: true, force: true })
+      removedRelayDirectories++
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+
+  const partitionsRoot = path.resolve(userDataRoot, 'Partitions')
+  try {
+    const entries = await fs.readdir(partitionsRoot, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.name.startsWith('cac-account-')) continue
+      const target = path.resolve(partitionsRoot, entry.name)
+      if (!target.startsWith(`${partitionsRoot}${path.sep}`)) continue
+      await fs.rm(target, { recursive: true, force: true })
+      removedLegacyPartitions++
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+
+  for (const account of state?.accounts || []) {
+    const profileRoot = path.resolve(desktopProfileRoot(account))
+    const legacySession = path.resolve(profileRoot, 'login-session')
+    if (!legacySession.startsWith(`${profileRoot}${path.sep}`)) continue
+    if (!fsSync.existsSync(legacySession)) continue
+    await fs.rm(legacySession, { recursive: true, force: true })
+    removedProfileSessions++
+  }
+
+  return { removedRelayDirectories, removedLegacyPartitions, removedProfileSessions }
 }
 
 async function saveState() {
@@ -786,6 +919,9 @@ function safeAccountForRenderer(account) {
       authVerifiedAt: account.session?.authVerifiedAt || null,
       desktopSessionSyncedAt: account.session?.desktopSessionSyncedAt || null,
       desktopSessionSyncError: account.session?.desktopSessionSyncError || null,
+      deviceImage: account.session?.deviceImage || null,
+      deviceImageProvenance: account.session?.deviceImageProvenance || null,
+      deviceImageCreatedAt: account.session?.deviceImageCreatedAt || null,
       hasEncryptedBackup: Boolean(account.session?.encryptedCookies)
     }
   }
@@ -924,7 +1060,7 @@ function parsePid(output) {
 }
 
 function proxyPoolPath() {
-  return path.resolve(process.env.CAC_PROXY_POOL_PATH || path.join(os.homedir(), '.cac', 'proxy-pool.json'))
+  return path.resolve(process.env.CAC_PROXY_POOL_PATH || path.join(HOST_USERPROFILE, '.cac', 'proxy-pool.json'))
 }
 
 async function readProxyState() {
@@ -1195,7 +1331,7 @@ async function probeConfiguredLoginProxy(account, configured, announce = true) {
   let externalIp = String(response.body || '').trim()
   try { externalIp = JSON.parse(externalIp).ip || externalIp } catch { }
   externalIp = String(externalIp).trim()
-  if (!externalIp || externalIp.length > 100) throw new Error('网页登录代理检查未返回有效出口 IP')
+  if (!nodeNet.isIP(externalIp)) throw new Error('网页登录代理检查未返回有效出口 IP')
   const result = {
     success: true,
     externalIp,
@@ -1268,6 +1404,30 @@ function closeLoginWindow() {
   restoreLoginNativeEnvironment()
 }
 
+async function restoreLoginCookies(account, sess = accountLoginSession(account)) {
+  const cookies = decryptJson(account.session?.encryptedCookies)
+  if (!Array.isArray(cookies)) return { available: false, cookies: [], restored: 0 }
+
+  let restored = 0
+  for (const cookie of cookies) {
+    try {
+      const url = `${cookie.secure ? 'https' : 'http'}://${String(cookie.domain || '').replace(/^\./, '')}${cookie.path || '/'}`
+      await sess.cookies.set({
+        url,
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain,
+        path: cookie.path || '/',
+        secure: Boolean(cookie.secure),
+        httpOnly: Boolean(cookie.httpOnly),
+        expirationDate: cookie.expirationDate
+      })
+      restored++
+    } catch { }
+  }
+  return { available: true, cookies, restored }
+}
+
 async function captureLoginSession(account, options = {}) {
   const sess = accountLoginSession(account)
   try { await sess.cookies.flushStore() } catch { }
@@ -1312,6 +1472,8 @@ async function captureLoginSession(account, options = {}) {
     organizationId: auth.organizationId,
     encryptedCookies,
     deviceImage,
+    deviceImageProvenance: account.session?.deviceImageProvenance || (deviceImage ? 'legacy-login-capture' : null),
+    deviceImageCreatedAt: account.session?.deviceImageCreatedAt || deviceImage?.lockedUtc || null,
     desktopSessionSyncKey: desktopSynced ? desktopSyncKey : (account.session?.desktopSessionSyncKey || null),
     desktopSessionSyncedAt: desktopSynced ? nowIso() : (account.session?.desktopSessionSyncedAt || null),
     desktopSessionSyncError: desktopSyncError
@@ -1367,10 +1529,21 @@ async function openLoginImpl(accountId, requestedUrl = '') {
     loginNative = configureLoginNativeEnvironment(account)
     loginFingerprint = await loadDesktopFingerprint(account)
     if (!loginFingerprint) throw new Error('Profile 指纹配置缺失，已阻止未一致化的网页登录')
-    if (account.session?.deviceImage && !evidenceMatches(account.session.deviceImage, loginFingerprint.evidence)) {
+    if (!account.session?.deviceImage) {
+      account.session = {
+        ...account.session,
+        deviceImage: loginFingerprint.evidence,
+        deviceImageProvenance: 'legacy-profile-baseline-unverified',
+        deviceImageCreatedAt: loginFingerprint.evidence.lockedUtc
+      }
+      await saveState()
+      await recordEvent('warn', `${account.label || account.profileName} 是历史账号：已记录当前 Profile 画像作为兼容基线，不声明为原始首次登录画像`)
+    }
+    if (!evidenceMatches(account.session.deviceImage, loginFingerprint.evidence)) {
       throw new Error('Web login device image does not match the image recorded by the first login')
     }
     configured = await configureLoginSession(account)
+    await restoreLoginCookies(account, configured.sess)
     applyLoginSessionPersona(configured.sess, loginFingerprint.persona)
     proxyCheck = await probeConfiguredLoginProxy(account, configured, true)
   } catch (error) {
@@ -1395,24 +1568,19 @@ async function openLoginImpl(accountId, requestedUrl = '') {
     }
   })
   const currentLoginWindow = loginWindow
-  const rendererPid = typeof currentLoginWindow.webContents.getOSProcessId === 'function'
-    ? Number(currentLoginWindow.webContents.getOSProcessId())
-    : 0
-  if (!rendererPid) {
-    closeLoginWindow()
-    throw new Error('网页登录 renderer PID 获取失败，已阻止未审计登录')
-  }
-  try {
-    await waitForNativeBridgeReady(loginNative.auditPath, rendererPid)
-  } catch (error) {
-    closeLoginWindow()
-    throw error
-  }
   try {
     await currentLoginWindow.loadURL('about:blank')
   } catch (error) {
     closeLoginWindow()
     throw new Error(`网页登录 renderer 初始化失败: ${error.message}`)
+  }
+  let rendererPid
+  try {
+    rendererPid = await waitForRendererProcessId(currentLoginWindow.webContents)
+    await waitForNativeBridgeReady(loginNative.auditPath, rendererPid)
+  } catch (error) {
+    closeLoginWindow()
+    throw error
   }
   let fingerprintRuntime
   try {
@@ -1520,32 +1688,18 @@ async function restoreSession(accountId) {
   if (account.session?.deviceImage && !evidenceMatches(account.session.deviceImage, currentDeviceImage)) {
     throw new Error('The saved login session does not match the locked Profile device image')
   }
-  const cookies = decryptJson(account.session?.encryptedCookies)
-  if (!Array.isArray(cookies)) throw new Error('当前机器无法解密该会话备份')
   const sess = accountLoginSession(account)
-  let restored = 0
-  for (const cookie of cookies) {
-    try {
-      const url = `${cookie.secure ? 'https' : 'http'}://${String(cookie.domain || '').replace(/^\./, '')}${cookie.path || '/'}`
-      await sess.cookies.set({
-        url,
-        name: cookie.name,
-        value: cookie.value,
-        domain: cookie.domain,
-        path: cookie.path || '/',
-        secure: Boolean(cookie.secure),
-        httpOnly: Boolean(cookie.httpOnly),
-        expirationDate: cookie.expirationDate
-      })
-      restored++
-    } catch { }
-  }
+  const restoredLogin = await restoreLoginCookies(account, sess)
+  if (!restoredLogin.available) throw new Error('当前机器无法解密该会话备份')
+  const { cookies, restored } = restoredLogin
   let desktopSynced = false
   if (analyzeClaudeSession(cookies).authenticated) {
     const sync = await importCookiesIntoDesktopProfile(account, cookies)
     account.session = {
       ...account.session,
       deviceImage: currentDeviceImage,
+      deviceImageProvenance: account.session?.deviceImageProvenance || 'legacy-profile-baseline-unverified',
+      deviceImageCreatedAt: account.session?.deviceImageCreatedAt || currentDeviceImage.lockedUtc,
       desktopSessionSyncKey: getDesktopSessionSyncKey(cookies),
       desktopSessionSyncedAt: nowIso(),
       desktopSessionSyncError: null
@@ -1586,16 +1740,99 @@ async function clearSession(accountId) {
   return true
 }
 
-async function ensureProfile(profileName) {
+async function ensureProfile(profileName, genesis = null) {
+  const extraEnv = genesis ? profileGenesisEnvironment(genesis) : {}
   const result = await runDesktopScript([
     '-Action', 'create',
     '-Profile', profileName,
     '-Exe', state.settings.desktopExe,
     '-Fingerprint',
     '-SuppressProxyWarning'
-  ])
+  ], extraEnv)
   if (result.code !== 0) throw new Error((result.stderr || result.stdout || 'Profile 创建失败').trim())
   return result
+}
+
+async function initializeNewAccountProfile(account) {
+  const accountKey = `desktop:${account.profileName}`
+  const poolBefore = await readProxyState()
+  const previousBinding = poolBefore.bindings.find((item) => item.accountKey.toLowerCase() === accountKey.toLowerCase()) || null
+  let createdBinding = false
+  try {
+    const requestedProxyId = String(account.proxyId || '').trim()
+    let candidates
+    if (requestedProxyId) {
+      candidates = poolBefore.proxies.filter((item) => item.id.toLowerCase() === requestedProxyId.toLowerCase())
+      if (!candidates.length) throw new Error(`首个 SOCKS5 不存在: ${requestedProxyId}`)
+    } else {
+      if (!state.settings.autoBind || !poolBefore.settings.autoBindOnNewAccount) {
+        throw new Error('新账号必须绑定第一个 SOCKS5，禁止在没有代理的情况下生成设备画像')
+      }
+      const limit = Math.max(1, Number(poolBefore.settings.accountsPerProxy) || 1)
+      candidates = poolBefore.proxies
+        .filter((item) => item.enabled !== false &&
+          (String(previousBinding?.proxyId || '').toLowerCase() === item.id.toLowerCase() || item.accountCount < limit))
+        .sort((left, right) => {
+          const leftPrevious = String(previousBinding?.proxyId || '').toLowerCase() === left.id.toLowerCase() ? 0 : 1
+          const rightPrevious = String(previousBinding?.proxyId || '').toLowerCase() === right.id.toLowerCase() ? 0 : 1
+          return leftPrevious - rightPrevious || left.accountCount - right.accountCount || left.id.localeCompare(right.id)
+        })
+    }
+    if (!candidates.length) throw new Error('代理池没有可用容量，无法为新账号生成设备画像')
+
+    let genesis = null
+    const failures = []
+    for (const candidate of candidates) {
+      try {
+        const rawProxy = await readRawProxy(candidate.id)
+        if (!rawProxy || rawProxy.enabled === false) throw new Error('代理不存在或已停用')
+        genesis = await probeSocks5Profile(String(rawProxy.url), candidate.id)
+        await bindProxy(account, candidate.id)
+        createdBinding = !previousBinding
+        break
+      } catch (error) {
+        failures.push(`${candidate.id}: ${error.message}`)
+        genesis = null
+        if (requestedProxyId) break
+      }
+    }
+    if (!genesis || !account.proxyId) {
+      throw new Error(`没有可用的首个 SOCKS5（${failures.join('；')}）`)
+    }
+
+    const lockPath = path.join(desktopProfileRoot(account), 'device-image.lock.json')
+    const reattaching = fsSync.existsSync(lockPath)
+    if (reattaching && !account.session?.deviceImage) {
+      throw new Error(`Profile ${account.profileName} 存在未归属的旧设备画像；请先彻底删除旧 Profile，禁止新账号静默复用`)
+    }
+    await ensureProfile(account.profileName, reattaching ? null : genesis)
+    const deviceImage = publicEvidence(await loadLockedDeviceImage(account))
+    if (reattaching && !evidenceMatches(account.session.deviceImage, deviceImage)) {
+      throw new Error('导入账号记录的设备画像与现有 Profile 不一致，禁止重新挂载')
+    }
+    if (!reattaching && (!deviceImage.origin || deviceImage.origin.source !== 'first-socks5')) {
+      throw new Error('新账号设备画像没有记录首个 SOCKS5 来源')
+    }
+    if (!reattaching && deviceImage.origin.proxyId !== account.proxyId) {
+      throw new Error('新账号设备画像与首个 SOCKS5 绑定不一致')
+    }
+    account.session = {
+      ...account.session,
+      deviceImage,
+      deviceImageProvenance: reattaching ? 'reattached-profile' : 'account-create-first-socks5',
+      deviceImageCreatedAt: deviceImage.lockedUtc
+    }
+    account.updatedAt = nowIso()
+    return { deviceImage, genesis, reattaching }
+  } catch (error) {
+    if (previousBinding) {
+      try { await bindProxy(account, previousBinding.proxyId) } catch { }
+    } else if (createdBinding || account.proxyId) {
+      try { await runProxyScript(['-Action', 'unbind', '-AccountKey', accountKey]) } catch { }
+      account.proxyId = null
+    }
+    throw error
+  }
 }
 
 async function bindProxy(account, proxyId) {
@@ -1666,8 +1903,13 @@ async function activateAccountImpl(accountId) {
       throw new Error('The account has no verified first-login session; Desktop launch is blocked')
     }
     if (!account.session.deviceImage) {
-      account.session = { ...account.session, deviceImage: currentDeviceImage }
-      await recordEvent('info', `${account.label || account.profileName} 已迁移并锁定现有首次登录画像 ${currentDeviceImage.imageSha256.slice(0, 12)}`)
+      account.session = {
+        ...account.session,
+        deviceImage: currentDeviceImage,
+        deviceImageProvenance: 'legacy-profile-baseline-unverified',
+        deviceImageCreatedAt: currentDeviceImage.lockedUtc
+      }
+      await recordEvent('warn', `${account.label || account.profileName} 是历史账号：已记录当前 Profile 画像 ${currentDeviceImage.imageSha256.slice(0, 12)} 作为兼容基线`)
     }
     const storedCookies = decryptJson(account.session.encryptedCookies)
     if (!Array.isArray(storedCookies)) throw new Error('网页登录会话备份无法解密，禁止启动未同步登录态的 Desktop')
@@ -1675,6 +1917,8 @@ async function activateAccountImpl(accountId) {
     account.session = {
       ...account.session,
       deviceImage: currentDeviceImage,
+      deviceImageProvenance: account.session?.deviceImageProvenance || 'legacy-profile-baseline-unverified',
+      deviceImageCreatedAt: account.session?.deviceImageCreatedAt || currentDeviceImage.lockedUtc,
       desktopSessionSyncKey: getDesktopSessionSyncKey(storedCookies),
       desktopSessionSyncedAt: nowIso(),
       desktopSessionSyncError: null
@@ -1737,206 +1981,13 @@ async function activateAccountImpl(accountId) {
   }
 }
 
-function createSocketConnection(host, port, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const socket = nodeNet.createConnection({ host, port })
-    let settled = false
-    const finish = (error, value) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      if (error) reject(error)
-      else resolve(value)
-    }
-    const timer = setTimeout(() => {
-      socket.destroy()
-      finish(new Error('代理连接超时'))
-    }, timeoutMs)
-    socket.once('connect', () => finish(null, socket))
-    socket.once('error', (error) => finish(error))
+async function probeSocks5Profile(rawUrl, proxyId) {
+  return probeSocks5ProfileThroughProxy(rawUrl, proxyId, {
+    timezone: FIXED_US_TIMEZONE,
+    locale: FIXED_US_LOCALE,
+    languages: FIXED_US_LANGUAGES,
+    capturedUtc: nowIso()
   })
-}
-
-function createBufferedSocketReader(socket) {
-  let buffer = Buffer.alloc(0)
-  let failure = null
-  let detached = false
-  const waiters = []
-
-  const drain = () => {
-    while (waiters.length) {
-      const waiter = waiters[0]
-      if (failure) {
-        waiters.shift()
-        clearTimeout(waiter.timer)
-        waiter.reject(failure)
-        continue
-      }
-      if (buffer.length < waiter.length) return
-      waiters.shift()
-      clearTimeout(waiter.timer)
-      const chunk = buffer.subarray(0, waiter.length)
-      buffer = buffer.subarray(waiter.length)
-      waiter.resolve(chunk)
-    }
-  }
-  const fail = (error) => {
-    if (!failure) failure = error instanceof Error ? error : new Error(String(error || 'SOCKS5 socket closed'))
-    drain()
-  }
-  const onData = (chunk) => {
-    buffer = Buffer.concat([buffer, chunk])
-    drain()
-  }
-  const onError = (error) => fail(error)
-  const onEnd = () => fail(new Error('SOCKS5 连接在握手完成前关闭'))
-  const onClose = () => fail(new Error('SOCKS5 连接在握手完成前关闭'))
-
-  socket.on('data', onData)
-  socket.once('error', onError)
-  socket.once('end', onEnd)
-  socket.once('close', onClose)
-
-  return {
-    read(length, timeoutMs, label) {
-      return new Promise((resolve, reject) => {
-        const waiter = {
-          length,
-          resolve,
-          reject,
-          timer: setTimeout(() => {
-            const index = waiters.indexOf(waiter)
-            if (index >= 0) waiters.splice(index, 1)
-            reject(new Error(`${label}超时`))
-          }, timeoutMs)
-        }
-        waiters.push(waiter)
-        drain()
-      })
-    },
-    detach() {
-      if (detached) return
-      detached = true
-      socket.off('data', onData)
-      socket.off('error', onError)
-      socket.off('end', onEnd)
-      socket.off('close', onClose)
-      if (buffer.length) socket.unshift(buffer)
-      buffer = Buffer.alloc(0)
-    },
-    dispose() {
-      if (detached) return
-      detached = true
-      socket.off('data', onData)
-      socket.off('error', onError)
-      socket.off('end', onEnd)
-      socket.off('close', onClose)
-      for (const waiter of waiters.splice(0)) {
-        clearTimeout(waiter.timer)
-        waiter.reject(failure || new Error('SOCKS5 reader closed'))
-      }
-      buffer = Buffer.alloc(0)
-    }
-  }
-}
-
-async function socks5Connect(rawUrl, targetHost, targetPort, timeoutMs = 15000) {
-  const proxy = new URL(normalizeProxyUrl(rawUrl))
-  const socket = await createSocketConnection(proxy.hostname, Number(proxy.port || 1080), timeoutMs)
-  const reader = createBufferedSocketReader(socket)
-  const username = decodeURIComponent(proxy.username || '')
-  const password = decodeURIComponent(proxy.password || '')
-  if (Buffer.byteLength(username) > 255 || Buffer.byteLength(password) > 255) throw new Error('SOCKS5 用户名或密码超过 255 字节')
-  try {
-    // Some upstream SOCKS5 gateways reject a greeting that advertises NOAUTH
-    // alongside USERPASS. Credentials therefore select USERPASS alone.
-    const methods = username || password ? Buffer.from([0x05, 0x01, 0x02]) : Buffer.from([0x05, 0x01, 0x00])
-    socket.write(methods)
-    const selected = await reader.read(2, timeoutMs, 'SOCKS5 方法协商')
-    if (selected[0] !== 0x05 || selected[1] === 0xff) throw new Error('SOCKS5 不接受认证方式')
-    if (selected[1] === 0x02) {
-      const userBuf = Buffer.from(username)
-      const passBuf = Buffer.from(password)
-      socket.write(Buffer.concat([Buffer.from([0x01, userBuf.length]), userBuf, Buffer.from([passBuf.length]), passBuf]))
-      const auth = await reader.read(2, timeoutMs, 'SOCKS5 用户名密码认证')
-      if (auth[1] !== 0x00) throw new Error('SOCKS5 用户名或密码错误')
-    } else if (selected[1] !== 0x00) {
-      throw new Error(`SOCKS5 返回了不支持的认证方式: 0x${selected[1].toString(16)}`)
-    }
-    const hostBuf = Buffer.from(String(targetHost), 'utf8')
-    if (!hostBuf.length || hostBuf.length > 255) throw new Error('SOCKS5 目标域名长度无效')
-    if (!Number.isInteger(Number(targetPort)) || Number(targetPort) < 1 || Number(targetPort) > 65535) throw new Error('SOCKS5 目标端口无效')
-    const port = Number(targetPort)
-    socket.write(Buffer.concat([Buffer.from([0x05, 0x01, 0x00, 0x03, hostBuf.length]), hostBuf, Buffer.from([(port >> 8) & 0xff, port & 0xff])]))
-    const head = await reader.read(4, timeoutMs, 'SOCKS5 CONNECT 响应')
-    if (head[1] !== 0x00) throw new Error(`SOCKS5 CONNECT 失败: 0x${head[1].toString(16)}`)
-    let addressLength = 0
-    if (head[3] === 0x01) addressLength = 4
-    else if (head[3] === 0x04) addressLength = 16
-    else if (head[3] === 0x03) addressLength = (await reader.read(1, timeoutMs, 'SOCKS5 绑定域名长度'))[0]
-    else throw new Error(`SOCKS5 返回了未知地址类型: 0x${head[3].toString(16)}`)
-    await reader.read(addressLength + 2, timeoutMs, 'SOCKS5 绑定地址')
-    reader.detach()
-    return socket
-  } catch (error) {
-    reader.dispose()
-    socket.destroy()
-    throw error
-  }
-}
-
-async function testSocks5(rawUrl) {
-  const normalizedUrl = normalizeProxyUrl(rawUrl)
-  const url = new URL(normalizedUrl)
-  const scheme = url.protocol.replace(':', '').toLowerCase()
-  if (scheme !== 'socks5' && scheme !== 'socks5h') throw new Error('当前验活只支持 socks5/socks5h')
-  const started = Date.now()
-  const socket = await socks5Connect(normalizedUrl, 'api.ipify.org', 443, 15000)
-  const secure = tls.connect({ socket, servername: 'api.ipify.org', rejectUnauthorized: true })
-  const response = await new Promise((resolve, reject) => {
-    let data = ''
-    const timer = setTimeout(() => { secure.destroy(); reject(new Error('出口 IP 请求超时')) }, 10000)
-    secure.setEncoding('utf8')
-    secure.on('data', (chunk) => { data += chunk })
-    secure.once('error', (error) => { clearTimeout(timer); reject(error) })
-    secure.once('end', () => { clearTimeout(timer); resolve(data) })
-    secure.once('secureConnect', () => {
-      secure.write('GET /?format=json HTTP/1.1\r\nHost: api.ipify.org\r\nConnection: close\r\nUser-Agent: cac-account-manager\r\n\r\n')
-    })
-  })
-  secure.destroy()
-  const rawResponse = String(response)
-  const separator = rawResponse.indexOf('\r\n\r\n')
-  const headerText = separator >= 0 ? rawResponse.slice(0, separator) : ''
-  let body = separator >= 0 ? rawResponse.slice(separator + 4) : rawResponse
-  const headers = new Map()
-  for (const line of headerText.split(/\r?\n/).slice(1)) {
-    const index = line.indexOf(':')
-    if (index > 0) headers.set(line.slice(0, index).trim().toLowerCase(), line.slice(index + 1).trim())
-  }
-  if (/\bchunked\b/i.test(headers.get('transfer-encoding') || '')) {
-    let offset = 0
-    let decoded = ''
-    while (offset < body.length) {
-      const lineEnd = body.indexOf('\r\n', offset)
-      if (lineEnd < 0) break
-      const size = Number.parseInt(body.slice(offset, lineEnd).split(';', 1)[0].trim(), 16)
-      if (!Number.isFinite(size) || size < 0) break
-      offset = lineEnd + 2
-      if (size === 0) break
-      decoded += body.slice(offset, offset + size)
-      offset += size + 2
-    }
-    body = decoded
-  } else if (headers.has('content-length')) {
-    const length = Number.parseInt(headers.get('content-length'), 10)
-    if (Number.isFinite(length) && length >= 0) body = body.slice(0, length)
-  }
-  body = body.trim()
-  let externalIp = body
-  try { externalIp = JSON.parse(body).ip || body } catch { }
-  if (!String(externalIp).trim()) throw new Error('代理返回了空的出口 IP 响应')
-  return { success: true, latencyMs: Date.now() - started, externalIp: String(externalIp).slice(0, 100), dnsMode: 'remote-hostname-atyp-3' }
 }
 
 async function saveAccount(input) {
@@ -1950,11 +2001,9 @@ async function saveAccount(input) {
   if (duplicate) throw new Error(`邮箱已存在于账号 ${duplicate.label || duplicate.profileName}`)
   const profileOwner = findProfileOwner(account.profileName, account.id)
   if (profileOwner) throw new Error(`Profile 名称已被账号 ${profileOwner.label || profileOwner.profileName} 使用，请使用新的 Profile 名称`)
-  await ensureProfile(account.profileName)
-  if (!existing && !account.proxyId && state.settings.autoBind) {
-    const pool = await readProxyState()
-    if (pool.settings.autoBindOnNewAccount && pool.proxies.some((item) => item.enabled !== false)) await autoBindProxy(account)
-  }
+  let initialization = null
+  if (!existing) initialization = await initializeNewAccountProfile(account)
+  else await ensureProfile(account.profileName)
   if (existing && existing.profileName !== account.profileName) {
     try {
       await runProxyScript(['-Action', 'unbind', '-AccountKey', `desktop:${existing.profileName}`])
@@ -1962,7 +2011,7 @@ async function saveAccount(input) {
       await recordEvent('warn', `${existing.label || existing.profileName} 旧代理绑定清理失败: ${error.message}`)
     }
   }
-  if (account.proxyId) await bindProxy(account, account.proxyId)
+  if (existing && account.proxyId) await bindProxy(account, account.proxyId)
   else if (existing?.proxyId) {
     try { await runProxyScript(['-Action', 'unbind', '-AccountKey', `desktop:${account.profileName}`]) } catch { }
   }
@@ -1971,19 +2020,60 @@ async function saveAccount(input) {
   else state.accounts.push(account)
   if (!state.selectedAccountId) state.selectedAccountId = account.id
   await saveState()
-  await recordEvent('info', `${account.label || account.profileName} 已保存`)
+  if (initialization) {
+    const image = initialization.deviceImage
+    await recordEvent('info', `${account.label || account.profileName} 已按首个 SOCKS5 锁定设备画像 ${image.imageSha256.slice(0, 12)}（${image.timezone}，${image.locale}）`)
+  } else {
+    await recordEvent('info', `${account.label || account.profileName} 已保存`)
+  }
   return safeAccountForRenderer(account)
 }
 
 async function deleteAccount(accountId) {
   const account = state.accounts.find((item) => item.id === accountId)
   if (!account) throw new Error('账号不存在')
-  if (account.status === 'running') await stopAccount(account)
-  try { await runProxyScript(['-Action', 'unbind', '-AccountKey', `desktop:${account.profileName}`]) } catch { }
+  if (activationLocks.has(accountId)) throw new Error('该 Profile 正在启动，当前不能删除')
+  if (loginOpenInProgress) throw new Error('网页登录正在启动，当前不能删除')
+
+  if (loginAccountId === account.id) closeLoginWindow()
+  const profileRoot = desktopProfileRoot(account)
+  if (fsSync.existsSync(profileRoot)) {
+    await stopAccount(account)
+    const loginSession = accountLoginSession(account)
+    try { await loginSession.closeAllConnections() } catch { }
+    try { await loginSession.clearAuthCache() } catch { }
+    try { await loginSession.clearCache() } catch { }
+    try { await loginSession.clearStorageData() } catch { }
+    try { loginSession.flushStorageData() } catch { }
+  }
+  await fs.rm(loginRelayPath(account), { recursive: true, force: true })
+
+  const accountKey = `desktop:${account.profileName}`
+  const previousProxyId = String(account.proxyId || '').trim()
+  const unbind = await runProxyScript(['-Action', 'unbind', '-AccountKey', accountKey])
+  if (unbind.code !== 0) throw new Error((unbind.stderr || unbind.stdout || '代理解绑失败').trim())
+  try {
+    if (fsSync.existsSync(profileRoot)) {
+      const cleanup = await runDesktopScript(
+        ['-Action', 'cleanup', '-Profile', account.profileName],
+        {},
+        { fileCapture: true, timeoutMs: 60000 }
+      )
+      if (cleanup.code !== 0 || fsSync.existsSync(profileRoot)) {
+        throw new Error((cleanup.stderr || cleanup.stdout || `Profile 删除失败: ${profileRoot}`).trim())
+      }
+    }
+  } catch (error) {
+    if (previousProxyId) {
+      try { await bindProxy(account, previousProxyId) } catch { }
+    }
+    throw error
+  }
+
   state.accounts = state.accounts.filter((item) => item.id !== accountId)
   if (state.selectedAccountId === accountId) state.selectedAccountId = state.accounts[0]?.id || null
   await saveState()
-  await recordEvent('info', `${account.label || account.profileName} 已从管理器移除（Profile 数据保留）`)
+  await recordEvent('info', `${account.label || account.profileName} 已彻底删除（账号、代理绑定、登录会话、Cookies、缓存和 Profile 画像）`)
   return true
 }
 
@@ -2028,11 +2118,27 @@ async function importAccounts() {
   for (const item of items) {
     const existing = item?.id ? state.accounts.find((account) => account.id === item.id) : null
     const account = normalizeAccount(item || {}, existing)
+    if (existing && existing.profileName !== account.profileName &&
+        (existing.session?.deviceImage || Number(existing.session?.cookieCount || 0) > 0)) {
+      throw new Error(`导入失败：${existing.label || existing.profileName} 的 Profile 已由设备画像锁定`)
+    }
+    const duplicate = state.accounts.find((candidate) => candidate.id !== account.id &&
+      account.email && String(candidate.email || '').toLowerCase() === account.email.toLowerCase())
+    if (duplicate) throw new Error(`导入失败：邮箱已存在于账号 ${duplicate.label || duplicate.profileName}`)
     const profileOwner = findProfileOwner(account.profileName, account.id)
     if (profileOwner) throw new Error(`导入失败：Profile 名称 ${account.profileName} 已被账号 ${profileOwner.label || profileOwner.profileName} 使用`)
-    await ensureProfile(account.profileName)
-    if (account.proxyId) {
-      try { await bindProxy(account, account.proxyId) } catch (error) { await recordEvent('warn', `${account.label} 代理绑定失败: ${error.message}`) }
+    if (!existing) {
+      await initializeNewAccountProfile(account)
+    } else {
+      await ensureProfile(account.profileName)
+      if (existing.profileName !== account.profileName) {
+        await runProxyScript(['-Action', 'unbind', '-AccountKey', `desktop:${existing.profileName}`])
+      }
+      if (account.proxyId) {
+        await bindProxy(account, account.proxyId)
+      } else if (existing.proxyId) {
+        await runProxyScript(['-Action', 'unbind', '-AccountKey', `desktop:${account.profileName}`])
+      }
     }
     const index = state.accounts.findIndex((candidate) => candidate.id === account.id)
     if (index >= 0) { state.accounts[index] = account; updated++ } else { state.accounts.push(account); added++ }
@@ -2193,6 +2299,11 @@ app.whenReady().then(async () => {
   scriptRoot = path.join(runtimeRoot, 'scripts')
   statePath = path.join(app.getPath('userData'), 'accounts.json')
   await loadState()
+  const legacyCleanup = await cleanupLegacyLoginArtifacts()
+  const legacyCleanupCount = Object.values(legacyCleanup).reduce((sum, value) => sum + Number(value || 0), 0)
+  if (legacyCleanupCount > 0) {
+    await recordEvent('info', `已清理 ${legacyCleanupCount} 个旧版网页登录残留`)
+  }
   registerIpc()
   createMainWindow()
   startRuntimeStateWatch()

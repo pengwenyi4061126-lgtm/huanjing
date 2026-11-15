@@ -40,7 +40,8 @@ function verifyDeviceImage(options) {
   const personaSha256 = sha256(personaBuffer)
   const imageSha256 = buildImageSha256(identitySha256, personaSha256)
 
-  if (Number(lock.schema) !== 1) throw new Error(`Unsupported device image lock schema: ${lock.schema}`)
+  const schema = Number(lock.schema)
+  if (![1, 2].includes(schema)) throw new Error(`Unsupported device image lock schema: ${lock.schema}`)
   if (String(lock.profile || '').toLowerCase() !== profileName.toLowerCase()) {
     throw new Error(`Device image lock belongs to another profile: ${lock.profile || '(empty)'}`)
   }
@@ -63,8 +64,29 @@ function verifyDeviceImage(options) {
   if (String(lock.electronVersion || '') !== electronVersion) throw new Error('Device image Electron version does not match its lock')
   if (String(lock.chromiumVersion || '') !== chromiumVersion) throw new Error('Device image Chromium version does not match its lock')
 
+  const timezone = requireText(persona.timezone, 'timezone')
+  const locale = requireText(persona.locale, 'locale')
+  const languages = Array.isArray(persona.languages)
+    ? persona.languages.map((value) => String(value || '').trim()).filter(Boolean)
+    : []
+  if (!languages.length) throw new Error('Device image is missing languages')
+  const origin = persona.origin && typeof persona.origin === 'object' ? { ...persona.origin } : null
+  if (schema === 2) {
+    if (!origin || origin.source !== 'first-socks5') throw new Error('Device image lock is missing first SOCKS5 origin')
+    for (const field of ['source', 'provider', 'proxyId', 'externalIp', 'countryCode', 'dnsMode', 'capturedUtc']) {
+      if (String(lock.origin?.[field] || '') !== String(origin[field] || '')) {
+        throw new Error(`Device image SOCKS5 origin ${field} does not match its lock`)
+      }
+    }
+    if (String(lock.timezone || '') !== timezone) throw new Error('Device image timezone does not match its lock')
+    if (String(lock.locale || '') !== locale) throw new Error('Device image locale does not match its lock')
+    if (JSON.stringify(lock.languages || []) !== JSON.stringify(languages)) {
+      throw new Error('Device image languages do not match its lock')
+    }
+  }
+
   return {
-    schema: 1,
+    schema,
     profile: profileName,
     lockedUtc: requireText(lock.lockedUtc, 'lock timestamp'),
     identitySha256,
@@ -74,6 +96,10 @@ function verifyDeviceImage(options) {
     seed,
     electronVersion,
     chromiumVersion,
+    timezone,
+    locale,
+    languages,
+    origin,
     identity,
     persona
   }
@@ -99,7 +125,7 @@ function evidenceMatches(expected, actual) {
 
 function publicEvidence(evidence) {
   return {
-    schema: 1,
+    schema: evidence.schema,
     profile: evidence.profile,
     lockedUtc: evidence.lockedUtc,
     identitySha256: evidence.identitySha256,
@@ -108,7 +134,11 @@ function publicEvidence(evidence) {
     machineId: evidence.machineId,
     seed: evidence.seed,
     electronVersion: evidence.electronVersion,
-    chromiumVersion: evidence.chromiumVersion
+    chromiumVersion: evidence.chromiumVersion,
+    timezone: evidence.timezone,
+    locale: evidence.locale,
+    languages: evidence.languages,
+    origin: evidence.origin
   }
 }
 

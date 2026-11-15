@@ -16,7 +16,13 @@ $setupBlockMap = "$setupTarget.blockmap"
 
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 foreach ($path in @($portablePath, $portableTarget, $setupTarget, $blockMapPath, $portableBlockMap, $setupBlockMap)) {
-    Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    if (-not (Test-Path -LiteralPath $path)) { continue }
+    try {
+        Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+    } catch {
+        throw "Cannot remove stale build artifact: $path. Close the running portable app and retry. $($_.Exception.Message)"
+    }
+    if (Test-Path -LiteralPath $path) { throw "Stale build artifact still exists after cleanup: $path" }
 }
 
 Push-Location $root

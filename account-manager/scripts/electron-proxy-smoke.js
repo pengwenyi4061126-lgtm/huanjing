@@ -11,6 +11,12 @@ const {
   applyLoginSessionPersona,
   installLoginWebContentsPersona
 } = require('../src/login-fingerprint')
+const {
+  FIXED_US_LANGUAGES,
+  FIXED_US_LOCALE,
+  FIXED_US_TIMEZONE
+} = require('../src/proxy-profile')
+const { probeSocks5Profile } = require('../src/socks-client')
 
 app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1')
 app.commandLine.appendSwitch('disable-quic')
@@ -80,19 +86,33 @@ function waitForRelayHealth(port) {
 function stopRelay() {
   const pid = Number(relayProcess?.pid || 0)
   if (pid > 0 && relayProcess.exitCode === null) {
-    try {
-      if (process.platform === 'win32') {
-        const killer = spawn('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
-          windowsHide: true,
-          stdio: 'ignore'
-        })
-        killer.unref()
-      } else {
-        relayProcess.kill('SIGTERM')
-      }
-    } catch { }
+    try { relayProcess.kill('SIGTERM') } catch { }
   }
   try { if (relayPidFile) fs.rmSync(relayPidFile, { force: true }) } catch { }
+  relayProcess = null
+  relayPidFile = ''
+}
+
+async function startRelay(item, port) {
+  stopRelay()
+  relayPidFile = path.join(tempRoot, `relay-${item.id}.pid`)
+  const logFile = path.join(tempRoot, `relay-${item.id}.log`)
+  const logFd = fs.openSync(logFile, 'a')
+  try {
+    relayProcess = spawn(process.env.CAC_NODE_EXECUTABLE || 'node.exe', [relayPath, String(port), relayPidFile], {
+      cwd: path.resolve(__dirname, '..', '..'),
+      windowsHide: true,
+      env: {
+        ...process.env,
+        CAC_RELAY_UPSTREAM_URL: String(item.url),
+        CAC_RELAY_PID_FILE: relayPidFile
+      },
+      stdio: ['ignore', logFd, logFd]
+    })
+  } finally {
+    try { fs.closeSync(logFd) } catch { }
+  }
+  await waitForRelayHealth(port)
 }
 
 function requestThroughSession(sess, url) {
@@ -117,56 +137,75 @@ function requestThroughSession(sess, url) {
 async function main() {
   const poolPath = path.join(os.homedir(), '.cac', 'proxy-pool.json')
   const pool = JSON.parse(fs.readFileSync(poolPath, 'utf8'))
-  const item = (pool.proxies || []).find((entry) => entry.enabled !== false)
-  if (!item) throw new Error('no enabled proxy in pool')
+  const items = (pool.proxies || []).filter((entry) => entry.enabled !== false)
+  if (!items.length) throw new Error('no enabled proxy in pool')
   if (!fs.existsSync(relayPath)) throw new Error(`relay not found: ${relayPath}`)
 
-  const port = await getFreeTcpPort()
-  relayPidFile = path.join(tempRoot, 'relay.pid')
-  const logFile = path.join(tempRoot, 'relay.log')
-  const logFd = fs.openSync(logFile, 'a')
-  try {
-    relayProcess = spawn(process.env.CAC_NODE_EXECUTABLE || 'node.exe', [relayPath, String(port), relayPidFile], {
-      cwd: path.resolve(__dirname, '..', '..'),
-      windowsHide: true,
-      env: {
-        ...process.env,
-        CAC_RELAY_UPSTREAM_URL: String(item.url),
-        CAC_RELAY_PID_FILE: relayPidFile
-      },
-      stdio: ['ignore', logFd, logFd]
-    })
-  } finally {
-    try { fs.closeSync(logFd) } catch { }
+  let selectedProxy = null
+  let sess = null
+  let port = 0
+  let resolution = ''
+  let externalIp = ''
+  const failures = []
+  for (const item of items) {
+    try {
+      port = await getFreeTcpPort()
+      await startRelay(item, port)
+      sess = session.fromPartition(`persist:cac-electron-proxy-smoke-${item.id}`)
+      await sess.setProxy({
+        mode: 'fixed_servers',
+        proxyRules: `http=127.0.0.1:${port};https=127.0.0.1:${port}`,
+        proxyBypassRules: '<-loopback>'
+      })
+      resolution = String(await sess.resolveProxy('https://claude.ai/login') || '').trim()
+      if (!new RegExp(`127\.0\.0\.1:${port}`).test(resolution) || /\bDIRECT\b/i.test(resolution)) {
+        throw new Error(`proxy resolution is ${resolution || 'DIRECT'}`)
+      }
+      const response = await requestThroughSession(sess, 'https://api.ipify.org/?format=json')
+      if (response.statusCode < 200 || response.statusCode >= 300) throw new Error(`HTTP ${response.statusCode}`)
+      externalIp = String(JSON.parse(response.body).ip || '').trim()
+      if (!netModule.isIP(externalIp)) throw new Error('invalid external IP')
+      selectedProxy = item
+      break
+    } catch (error) {
+      failures.push(`${item.id}: ${error.message || error}`)
+      stopRelay()
+    }
   }
-  await waitForRelayHealth(port)
+  if (!selectedProxy || !sess) throw new Error(`all enabled proxies failed: ${failures.join('; ')}`)
 
-  const sess = session.fromPartition('persist:cac-electron-proxy-smoke')
+  const proxyProfile = await probeSocks5Profile(selectedProxy.url, selectedProxy.id, {
+    timezone: FIXED_US_TIMEZONE,
+    locale: FIXED_US_LOCALE,
+    languages: FIXED_US_LANGUAGES
+  })
   const persona = {
     seed: 'electron-smoke',
-    timezone: 'America/New_York',
-    locale: 'en-US',
-    languages: ['en-US', 'en'],
+    timezone: proxyProfile.timezone,
+    locale: proxyProfile.locale,
+    languages: proxyProfile.languages,
     ua: 'CAC-Electron-Profile-Smoke/1.0',
     platform: 'Win32',
     hardwareConcurrency: 8,
     deviceMemory: 8,
     maxTouchPoints: 0,
+    screen: {
+      width: 1920,
+      height: 1080,
+      availWidth: 1920,
+      availHeight: 1040,
+      colorDepth: 24,
+      pixelDepth: 24,
+      dpr: 1
+    },
+    audioNoise: 0.0000001,
     webrtc: 'filter-private'
   }
   applyLoginSessionPersona(sess, persona)
-  await sess.setProxy({
-    mode: 'fixed_servers',
-    proxyRules: `http=127.0.0.1:${port};https=127.0.0.1:${port}`,
-    proxyBypassRules: '<-loopback>'
-  })
-  const resolution = String(await sess.resolveProxy('https://claude.ai/login') || '').trim()
+  resolution = String(await sess.resolveProxy('https://claude.ai/login') || '').trim()
   if (!new RegExp(`127\\.0\\.0\\.1:${port}`).test(resolution) || /\bDIRECT\b/i.test(resolution)) {
     throw new Error(`proxy resolution is ${resolution || 'DIRECT'}`)
   }
-  const response = await requestThroughSession(sess, 'https://api.ipify.org/?format=json')
-  if (response.statusCode < 200 || response.statusCode >= 300) throw new Error(`HTTP ${response.statusCode}`)
-  const externalIp = JSON.parse(response.body).ip
   const shim = fs.readFileSync(path.resolve(__dirname, '..', '..', 'scripts', 'fingerprint-shim.js'), 'utf8')
   const source = `window.__CAC_PERSONA__=${JSON.stringify(persona)};\n${shim}`
   const win = new BrowserWindow({
@@ -181,13 +220,25 @@ async function main() {
     language: navigator.language,
     languages: Array.from(navigator.languages || []),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    platform: navigator.platform
+    timezoneOffsetIsInteger: Number.isInteger(new Date('2026-11-15T12:34:56.789Z').getTimezoneOffset()),
+    platform: navigator.platform,
+    viewportIndependent: window.innerWidth !== screen.width,
+    audioStable: (() => {
+      const buffer = new AudioBuffer({ length: 4096, sampleRate: 44100, numberOfChannels: 1 });
+      const first = buffer.getChannelData(0);
+      const sample = first[0];
+      buffer.getChannelData(0);
+      return first[0] === sample;
+    })()
   })`)
   if (observed.ua !== persona.ua) throw new Error(`userAgent mismatch: ${observed.ua}`)
   if (observed.language !== persona.languages[0]) throw new Error(`language mismatch: ${observed.language}`)
   if (observed.languages.join(',') !== persona.languages.join(',')) throw new Error(`languages mismatch: ${observed.languages.join(',')}`)
   if (observed.timezone !== persona.timezone) throw new Error(`timezone mismatch: ${observed.timezone}`)
+  if (!observed.timezoneOffsetIsInteger) throw new Error('timezone offset is fractional')
   if (observed.platform !== persona.platform) throw new Error(`platform mismatch: ${observed.platform}`)
+  if (!observed.viewportIndependent) throw new Error('viewport dimensions were overwritten with screen dimensions')
+  if (!observed.audioStable) throw new Error('audio noise accumulated across repeated reads')
   const candidates = await win.webContents.executeJavaScript(`new Promise(async (resolve) => {
     const values = [];
     const pc = new RTCPeerConnection({ iceServers: [] });
@@ -207,7 +258,7 @@ async function main() {
   const privateCandidate = candidates.find((value) => /(^|[\s:])(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|fe80:|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:|::1)/i.test(String(value)))
   if (privateCandidate) throw new Error(`WebRTC private candidate leaked: ${privateCandidate}`)
   win.destroy()
-  console.log(`[PASS] Electron session ${resolution} externalIp=${externalIp} dns=relay->SOCKS5-domain fingerprint=${runtime.mode} webrtcPrivateLeak=0`)
+  console.log(`[PASS] Electron session ${resolution} proxy=${selectedProxy.id} loginExit=${externalIp} genesisExit=${proxyProfile.externalIp} timezone=${proxyProfile.timezone} locale=${proxyProfile.locale} dns=relay->SOCKS5-domain fingerprint=${runtime.mode} webrtcPrivateLeak=0`)
 }
 
 app.setPath('userData', tempRoot)

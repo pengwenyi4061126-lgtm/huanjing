@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "lint": "node --check src/main.js && node --check src/login-fingerprint.js && node --check src/device-image.js && node --check src/preload.js && node --check src/renderer/app.js",
+    "lint": "node --check src/main.js && node --check src/login-fingerprint.js && node --check src/device-image.js && node --check src/proxy-profile.js && node --check src/socks-client.js && node --check src/preload.js && node --check src/renderer/app.js && node --check scripts/electron-proxy-smoke.js && node --check ../scripts/fingerprint-shim.js",
     "smoke": "node scripts/smoke.js",
     "smoke:electron": "electron scripts/electron-proxy-smoke.js",
     "smoke:native-electron": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/electron-native-smoke.ps1",

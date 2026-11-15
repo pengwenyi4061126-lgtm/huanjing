@@ -126,16 +126,32 @@
   try {
     if (window.AudioBuffer && AudioBuffer.prototype.getChannelData && persona.audioNoise) {
       const orig = AudioBuffer.prototype.getChannelData;
-      AudioBuffer.prototype.getChannelData = mask(function getChannelData(channel) {
-        const data = orig.call(this, channel);
-        try {
-          const random = rng(seed + '|audio|' + this.length + '|' + channel);
-          const step = Math.max(1, Math.floor(data.length / 2048));
-          const amp = Number(persona.audioNoise) || 0;
-          for (let i = 0; i < data.length; i += step) data[i] += (random() * 2 - 1) * amp;
-        } catch (_) {}
+      const origCopyFromChannel = AudioBuffer.prototype.copyFromChannel;
+      const noisedChannels = new WeakMap();
+      function ensureAudioNoise(buffer, channel) {
+        let channels = noisedChannels.get(buffer);
+        if (!channels) {
+          channels = new Set();
+          noisedChannels.set(buffer, channels);
+        }
+        if (channels.has(channel)) return orig.call(buffer, channel);
+        const data = orig.call(buffer, channel);
+        const random = rng(seed + '|audio|' + buffer.length + '|' + channel);
+        const step = Math.max(1, Math.floor(data.length / 2048));
+        const amp = Number(persona.audioNoise) || 0;
+        for (let i = 0; i < data.length; i += step) data[i] += (random() * 2 - 1) * amp;
+        channels.add(channel);
         return data;
+      }
+      AudioBuffer.prototype.getChannelData = mask(function getChannelData(channel) {
+        try { return ensureAudioNoise(this, channel); } catch (_) { return orig.call(this, channel); }
       }, 'getChannelData');
+      if (origCopyFromChannel) {
+        AudioBuffer.prototype.copyFromChannel = mask(function copyFromChannel(destination, channel, start) {
+          try { ensureAudioNoise(this, channel); } catch (_) {}
+          return origCopyFromChannel.call(this, destination, channel, start);
+        }, 'copyFromChannel');
+      }
     }
   } catch (_) {}
 
@@ -230,10 +246,6 @@
         if (persona.screen[key] != null) getter(screenProto, key, Number(persona.screen[key]));
       }
       if (persona.screen.dpr != null) getter(Window.prototype, 'devicePixelRatio', Number(persona.screen.dpr));
-      if (persona.screen.width != null) getter(Window.prototype, 'innerWidth', Number(persona.screen.width));
-      if (persona.screen.height != null) getter(Window.prototype, 'innerHeight', Number(persona.screen.height));
-      if (persona.screen.width != null) getter(Window.prototype, 'outerWidth', Number(persona.screen.width));
-      if (persona.screen.height != null) getter(Window.prototype, 'outerHeight', Number(persona.screen.height));
     }
   } catch (_) {}
 
@@ -269,7 +281,7 @@
             day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
           }).formatToParts(date).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
           const utc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
-          return (date.getTime() - utc) / 60000;
+          return Math.round((date.getTime() - utc) / 60000);
         } catch (_) { return date.getTimezoneOffset(); }
       }
       Date.prototype.getTimezoneOffset = mask(function getTimezoneOffset() {

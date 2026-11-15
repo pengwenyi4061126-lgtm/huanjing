@@ -120,6 +120,8 @@ function statusText(status) {
 function renderAccountRow(account) {
   const proxy = proxyFor(account)
   const session = account.session || {}
+  const image = session.deviceImage || {}
+  const imageLabel = image.timezone && image.locale ? `${image.timezone} · ${image.locale}` : '画像未记录'
   const loginLabel = session.authenticated ? '重新登录' : '首次登录'
   const action = account.status === 'running'
     ? `<button class="row-action" data-action="stop-account" data-id="${escapeHtml(account.id)}">停止</button>`
@@ -128,8 +130,8 @@ function renderAccountRow(account) {
     : `<button class="row-action primary" data-action="activate-account" data-id="${escapeHtml(account.id)}">启动</button>`
   return `<tr>
     <td><div class="account-name"><span class="avatar">${escapeHtml(initials(account))}</span><div><strong>${escapeHtml(account.label || account.profileName)}</strong><span>${escapeHtml(account.email || '未填写邮箱')}</span></div></div></td>
-    <td><div class="profile-cell"><b>${escapeHtml(account.profileName)}</b><span>${account.runtimePid ? `PID ${escapeHtml(account.runtimePid)}` : '独立数据目录'}</span></div></td>
-    <td><div class="proxy-cell"><b>${proxy ? escapeHtml(proxy.displayUrl) : '未绑定'}</b><span>${proxy ? escapeHtml(proxy.id) : '自动绑定关闭'}</span></div></td>
+    <td><div class="profile-cell"><b>${escapeHtml(account.profileName)}</b><span>${account.runtimePid ? `PID ${escapeHtml(account.runtimePid)}` : escapeHtml(imageLabel)}</span></div></td>
+    <td><div class="proxy-cell"><b>${proxy ? escapeHtml(proxy.displayUrl) : '未绑定'}</b><span>${proxy ? escapeHtml(proxy.id) : '登录与启动禁止直连'}</span></div></td>
     <td><div class="proxy-cell"><b>${session.authenticated ? '已验证会话' : (session.cookieCount ? `${session.cookieCount} Cookies` : '无快照')}</b><span>${session.savedAt ? escapeHtml(formatTime(session.savedAt)) : '未保存'}</span></div></td>
     <td><span class="status ${escapeHtml(account.status)}">${statusText(account.status)}</span></td>
     <td class="muted mono">${escapeHtml(formatTime(account.lastUsedAt))}</td>
@@ -183,7 +185,10 @@ function nextProfileName() {
 }
 
 function openAccountModal(existing = null) {
-  const proxyOptions = ['<option value="">自动绑定 / 不绑定</option>', ...model.proxies.filter((proxy) => proxy.enabled).map((proxy) => `<option value="${escapeHtml(proxy.id)}" ${existing?.proxyId === proxy.id ? 'selected' : ''}>${escapeHtml(proxy.displayUrl)} · ${escapeHtml(proxy.id)}</option>`)].join('')
+  const emptyProxyLabel = existing
+    ? '解除当前绑定（锁定画像不变）'
+    : '自动分配首个 SOCKS5（创建画像必需）'
+  const proxyOptions = [`<option value="">${emptyProxyLabel}</option>`, ...model.proxies.filter((proxy) => proxy.enabled).map((proxy) => `<option value="${escapeHtml(proxy.id)}" ${existing?.proxyId === proxy.id ? 'selected' : ''}>${escapeHtml(proxy.displayUrl)} · ${escapeHtml(proxy.id)}</option>`)].join('')
   const profileName = existing?.profileName || nextProfileName()
   $('#modal-root').innerHTML = `<div class="modal-backdrop" data-modal-close><div class="modal" role="dialog" aria-modal="true"><h2>${existing ? '编辑账号' : '新建账号'}</h2><form id="account-form"><label>显示名称<input name="label" maxlength="80" required value="${escapeHtml(existing?.label || '')}"></label><label>邮箱<input name="email" type="email" maxlength="320" value="${escapeHtml(existing?.email || '')}"></label><div class="form-grid"><label>Profile 名称<input name="profileName" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,63}" required value="${escapeHtml(profileName)}"></label><label>SOCKS5 绑定<select name="proxyId">${proxyOptions}</select></label></div><label>网页登录地址<input name="loginUrl" type="url" required value="${escapeHtml(existing?.loginUrl || model.settings.loginUrl || 'https://claude.ai/login')}"></label><label>备注<textarea name="notes" maxlength="2000">${escapeHtml(existing?.notes || '')}</textarea></label><label class="check-row"><input name="enabled" type="checkbox" ${existing?.enabled !== false ? 'checked' : ''}><span>账号启用</span></label>${existing ? '' : '<label class="check-row"><input name="openLoginAfterSave" type="checkbox" checked><span>保存后打开网页登录</span></label>'}<div id="account-form-error" class="modal-error"></div><div class="modal-actions"><button class="button secondary" type="button" data-modal-close>取消</button><button class="button primary" type="submit">保存账号</button></div></form></div></div>`
   const backdrop = $('.modal-backdrop')
@@ -223,7 +228,9 @@ function openAccountModal(existing = null) {
 
 function openLoginModal(account) {
   const proxy = proxyFor(account)
-  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-modal-close><div class="modal modal-wide" role="dialog" aria-modal="true"><h2>网页登录 · ${escapeHtml(account.label || account.profileName)}</h2><p>网页登录窗口使用该账号的独立会话、硬件画像和绑定 SOCKS5；打开登录页或 Magic Link 前会自动做真实出口检查，未通过时禁止直连。</p><div class="login-meta"><span>Profile <b>${escapeHtml(account.profileName)}</b></span><span>代理 <b>${escapeHtml(proxy?.displayUrl || '未绑定')}</b></span></div><form id="login-form"><label>登录页地址<input name="loginUrl" type="url" value="${escapeHtml(account.loginUrl || model.settings.loginUrl || 'https://claude.ai/login')}" required></label><label>完整 Magic Link<textarea name="magicLink" rows="4" placeholder="https://claude.ai/magic-link#..."></textarea></label><div id="login-proxy-audit" class="modal-note">正在执行登录代理检查，检查通过后才允许打开页面。</div><div id="login-form-error" class="modal-error"></div><div class="modal-actions"><button class="button secondary" type="button" data-modal-close>取消</button><button class="button secondary" id="check-login-proxy" type="button">重新检查代理</button><button class="button secondary" id="open-login-page" type="button">打开登录页</button><button class="button primary" id="open-magic-link" type="button">打开 Magic Link</button></div></form></div></div>`
+  const image = account.session?.deviceImage || {}
+  const imageLabel = image.timezone && image.locale ? `${image.timezone} · ${image.locale}` : '未锁定'
+  $('#modal-root').innerHTML = `<div class="modal-backdrop" data-modal-close><div class="modal modal-wide" role="dialog" aria-modal="true"><h2>网页登录 · ${escapeHtml(account.label || account.profileName)}</h2><p>网页登录窗口使用该账号的独立会话、锁定画像和绑定 SOCKS5；代理检查未通过时禁止加载页面。</p><div class="login-meta"><span>Profile <b>${escapeHtml(account.profileName)}</b></span><span>画像 <b>${escapeHtml(imageLabel)}</b></span><span>代理 <b>${escapeHtml(proxy?.displayUrl || '未绑定')}</b></span></div><form id="login-form"><label>登录页地址<input name="loginUrl" type="url" value="${escapeHtml(account.loginUrl || model.settings.loginUrl || 'https://claude.ai/login')}" required></label><label>完整 Magic Link<textarea name="magicLink" rows="4" placeholder="https://claude.ai/magic-link#..."></textarea></label><div id="login-proxy-audit" class="modal-note">正在执行登录代理检查，检查通过后才允许打开页面。</div><div id="login-form-error" class="modal-error"></div><div class="modal-actions"><button class="button secondary" type="button" data-modal-close>取消</button><button class="button secondary" id="check-login-proxy" type="button">重新检查代理</button><button class="button secondary" id="open-login-page" type="button">打开登录页</button><button class="button primary" id="open-magic-link" type="button">打开 Magic Link</button></div></form></div></div>`
   const backdrop = $('.modal-backdrop')
   const errorNode = $('#login-form-error')
   const auditNode = $('#login-proxy-audit')
@@ -330,8 +337,8 @@ async function handleAccountAction(action, id, button) {
     return
   }
   if (action === 'delete-account') {
-    if (!window.confirm(`移除“${account.label || account.profileName}”？Profile 数据会保留。`)) return
-    await withBusy(button, async () => { await api.deleteAccount(id); await refresh(); showToast('账号已移除') }).catch(() => undefined)
+    if (!window.confirm(`彻底删除“${account.label || account.profileName}”？账号、登录态、Cookies、缓存、代理绑定和整个 Profile 画像都会永久删除。`)) return
+    await withBusy(button, async () => { await api.deleteAccount(id); await refresh(); showToast('账号和 Profile 已彻底删除') }).catch(() => undefined)
   }
 }
 

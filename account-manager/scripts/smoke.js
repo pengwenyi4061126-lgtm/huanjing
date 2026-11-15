@@ -34,17 +34,25 @@ const {
   sha256,
   verifyDeviceImage
 } = require(path.join(root, 'src', 'device-image.js'))
+const {
+  FIXED_US_LANGUAGES,
+  FIXED_US_LOCALE,
+  FIXED_US_TIMEZONE,
+  normalizeProxyGeo,
+  profileGenesisEnvironment
+} = require(path.join(root, 'src', 'proxy-profile.js'))
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 assert.equal(packageJson.name, 'cac-account-manager')
 assert.ok(packageJson.build.extraResources.length >= 3)
 const mainSource = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8')
+const socksClientSource = fs.readFileSync(path.join(root, 'src', 'socks-client.js'), 'utf8')
 assert.match(mainSource, /bootstrapNativeManager\(\)/)
 assert.match(mainSource, /spawnSync\(native\.launcher/)
 assert.match(mainSource, /requestSingleInstanceLock\(\)/)
 assert.match(mainSource, /second-instance/)
 assert.match(mainSource, /waitForNativeBridgeReady/)
+assert.match(mainSource, /waitForRendererProcessId/)
 assert.match(mainSource, /probeConfiguredLoginProxy/)
-assert.match(mainSource, /session\.fromPath/)
 assert.match(mainSource, /installLoginWebContentsPersona/)
 assert.doesNotMatch(mainSource, /addScriptToExecuteOnNewDocument/)
 assert.match(mainSource, /loginOpenInProgress/)
@@ -52,7 +60,20 @@ assert.match(mainSource, /rmSync\(auditPath, \{ force: true \}\)/)
 assert.match(mainSource, /window-switch/)
 assert.match(mainSource, /host-resolver-rules/)
 assert.match(mainSource, /disable_non_proxied_udp/)
-for (const file of ['src/main.js', 'src/preload.js', 'src/login-input.js', 'src/login-fingerprint.js', 'src/device-image.js', 'src/desktop-cookie.js', 'src/renderer/app.js', 'src/renderer/index.html', 'src/renderer/styles.css', 'scripts/electron-native-smoke.js', 'scripts/electron-native-smoke.ps1', 'scripts/manager-bootstrap-smoke.ps1']) {
+assert.match(mainSource, /initializeNewAccountProfile/)
+assert.match(mainSource, /probeSocks5Profile/)
+assert.match(mainSource, /path\.join\(HOST_USERPROFILE, '\.cac', 'proxy-pool\.json'\)/)
+assert.match(mainSource, /Profile .*存在未归属的旧设备画像/)
+assert.match(mainSource, /'-Action', 'cleanup', '-Profile', account\.profileName/)
+assert.match(mainSource, /账号、代理绑定、登录会话、Cookies、缓存和 Profile 画像/)
+assert.match(mainSource, /session\.fromPartition\(accountLoginPartition\(account\), \{ cache: false \}\)/)
+assert.match(mainSource, /restoreLoginCookies\(account, configured\.sess\)/)
+assert.doesNotMatch(mainSource, /session\.fromPath\(/)
+assert.match(mainSource, /cleanupLegacyLoginArtifacts\(\)/)
+assert.match(mainSource, /entry\.name\.startsWith\('cac-account-'\)/)
+assert.match(socksClientSource, /socks5-domain-atyp-3/)
+assert.match(socksClientSource, /0x03, hostBuf\.length/)
+for (const file of ['src/main.js', 'src/preload.js', 'src/login-input.js', 'src/login-fingerprint.js', 'src/device-image.js', 'src/proxy-profile.js', 'src/socks-client.js', 'src/desktop-cookie.js', 'src/renderer/app.js', 'src/renderer/index.html', 'src/renderer/styles.css', 'scripts/electron-proxy-smoke.js', 'scripts/electron-native-smoke.js', 'scripts/electron-native-smoke.ps1', 'scripts/manager-bootstrap-smoke.ps1']) {
   assert.ok(fs.existsSync(path.join(root, file)), `missing ${file}`)
 }
 const profileName = 'profile-a'
@@ -149,4 +170,69 @@ assert.throws(() => verifyDeviceImage({
   personaBuffer: Buffer.from(`${JSON.stringify({ ...persona, locale: 'fr-FR' }, null, 2)}\n`),
   lock
 }), /fingerprint\.json changed/)
+const proxyProfile = normalizeProxyGeo({
+  ip: '203.0.113.10',
+  country_code: 'US',
+  country_name: 'United States',
+  region: 'Florida',
+  city: 'Miami',
+  timezone: 'America/New_York',
+  languages: 'en-US,es-US'
+}, {
+  proxyId: 'proxy-first',
+  locale: 'zh-CN',
+  languages: ['zh-CN', 'zh'],
+  capturedUtc: '2026-11-15T00:00:00.000Z'
+})
+assert.equal(proxyProfile.timezone, 'America/New_York')
+assert.equal(proxyProfile.locale, FIXED_US_LOCALE)
+assert.deepEqual(proxyProfile.languages, FIXED_US_LANGUAGES)
+const fixedProfile = normalizeProxyGeo({
+  ip: '203.0.113.11', country_code: 'US', timezone: 'America/Los_Angeles'
+}, { proxyId: 'proxy-language', timezone: 'Asia/Shanghai', locale: 'zh-CN', languages: ['zh-CN', 'zh'] })
+assert.equal(fixedProfile.timezone, FIXED_US_TIMEZONE)
+assert.equal(fixedProfile.locale, FIXED_US_LOCALE)
+assert.deepEqual(fixedProfile.languages, FIXED_US_LANGUAGES)
+assert.equal(profileGenesisEnvironment(proxyProfile).CAC_PROFILE_ORIGIN_PROXY_ID, 'proxy-first')
+assert.equal(profileGenesisEnvironment(proxyProfile).CAC_PROFILE_ORIGIN_PROVIDER, 'ipapi.co')
+const firstProxyPersona = {
+  ...persona,
+  schema: 2,
+  locale: proxyProfile.locale,
+  languages: proxyProfile.languages,
+  timezone: proxyProfile.timezone,
+  origin: proxyProfile
+}
+const firstProxyPersonaBuffer = Buffer.from(`${JSON.stringify(firstProxyPersona, null, 2)}\n`)
+const firstProxyPersonaSha = sha256(firstProxyPersonaBuffer)
+const firstProxyLock = {
+  ...lock,
+  schema: 2,
+  personaSha256: firstProxyPersonaSha,
+  imageSha256: buildImageSha256(identitySha256, firstProxyPersonaSha),
+  seed: firstProxyPersona.seed,
+  electronVersion: firstProxyPersona.uaElectronVersion,
+  chromiumVersion: firstProxyPersona.uaChromiumVersion,
+  timezone: firstProxyPersona.timezone,
+  locale: firstProxyPersona.locale,
+  languages: firstProxyPersona.languages,
+  origin: firstProxyPersona.origin
+}
+const firstProxyImage = verifyDeviceImage({
+  profileName: 'profile-a',
+  identityBuffer,
+  personaBuffer: firstProxyPersonaBuffer,
+  lock: firstProxyLock
+})
+assert.equal(firstProxyImage.schema, 2)
+assert.equal(firstProxyImage.origin.proxyId, 'proxy-first')
+assert.throws(() => verifyDeviceImage({
+  profileName: 'profile-a',
+  identityBuffer,
+  personaBuffer: firstProxyPersonaBuffer,
+  lock: { ...firstProxyLock, origin: { ...firstProxyLock.origin, proxyId: 'proxy-other' } }
+}), /origin proxyId/)
+assert.throws(() => normalizeProxyGeo({
+  ip: 'not-an-ip', country_code: 'US', timezone: 'Invalid/Zone', languages: 'en-US'
+}, { proxyId: 'proxy-first' }), /无效出口 IP/)
 console.log('[PASS] account-manager source and packaging smoke')

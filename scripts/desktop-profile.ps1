@@ -59,6 +59,7 @@ $script:DesktopRoot = [System.IO.Path]::GetFullPath((Join-Path $script:OriginalU
 $script:DesktopScriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Definition }
 $script:ProfilePattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 $script:LayoutFolders = @(
+    'config',
     'home',
     'home\AppData\Roaming',
     'home\AppData\Local',
@@ -239,6 +240,10 @@ function Initialize-ProfilePersona {
             if ($null -eq $existingPersona.uaBrands -or $null -eq $existingPersona.languages) {
                 throw 'fingerprint.json is missing uaBrands or languages'
             }
+            $textEncoding = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText((Join-Path $Paths.Root 'tz'), ([string]$existingPersona.timezone + [Environment]::NewLine), $textEncoding)
+            [System.IO.File]::WriteAllText((Join-Path $Paths.Root 'locale'), ([string]$existingPersona.locale + [Environment]::NewLine), $textEncoding)
+            [System.IO.File]::WriteAllText((Join-Path $Paths.Root 'languages'), ((@($existingPersona.languages) -join ',') + [Environment]::NewLine), $textEncoding)
             return $path
         } catch {
             if ($hasLock) { throw "Locked fingerprint.json is invalid: $($_.Exception.Message)" }
@@ -248,9 +253,38 @@ function Initialize-ProfilePersona {
 
     $browser = Get-ChromiumPersonaVersion -ExePath $ExePath
     $identity = Initialize-ProfileIdentity -Paths $Paths
-    $locale = (Get-Culture).Name
+    $locale = ([string]$env:CAC_PROFILE_LOCALE).Trim()
     if ([string]::IsNullOrWhiteSpace($locale)) { $locale = 'en-US' }
-    $languages = @($locale, 'en-US') | Select-Object -Unique
+    $configuredLanguages = @(([string]$env:CAC_PROFILE_LANGUAGES -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($configuredLanguages.Count -eq 0) { $configuredLanguages = @('en-US', 'en') }
+    $languages = @(@($locale) + $configuredLanguages) | Select-Object -Unique
+    if ($languages.Count -eq 0) { $languages = @($locale) }
+    $timezone = ([string]$env:CAC_PROFILE_TIMEZONE).Trim()
+    if ([string]::IsNullOrWhiteSpace($timezone)) { $timezone = 'America/New_York' }
+
+    $originProxyId = ([string]$env:CAC_PROFILE_ORIGIN_PROXY_ID).Trim()
+    $origin = $null
+    if (-not [string]::IsNullOrWhiteSpace($originProxyId)) {
+        $originProvider = ([string]$env:CAC_PROFILE_ORIGIN_PROVIDER).Trim()
+        $originIp = ([string]$env:CAC_PROFILE_ORIGIN_IP).Trim()
+        $originCountry = ([string]$env:CAC_PROFILE_ORIGIN_COUNTRY).Trim().ToUpperInvariant()
+        $originDnsMode = ([string]$env:CAC_PROFILE_ORIGIN_DNS_MODE).Trim()
+        $originCapturedUtc = ([string]$env:CAC_PROFILE_ORIGIN_CAPTURED_UTC).Trim()
+        foreach ($required in @($originProvider, $originIp, $originCountry, $originDnsMode, $originCapturedUtc)) {
+            if ([string]::IsNullOrWhiteSpace($required)) { throw 'First SOCKS5 Profile origin is incomplete' }
+        }
+        $origin = [ordered]@{
+            source      = 'first-socks5'
+            provider    = $originProvider
+            proxyId     = $originProxyId
+            externalIp  = $originIp
+            countryCode = $originCountry
+            region      = ([string]$env:CAC_PROFILE_ORIGIN_REGION).Trim()
+            city        = ([string]$env:CAC_PROFILE_ORIGIN_CITY).Trim()
+            dnsMode     = $originDnsMode
+            capturedUtc = $originCapturedUtc
+        }
+    }
 
     $gpu = $null
     try {
@@ -307,9 +341,9 @@ function Initialize-ProfilePersona {
     }
 
     $persona = [ordered]@{
-            schema              = 1
+            schema              = if ($null -ne $origin) { 2 } else { 1 }
             seed                = "$($Paths.Name)|$([string]$identity.machine_id)"
-            timezone            = Get-IanaTimeZone
+            timezone            = $timezone
             locale              = $locale
             languages           = @($languages)
             platform            = 'Win32'
@@ -345,9 +379,14 @@ function Initialize-ProfilePersona {
             canvasNoise         = 1
             audioNoise          = 0.0000001
             webrtc              = 'filter-private'
+            origin              = $origin
     }
     $json = $persona | ConvertTo-Json -Depth 8
-    [System.IO.File]::WriteAllText($path, $json + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
+    $textEncoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($path, $json + [Environment]::NewLine, $textEncoding)
+    [System.IO.File]::WriteAllText((Join-Path $Paths.Root 'tz'), ($timezone + [Environment]::NewLine), $textEncoding)
+    [System.IO.File]::WriteAllText((Join-Path $Paths.Root 'locale'), ($locale + [Environment]::NewLine), $textEncoding)
+    [System.IO.File]::WriteAllText((Join-Path $Paths.Root 'languages'), (($languages -join ',') + [Environment]::NewLine), $textEncoding)
     return $path
 }
 
@@ -382,6 +421,7 @@ function Get-ProfilePaths {
         AppData          = (Join-Path $root 'home\AppData\Roaming')
         LocalAppData     = (Join-Path $root 'home\AppData\Local')
         Home             = (Join-Path $root 'home')
+        ConfigDir        = (Join-Path $root 'config')
         Temp             = (Join-Path $root 'temp')
         ClaudeDir        = (Join-Path $root 'Claude')
         Claude3pDir      = (Join-Path $root 'Claude-3p')
@@ -638,11 +678,20 @@ function Assert-ProfileDeviceImageLock {
     $identitySha = Get-Sha256 -Path $Paths.IdentityPath
     $personaSha = Get-Sha256 -Path $personaPath
     $imageSha = Get-StringSha256 -Value "$identitySha`:$personaSha"
+    $personaLanguages = @($persona.languages | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+    if ($personaLanguages.Count -eq 0) { throw 'Device image persona languages are empty' }
+    $personaOrigin = $persona.origin
+    $hasFirstProxyOrigin = ($null -ne $personaOrigin -and
+        [string]$personaOrigin.source -eq 'first-socks5')
+    if ([int]$persona.schema -eq 2 -and -not $hasFirstProxyOrigin) {
+        throw 'Device image persona schema 2 is missing its first SOCKS5 origin'
+    }
     $lockPath = $Paths.DeviceImageLock
     if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
         try { $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json -ErrorAction Stop }
         catch { throw "Device image lock is invalid: $($_.Exception.Message)" }
-        if ([int]$lock.schema -ne 1) { throw "Unsupported device image lock schema: $([string]$lock.schema)" }
+        $lockSchema = [int]$lock.schema
+        if ($lockSchema -notin @(1, 2)) { throw "Unsupported device image lock schema: $([string]$lock.schema)" }
         if (-not [string]::Equals([string]$lock.profile, [string]$Paths.Name, [StringComparison]::OrdinalIgnoreCase)) {
             throw "Device image lock belongs to another Profile: $([string]$lock.profile)"
         }
@@ -653,12 +702,30 @@ function Assert-ProfileDeviceImageLock {
         if ([string]$lock.seed -ne [string]$persona.seed) { throw 'Device image seed does not match its lock' }
         if ([string]$lock.electronVersion -ne [string]$persona.uaElectronVersion) { throw 'Device image Electron version does not match its lock' }
         if ([string]$lock.chromiumVersion -ne [string]$persona.uaChromiumVersion) { throw 'Device image Chromium version does not match its lock' }
+        if ($lockSchema -eq 1 -and $hasFirstProxyOrigin) {
+            throw 'Device image lock schema 1 does not preserve the first SOCKS5 origin'
+        }
+        if ($lockSchema -eq 2) {
+            if (-not $hasFirstProxyOrigin) { throw 'Device image lock is missing its first SOCKS5 origin' }
+            if ([string]$lock.timezone -ne [string]$persona.timezone) { throw 'Device image timezone does not match its lock' }
+            if ([string]$lock.locale -ne [string]$persona.locale) { throw 'Device image locale does not match its lock' }
+            $lockLanguages = @($lock.languages | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+            if (($lockLanguages -join [char]0x1f) -ne ($personaLanguages -join [char]0x1f)) {
+                throw 'Device image languages do not match its lock'
+            }
+            foreach ($field in @('source', 'provider', 'proxyId', 'externalIp', 'countryCode', 'dnsMode', 'capturedUtc')) {
+                if ([string]$lock.origin.$field -ne [string]$personaOrigin.$field) {
+                    throw "Device image SOCKS5 origin $field does not match its lock"
+                }
+            }
+        }
         return $lock
     }
     if (-not $InitializeIfMissing) { throw "Device image lock is missing: $lockPath" }
 
+    $lockSchema = if ($hasFirstProxyOrigin) { 2 } else { 1 }
     $lock = [ordered]@{
-        schema            = 1
+        schema            = $lockSchema
         profile           = $Paths.Name
         lockedUtc         = [DateTime]::UtcNow.ToString('o')
         identitySha256    = $identitySha
@@ -668,6 +735,22 @@ function Assert-ProfileDeviceImageLock {
         seed              = [string]$persona.seed
         electronVersion   = [string]$persona.uaElectronVersion
         chromiumVersion   = [string]$persona.uaChromiumVersion
+    }
+    if ($lockSchema -eq 2) {
+        $lock['timezone'] = [string]$persona.timezone
+        $lock['locale'] = [string]$persona.locale
+        $lock['languages'] = @($personaLanguages)
+        $lock['origin'] = [ordered]@{
+            source      = [string]$personaOrigin.source
+            provider    = [string]$personaOrigin.provider
+            proxyId     = [string]$personaOrigin.proxyId
+            externalIp  = [string]$personaOrigin.externalIp
+            countryCode = [string]$personaOrigin.countryCode
+            region      = [string]$personaOrigin.region
+            city        = [string]$personaOrigin.city
+            dnsMode     = [string]$personaOrigin.dnsMode
+            capturedUtc = [string]$personaOrigin.capturedUtc
+        }
     }
     $temporary = "$lockPath.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
     try {
@@ -789,6 +872,7 @@ function Get-ProfileState {
     $trackedPaths = @(
         $Paths.Root,
         $Paths.Home,
+        $Paths.ConfigDir,
         $Paths.AppData,
         $Paths.LocalAppData,
         $Paths.Temp,
@@ -811,6 +895,7 @@ function Get-ProfileState {
         trackedPaths     = @($trackedPaths)
         outsideRootPaths = @($outsideRoot)
         userData        = Get-PathSummary $userData
+        configDir       = Get-PathSummary $Paths.ConfigDir
         claude3pLocal   = Get-PathSummary (Join-Path $Paths.LocalAppData 'Claude-3p')
         claude3pRoaming = Get-PathSummary (Join-Path $Paths.AppData 'Claude-3p')
         mitmproxy       = Get-PathSummary $Paths.MitmDir
@@ -1135,11 +1220,31 @@ function Stop-DesktopLaunchResources {
         $rootProcessId = $DesktopPid
     }
     if ($rootProcessId -gt 0 -and $null -ne $Paths) {
+        $treeCleanupFailed = $false
         try {
             $stop = Stop-ClaudeProcessTree -RootProcessId $rootProcessId -Paths $Paths -RootIdentity $RootIdentity
             if ($stop.error) { [void]$errors.Add([string]$stop.error) }
             if (@($stop.remainingPids).Count -gt 0) { [void]$errors.Add("Desktop processes remain: $(@($stop.remainingPids) -join ',')") }
+            $treeCleanupFailed = [bool]$stop.error -or @($stop.remainingPids).Count -gt 0
         } catch { [void]$errors.Add("Desktop stop failed: $($_.Exception.Message)") }
+        if ($treeCleanupFailed) {
+            try {
+                Stop-ProfileProcesses -Paths $Paths
+                Start-Sleep -Milliseconds 250
+                $residual = @(Get-ProfileProcessIds -Paths $Paths)
+                if ($residual.Count -gt 0) { [void]$errors.Add("Desktop Profile processes remain after fallback cleanup: $($residual -join ',')") }
+            } catch { [void]$errors.Add("Desktop Profile fallback cleanup failed: $($_.Exception.Message)") }
+        }
+    } elseif ($null -ne $Paths) {
+        # The native launcher may exit before the target root is authenticated.
+        # Clean only processes carrying this Profile's path markers; never fall
+        # back to a global claude.exe kill.
+        try {
+            Stop-ProfileProcesses -Paths $Paths
+            Start-Sleep -Milliseconds 250
+            $residual = @(Get-ProfileProcessIds -Paths $Paths)
+            if ($residual.Count -gt 0) { [void]$errors.Add("Desktop Profile processes remain: $($residual -join ',')") }
+        } catch { [void]$errors.Add("Desktop Profile cleanup failed: $($_.Exception.Message)") }
     }
     if ($null -ne $MitmProcess) {
         try { Stop-TrackedProcess -Process $MitmProcess } catch { [void]$errors.Add("MITM stop failed: $($_.Exception.Message)") }
@@ -1154,9 +1259,13 @@ function Stop-DesktopLaunchResources {
         } catch { [void]$errors.Add("PID file cleanup failed: $pidFile : $($_.Exception.Message)") }
     }
     if ($RemoveCa) {
-        try {
-            if (-not (Remove-MitmCa -Path $CaPath)) { [void]$errors.Add("Profile CA remains: $CaPath") }
-        } catch { [void]$errors.Add("Profile CA rollback failed: $($_.Exception.Message)") }
+        if ([string]::IsNullOrWhiteSpace($CaPath)) {
+            [void]$errors.Add('Profile CA rollback skipped: CA path is empty')
+        } else {
+            try {
+                if (-not (Remove-MitmCa -Path $CaPath)) { [void]$errors.Add("Profile CA remains: $CaPath") }
+            } catch { [void]$errors.Add("Profile CA rollback failed: $($_.Exception.Message)") }
+        }
     }
     return $errors.ToArray()
 }
@@ -1390,7 +1499,10 @@ function Start-ClaudeDesktop {
     $caPath = $null
     $caInstalledByLaunch = $false
     $startedProcess = $null
+    $startedRootIdentity = $null
     $launcherProcess = $null
+    $launcherStdoutFile = $null
+    $launcherStderrFile = $null
     $resourceTransferred = $false
     $monitorPid = $null
     $launchGeneration = $null
@@ -1398,6 +1510,7 @@ function Start-ClaudeDesktop {
     $monitorReadyFile = $null
     $result = $null
     $profileLock = $null
+    $persona = $null
 
     try {
     $profileLock = Enter-DesktopProfileMutex -ProfileRoot $Paths.Root
@@ -1630,19 +1743,13 @@ function Start-ClaudeDesktop {
 
     $fingerprintPort = $null
     $fingerprintArgs = @()
+    $localProxyEndpoint = $null
     if ($UseFingerprint -and $mitmPort -and $personaPath) {
         $persona = Get-Content -LiteralPath $personaPath -Raw | ConvertFrom-Json
-        $fingerprintArgs += "--proxy-server=http://127.0.0.1:$mitmPort"
-        $fingerprintArgs += '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
+        $localProxyEndpoint = "http://127.0.0.1:$mitmPort"
         if ($persona.locale) { $fingerprintArgs += "--lang=$($persona.locale)" }
     } elseif ($null -ne $relay) {
-        $fingerprintArgs += "--proxy-server=$($relay.url)"
-    }
-    if ($null -ne $relay) {
-        $fingerprintArgs += '--disable-quic'
-        $fingerprintArgs += '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'
-        $fingerprintArgs += '--proxy-bypass-list=localhost;127.0.0.1;[::1]'
-        $fingerprintArgs += '--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1"'
+        $localProxyEndpoint = [string]$relay.url
     }
 
     $nativeDir = Join-Path $script:OriginalUserProfile '.cac\native'
@@ -1701,6 +1808,7 @@ function Start-ClaudeDesktop {
         HOME                 = $Paths.Home
         HOMEDRIVE            = $homeDrive
         HOMEPATH             = $homePath
+        CLAUDE_CONFIG_DIR    = $Paths.ConfigDir
         TEMP                 = $Paths.Temp
         TMP                  = $Paths.Temp
         CAC_DESKTOP_PROFILE  = $Paths.Name
@@ -1715,17 +1823,29 @@ function Start-ClaudeDesktop {
         CAC_NATIVE_CPUID_MODE  = 'neutral'
         CAC_NATIVE_AUDIT     = (Join-Path $Paths.AuditDir 'native-hook.jsonl')
         CAC_KERNEL_POLICY_REQUIRED = if ($RequireKernel -and $nativeUsed) { '1' } else { '0' }
-        HTTP_PROXY           = if ($null -ne $relay) { [string]$relay.url } else { '' }
-        HTTPS_PROXY          = if ($null -ne $relay) { [string]$relay.url } else { '' }
-        ALL_PROXY            = if ($null -ne $relay) { [string]$relay.url } else { '' }
+        HTTP_PROXY           = if ($null -ne $localProxyEndpoint) { [string]$localProxyEndpoint } else { '' }
+        HTTPS_PROXY          = if ($null -ne $localProxyEndpoint) { [string]$localProxyEndpoint } else { '' }
+        ALL_PROXY            = if ($null -ne $localProxyEndpoint) { [string]$localProxyEndpoint } else { '' }
         NO_PROXY             = 'localhost,127.0.0.1,::1'
-        CAC_HTTP_PROXY_LOCAL = if ($null -ne $relay) { [string]$relay.url } else { '' }
+        CAC_HTTP_PROXY_LOCAL = if ($null -ne $localProxyEndpoint) { [string]$localProxyEndpoint } else { '' }
         CAC_PROXY_ID         = if ($null -ne $proxyBinding) { [string]$proxyBinding.proxyId } else { '' }
         CAC_PROXY_SOURCE     = if ($null -ne $proxyBinding) { [string]$proxyBinding.source } else { '' }
-        # Chromium receives the authoritative proxy through --proxy-server.
-        # Rewriting WinHTTP proxy discovery inside NativeBridge conflicts with
-        # Chromium's network service and can surface ERR_PROXY_CONNECTION_FAILED.
-        CAC_NATIVE_DISABLE_NETWORK_HOOKS = if ($null -ne $relay) { '1' } else { '0' }
+        # Claude 5.1231.2 rejects proxy/DNS/QUIC/WebRTC override switches on
+        # its command line. NativeBridge must provide the per-process proxy
+        # through WinHTTP/WinINet discovery, with WFP blocking direct egress.
+        CAC_NATIVE_DISABLE_NETWORK_HOOKS = '0'
+    }
+    if ($null -ne $persona) {
+        $lockedLanguages = @($persona.languages | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+        if ([string]::IsNullOrWhiteSpace([string]$persona.timezone) -or
+            [string]::IsNullOrWhiteSpace([string]$persona.locale) -or
+            $lockedLanguages.Count -eq 0) {
+            throw 'Locked fingerprint.json is missing timezone, locale, or languages'
+        }
+        $environment['TZ'] = [string]$persona.timezone
+        $environment['LANG'] = [string]$persona.locale
+        $environment['LANGUAGE'] = $lockedLanguages -join ':'
+        $environment['LC_ALL'] = [string]$persona.locale
     }
     $nativePolicyPath = Join-Path $Paths.Root 'native_read_policy'
     if (Test-Path -LiteralPath $nativePolicyPath -PathType Leaf) {
@@ -1771,13 +1891,17 @@ function Start-ClaudeDesktop {
     $startedProcess = $null
     $startError = $null
     $launchStartedUtc = [DateTime]::UtcNow
+    $launcherStdoutFile = Join-Path $Paths.LogsDir 'desktop-launcher.stdout.log'
+    $launcherStderrFile = Join-Path $Paths.LogsDir 'desktop-launcher.stderr.log'
+    Remove-Item -LiteralPath $launcherStdoutFile, $launcherStderrFile -Force -ErrorAction SilentlyContinue
     try {
         foreach ($name in $environment.Keys) {
             [Environment]::SetEnvironmentVariable($name, [string]$environment[$name], 'Process')
         }
         [void](Push-DesktopKernelIdentity -Identity $identity -TempDir $Paths.Temp -ProfileRoot $Paths.Root)
-        $launcherProcess = Start-Process -FilePath $launchFile -ArgumentList $arguments -PassThru -ErrorAction Stop
-        $startedProcess = $launcherProcess
+        $launcherProcess = Start-Process -FilePath $launchFile -ArgumentList $arguments `
+            -RedirectStandardOutput $launcherStdoutFile -RedirectStandardError $launcherStderrFile `
+            -PassThru -WindowStyle Hidden -ErrorAction Stop
     } catch {
         $startError = $_.Exception.Message
     } finally {
@@ -1792,6 +1916,8 @@ function Start-ClaudeDesktop {
         -ExpectedUserDataDir $Paths.UserDataDir -LaunchStartedUtc $launchStartedUtc
     $startedProcess = $desktopProcess
     $processId = [int]$desktopProcess.Id
+    $startedRootIdentity = Get-ProcessIdentity -ProcessId $processId
+    if ($null -eq $startedRootIdentity) { throw "Desktop root identity unavailable for PID $processId" }
     [void](Register-DesktopKernelPid -ProcessId $processId -Paths $Paths -NativeReadPolicy $nativePolicy)
     $desktopStartUtc = $desktopProcess.StartTime.ToUniversalTime().ToString('o')
     Write-DesktopStateFile -Path $launchStateFile -State 'active' -Generation $launchGeneration `
@@ -1831,10 +1957,21 @@ function Start-ClaudeDesktop {
         monitorPid      = $monitorPid
     }
     } catch {
+        $exceptionText = [string]$_.Exception.Message
+        $invocation = $_.InvocationInfo
+        if ($null -ne $invocation -and $invocation.ScriptLineNumber -gt 0) {
+            $lineText = ([string]$invocation.Line).Trim()
+            if ($lineText.Length -gt 240) { $lineText = $lineText.Substring(0, 240) }
+            if (-not [string]::IsNullOrWhiteSpace($lineText)) {
+                $exceptionText = "{0} [desktop-profile.ps1:{1}] {2}" -f $exceptionText, $invocation.ScriptLineNumber, $lineText
+            } else {
+                $exceptionText = "{0} [desktop-profile.ps1:{1}]" -f $exceptionText, $invocation.ScriptLineNumber
+            }
+        }
         $result = [pscustomobject]@{
             started         = $false
             blocked         = $true
-            error           = $_.Exception.Message
+            error           = $exceptionText
             mode            = $null
             processId       = $null
             launchFile      = $null
@@ -1847,11 +1984,19 @@ function Start-ClaudeDesktop {
     } finally {
         if (-not $resourceTransferred) {
             $cleanupErrors = @(Stop-DesktopLaunchResources -Paths $Paths -DesktopProcess $startedProcess `
+                -RootIdentity $startedRootIdentity `
                 -MitmProcess $mitmProcess -Relay $relay `
                 -PidFiles @($relayPidFile, $mitmPidFile, $mitmProcessPidFile) `
                 -CaPath $caPath -RemoveCa $caInstalledByLaunch)
             foreach ($errorText in $cleanupErrors) {
                 Write-Host "[CLEANUP] $errorText" -ForegroundColor Red
+            }
+            if (-not [string]::IsNullOrWhiteSpace($launcherStderrFile) -and
+                (Test-Path -LiteralPath $launcherStderrFile -PathType Leaf)) {
+                $launcherDiagnostic = (Get-Content -LiteralPath $launcherStderrFile -Tail 80 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+                if (-not [string]::IsNullOrWhiteSpace($launcherDiagnostic)) {
+                    Write-Host "[LAUNCHER STDERR] $launcherDiagnostic" -ForegroundColor Yellow
+                }
             }
             if ($null -ne $result) { $result.cleanupErrors = @($cleanupErrors) }
             if (-not [string]::IsNullOrWhiteSpace($launchStateFile) -and
@@ -2602,6 +2747,13 @@ function Invoke-CleanupAction {
             return 1
         }
 
+        $caPath = Join-Path $paths.MitmDir 'mitmproxy-ca-cert.cer'
+        if (Test-Path -LiteralPath $caPath -PathType Leaf) {
+            if (-not (Remove-MitmCa -Path $caPath)) {
+                throw "Profile mitmproxy CA removal failed: $caPath"
+            }
+        }
+
         $files = @(Get-ChildItem -LiteralPath $resolvedFull -Recurse -Force -File -ErrorAction SilentlyContinue)
         $bytes = 0
         foreach ($file in $files) { $bytes += [long]$file.Length }
@@ -2665,7 +2817,18 @@ try {
         'monitor' { $exitCode = Invoke-DesktopMonitorAction }
     }
 } catch {
-    Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+    $errorText = [string]$_.Exception.Message
+    $invocation = $_.InvocationInfo
+    if ($null -ne $invocation -and $invocation.ScriptLineNumber -gt 0) {
+        $lineText = ([string]$invocation.Line).Trim()
+        if ($lineText.Length -gt 240) { $lineText = $lineText.Substring(0, 240) }
+        if (-not [string]::IsNullOrWhiteSpace($lineText)) {
+            $errorText = "{0} [desktop-profile.ps1:{1}] {2}" -f $errorText, $invocation.ScriptLineNumber, $lineText
+        } else {
+            $errorText = "{0} [desktop-profile.ps1:{1}]" -f $errorText, $invocation.ScriptLineNumber
+        }
+    }
+    Write-Host "[ERROR] $errorText" -ForegroundColor Red
     $exitCode = 1
 }
 exit $exitCode
