@@ -2,6 +2,38 @@
 
 两阶段验证，结论分阶段回灌：
 
+## 当前 VM 事实（2026-11-16）
+
+`D:\Downloads\vm\Windows 10 x64.vmx` 的名称与 Guest 实际版本不一致。通过
+VMware Tools 读取到的 Guest 是 **Windows 11 专业版 23H2 / Build 22631.7376**，
+因此它只能作为 Stage B 的 NDIS 崩溃复现环境，不能作为 Win10 稳定验收环境。
+
+当前基线状态：
+
+- VMware Tools：`running`。
+- Guest 自动登录：`AutoAdminLogon=1`、`DefaultUserName=Administrator`、`ForceAutoLogon=1`。
+- `Ethernet0`：Guest PnP 已从 `Problem 22` 恢复为 `OK`，状态为 `Up`。
+- `CacMacLwf`：已安装但保持 `Stopped / Manual`，不在当前基线中启动。
+
+## 先准备 Guest，再回滚或重启
+
+使用 VMware Tools 直接执行，不依赖 VMware 窗口中的鼠标键盘。密码只在本次
+PowerShell 进程内转换为 `vmrun -gp` 参数，不写入脚本或结果文件：
+
+```powershell
+$pw = Read-Host 'Guest password' -AsSecureString
+.\prepare-vm.ps1 `
+    -VmxPath 'D:\Downloads\vm\Windows 10 x64.vmx' `
+    -GuestPassword $pw `
+    -ResultPath '.\vm-prepare-result.json'
+```
+
+脚本会等待 VMware Tools、写入 Guest 自动登录项、启用 `Ethernet0`、采集系统和
+驱动状态；只有需要验证重启登录时才追加 `-RebootAfterPrepare`。它不会启动
+`CacMacLwf`，也不会在宿主机安装或加载 NDIS/LWF。
+
+每次快照回滚后先执行该准备脚本，再进行任何驱动实验。
+
 ## Stage A（现有 Win10 22H2 VM 即可）
 
 验证我们自己的代码：注册成功、模块附着、OID 重写计数、
