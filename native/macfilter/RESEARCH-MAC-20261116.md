@@ -398,7 +398,76 @@ Win11 真正改 MAC：Set-NetAdapter / 厂商 LAA / 注册表 NetworkAddress
 `AV_ndis!ndisFOidRequestCompleteInternal`；OID handler 为 NULL 的
 pass-through 才稳定。详见 `LWF-FIX-TEST-20261116.md`。
 
-## 8. 来源清单
+## 8. IP 栈缓存与官方解决方式（2026-11-16）
+
+### 8.1 官方原文
+
+Microsoft `OID_802_3_CURRENT_ADDRESS` 文档：
+
+> The network management software cannot set the current station address
+> using the NDIS interface library. It must set this address as a
+> configuration parameter.
+
+来源：
+
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/network/oid-802-3-current-address
+
+OSR `OID_GEN_MAC_ADDRESS` 帖子里也确认：
+
+- `OID_GEN_MAC_ADDRESS`（0x00010205）不能用来改 MAC；
+- 在 `FilterRestart` 里用 `NdisFOidRequest` 发送它会返回
+  `STATUS_NOT_SUPPORTED`；
+- 把它加进 restart attributes 也没有效果；
+- `ndislwf` 样例里“可以在这里改 MAC”的注释会误导。
+
+来源：
+
+- https://community.osr.com/t/54879
+
+### 8.2 官方正确的修改路径
+
+```text
+修改网卡的 configuration parameter（NetworkAddress / 厂商 LAA）
+    -> 重启 miniport
+    -> release / disable / enable / renew
+    -> NDIS 和 IP 栈重新读取 MAC，缓存更新
+```
+
+用户态对应：
+
+```powershell
+Set-NetAdapter -Name "Ethernet" -MacAddress "02-11-22-33-44-55"
+```
+
+或厂商 LAA：
+
+```powershell
+Set-NetAdapterAdvancedProperty -Name "Ethernet" `
+  -RegistryKeyword NetworkAddress `
+  -RegistryValue "021122334455"
+Restart-NetAdapter -Name "Ethernet"
+```
+
+这不是 LWF 能做到的；LWF 只能改 OID 查询结果，改不了 IP 栈在
+miniport 注册时缓存的地址。
+
+### 8.3 对功能的影响
+
+```text
+网络功能：不受影响。clone 修复后 ping 10/10，网卡重启 5 次无蓝屏。
+指纹一致性：受影响。getmac / WMI / ipconfig / GetAdaptersAddresses
+仍读硬件 MAC；除非 NativeBridge 同步伪装，或直接改网卡配置参数。
+```
+
+对本项目的正确组合：
+
+```text
+VM：VMX 静态 MAC（真实虚拟网卡地址，缓存一致）
+Claude 用户态：NativeBridge Hook（与 profile MAC 同步）
+宿主机物理网卡：Set-NetAdapter -MacAddress / 厂商 LAA（整机全局）
+```
+
+## 9. 来源清单
 
 - Microsoft FILTER_PAUSE:
   https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ndis/nc-ndis-filter_pause
