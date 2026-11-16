@@ -408,6 +408,15 @@ Add-Check 'hardware.pnp_instance_ids' 'fail' (
     $pnpText -match 'VEN_10DE&DEV_1F82' -and
     $pnpText -match 'DEL41A9'
 ) 'profile GPU/monitor PnP ids' $pnpText 'SetupDiGetDeviceInstanceIdW'
+$pnpAll = (@($pnp.Values | ForEach-Object { [string]$_ }) -join '|')
+Add-Check 'hardware.pnp_strings' 'fail' (
+    $pnpAll -notmatch 'GTX 1050 Ti' -and
+    $pnpAll -notmatch 'Philips 190E' -and
+    $pnpAll -notmatch 'VEN_10DE&DEV_1C82' -and
+    $pnpAll -notmatch 'PHLC031' -and
+    $pnpAll -match 'GTX 1650' -and
+    $pnpAll -match 'Dell U2419H'
+) 'profile GPU/monitor strings' $pnpAll 'SPDRP_HARDWAREID/DEVICEDESC/FRIENDLYNAME'
 
 $processNames = @()
 if (Test-Path -LiteralPath $processLog) {

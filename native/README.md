@@ -39,6 +39,7 @@ replacement process by name. Profile handoff uses
 | NVML `nvmlDeviceGetName` / `GetSerial` / `GetUUID` / `GetMemoryInfo` | IAT/inline for statically imported nvml.dll | on (static) |
 | `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | inline-primary with IAT/delay fallback; profile mode hides virtual device IDs/properties, empty policy clears output | profile |
 | `SetupDiGetDeviceInstanceIdW` profile rewrite | GPU `DEV_1C82`→`DEV_1F82`, monitor `PHLC031`→`DEL41A9` | profile |
+| SetupDi `SPDRP_HARDWAREID` / `DEVICEDESC` / `FRIENDLYNAME` | GPU/monitor ID and string rewrite | profile |
 | `GetIfTable2` / `GetIfEntry2` / `GetIfTable` | inline-primary + IAT/delay patch + MAC rewrite | on |
 | `RegEnumValueW` | inline-primary + IAT/delay patch + value rewrite | on |
 | `EnumDeviceDrivers` / `K32EnumDeviceDrivers` | inline-primary + IAT/delay patch; empty policy hides the list; profile mode filters virtualization drivers | on |
@@ -208,7 +209,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 
   -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
 ```
 
-The 2026-11-16 baseline is `pass=53 fail=1 warn=0`; the only failure is
+The 2026-11-16 baseline is `pass=54 fail=1 warn=0`; the only failure is
 Clash process visibility, which belongs to the deferred TUN+clean work.
 SMBIOS Type 17 now rewrites only populated slots, so the sum of module
 sizes matches the profile memory total instead of filling empty slots.
@@ -240,9 +241,9 @@ Audio: `cac-audio-probe.exe` and an `IMMDevice::GetId` vtable hook exist,
 but the probe's out-of-process devices use a different proxy vtable, so
 `GetId` is not intercepted yet. Audio endpoint identity is WIP.
 
-PNP: instance IDs are rewritten, but hardware IDs, friendly names and the
-GameViewer virtual display still expose real strings. A full synthetic PnP
-graph is still open.
+PNP: instance IDs, hardware IDs, device description and friendly names for
+the GPU/monitor are rewritten. The GameViewer virtual display is still
+enumerated; a full synthetic PnP graph remains open.
 
 ## Boundaries
 

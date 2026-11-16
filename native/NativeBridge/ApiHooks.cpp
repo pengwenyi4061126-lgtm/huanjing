@@ -787,6 +787,8 @@ BOOL WINAPI HookSetupDiGetDevicePropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, c
     return result;
 }
 
+void ReplaceAllWide(std::wstring& text, const wchar_t* from, const wchar_t* to);
+
 BOOL WINAPI HookSetupDiGetDeviceRegistryPropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, DWORD property,
                                                   PDWORD type, PBYTE buffer, DWORD bufferSize,
                                                   PDWORD required) {
@@ -813,6 +815,49 @@ BOOL WINAPI HookSetupDiGetDeviceRegistryPropertyW(HDEVINFO set, PSP_DEVINFO_DATA
     const BOOL result = g_origSetupDiGetRegistryProperty
         ? g_origSetupDiGetRegistryProperty(set, info, property, type, buffer, bufferSize, required)
         : FALSE;
+    if (result && buffer && type && NativeHardwareHooksEnabled()) {
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        const std::wstring gpuName = Utf8ToWide(identity.gpuName);
+        const std::wstring monitorName = Utf8ToWide(identity.monitorName);
+        auto rewrite = [&](std::wstring& text) {
+            ReplaceAllWide(text, L"VEN_10DE&DEV_1C82", L"VEN_10DE&DEV_1F82");
+            ReplaceAllWide(text, L"PHLC031", L"DEL41A9");
+            ReplaceAllWide(text, L"NVIDIA GeForce GTX 1050 Ti", gpuName.c_str());
+            ReplaceAllWide(text, L"GTX 1050 Ti", L"GTX 1650");
+            ReplaceAllWide(text, L"Philips 190E", monitorName.c_str());
+        };
+        bool changed = false;
+        if (*type == REG_SZ) {
+            auto* raw = reinterpret_cast<const wchar_t*>(buffer);
+            const size_t maxChars = bufferSize / sizeof(wchar_t);
+            size_t length = 0;
+            while (length < maxChars && raw[length]) ++length;
+            std::wstring text(raw, length);
+            rewrite(text);
+            if ((text.size() + 1) * sizeof(wchar_t) <= bufferSize) {
+                std::memcpy(buffer, text.c_str(), (text.size() + 1) * sizeof(wchar_t));
+                changed = true;
+            }
+        } else if (*type == REG_MULTI_SZ) {
+            auto* cursor = reinterpret_cast<wchar_t*>(buffer);
+            auto* end = reinterpret_cast<wchar_t*>(buffer + bufferSize);
+            while (cursor + 1 < end && *cursor) {
+                const size_t remaining = static_cast<size_t>(end - cursor);
+                size_t length = 0;
+                while (length < remaining && cursor[length]) ++length;
+                std::wstring text(cursor, length);
+                rewrite(text);
+                const size_t capacity = static_cast<size_t>(end - cursor);
+                if (text.size() + 1 > capacity) break;
+                std::memcpy(cursor, text.c_str(), (text.size() + 1) * sizeof(wchar_t));
+                cursor += text.size() + 1;
+                changed = true;
+            }
+        }
+        if (changed) {
+            AuditEventRateLimited("api.setupdi.registry", "profile-rewrite");
+        }
+    }
     AuditEventRateLimited("api.setupdi.registry", result ? "observed" : "error", nullptr, property, true);
     return result;
 }
