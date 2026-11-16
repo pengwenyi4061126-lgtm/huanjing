@@ -123,3 +123,42 @@ CreateFileW/A/2 / NtCreateFile
 C:\ProgramData\CAC\logs\service-injector.jsonl
 C:\ProgramData\CAC\logs\cowork-svc-native.jsonl
 ```
+
+## A/B 验证
+
+测试 Profile B（临时）：
+
+```text
+MAC:        02:11:22:33:44:55
+hostname:   host-testb
+machine_id: 11111111111111111111111111111111
+disk:       WD-testb000000
+pid:        15972
+```
+
+日志：
+
+```text
+native.identity loaded mac=02:11:22:33:44:55 host=host-testb ...
+native.bridge ready
+```
+
+恢复 Desktop profile 1 后：
+
+```text
+MAC:        02:2a:09:f6:66:f2
+hostname:   host-7105ecbc
+machine_id: 7105ecbcb4a642a685ea9848ddd5d3ba
+disk:       WD-84490e004894
+pid:        26432
+```
+
+日志：
+
+```text
+native.identity loaded mac=02:2a:09:f6:66:f2 host=host-7105ecbc ...
+native.bridge ready
+```
+
+结论：`cowork-svc` 的 identity 不是写死的，会随
+`active-profile.ini` 切换；注入器在服务重启后重新注入新 PID。
