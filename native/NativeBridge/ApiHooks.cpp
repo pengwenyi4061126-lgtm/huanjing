@@ -1411,12 +1411,76 @@ void RewriteProcessorTopologyEx(LOGICAL_PROCESSOR_RELATIONSHIP relationship,
     const DWORD perCore = (logical / cores) > 0 ? (logical / cores) : 1;
     BYTE* base = reinterpret_cast<BYTE*>(buffer);
 
+    if (relationship == RelationCache) {
+        const DWORD l2Total = identity.l2CacheKb > 0 ? identity.l2CacheKb * 1024 : 0;
+        const DWORD l3Total = identity.l3CacheKb > 0 ? identity.l3CacheKb * 1024 : 0;
+        DWORD l1Kept = 0;
+        DWORD l2Kept = 0;
+        DWORD l3Kept = 0;
+        DWORD read = 0;
+        DWORD write = 0;
+        while (read + minEntry <= *length) {
+            auto* entry = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(base + read);
+            if (entry->Size < minEntry || read + entry->Size > *length) break;
+            bool keep = true;
+            if (entry->Relationship == RelationCache) {
+                if (entry->Cache.Level == 1) {
+                    keep = l1Kept < cores * 2;
+                    if (keep && entry->Cache.GroupCount > 0) {
+                        const DWORD shift = (l1Kept / 2) * perCore;
+                        entry->Cache.GroupCount = 1;
+                        entry->Cache.GroupMask.Mask =
+                            shift >= 64 ? 0
+                                        : (((static_cast<KAFFINITY>(1) << perCore) - 1) << shift);
+                        entry->Cache.GroupMask.Group = 0;
+                    }
+                    if (keep) ++l1Kept;
+                } else if (entry->Cache.Level == 2) {
+                    keep = l2Kept < cores;
+                    if (keep) {
+                        entry->Cache.CacheSize = l2Total / cores;
+                        if (entry->Cache.GroupCount > 0) {
+                            const DWORD shift = l2Kept * perCore;
+                            entry->Cache.GroupCount = 1;
+                            entry->Cache.GroupMask.Mask =
+                                shift >= 64 ? 0
+                                            : (((static_cast<KAFFINITY>(1) << perCore) - 1)
+                                               << shift);
+                            entry->Cache.GroupMask.Group = 0;
+                        }
+                        ++l2Kept;
+                    }
+                } else if (entry->Cache.Level == 3) {
+                    keep = l3Kept < 1;
+                    if (keep) {
+                        entry->Cache.CacheSize = l3Total;
+                        if (entry->Cache.GroupCount > 0) {
+                            entry->Cache.GroupCount = 1;
+                            entry->Cache.GroupMask.Mask =
+                                logical >= 64 ? ~static_cast<KAFFINITY>(0)
+                                              : ((static_cast<KAFFINITY>(1) << logical) - 1);
+                            entry->Cache.GroupMask.Group = 0;
+                        }
+                        ++l3Kept;
+                    }
+                }
+            }
+            if (keep) {
+                if (write != read) std::memmove(base + write, base + read, entry->Size);
+                write += entry->Size;
+            }
+            read += entry->Size;
+        }
+        *length = write;
+        AuditEventRateLimited("api.getlogicalprocessorinformationex", "cache");
+        return;
+    }
+
     if (relationship == RelationProcessorPackage) {
         DWORD offset = 0;
         while (offset + minEntry <= *length) {
             auto* entry = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(base + offset);
-            if (entry->Size < minEntry ||
-                offset + entry->Size > *length) break;
+            if (entry->Size < minEntry || offset + entry->Size > *length) break;
             if (entry->Relationship == RelationProcessorPackage && entry->Processor.GroupCount > 0) {
                 entry->Processor.GroupCount = 1;
                 entry->Processor.GroupMask[0].Mask =
@@ -1478,6 +1542,11 @@ void RewriteProcessorTopologyLegacy(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buffer
     const DWORD cores = identity.cpuCores > 0 ? identity.cpuCores : 1;
     const DWORD logical = identity.cpuLogical > cores ? identity.cpuLogical : cores;
     const DWORD perCore = (logical / cores) > 0 ? (logical / cores) : 1;
+    const DWORD l2Total = identity.l2CacheKb > 0 ? identity.l2CacheKb * 1024 : 0;
+    const DWORD l3Total = identity.l3CacheKb > 0 ? identity.l3CacheKb * 1024 : 0;
+    DWORD l1Kept = 0;
+    DWORD l2Kept = 0;
+    DWORD l3Kept = 0;
     DWORD write = 0;
     DWORD keptCores = 0;
     for (DWORD index = 0; index < count; ++index) {
@@ -1497,6 +1566,16 @@ void RewriteProcessorTopologyLegacy(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buffer
             entry.ProcessorMask =
                 logical >= 64 ? ~static_cast<KAFFINITY>(0)
                               : ((static_cast<KAFFINITY>(1) << logical) - 1);
+        } else if (entry.Relationship == RelationCache) {
+            if (entry.Cache.Level == 1) {
+                keep = l1Kept++ < cores * 2;
+            } else if (entry.Cache.Level == 2) {
+                keep = l2Kept++ < cores;
+                if (keep) entry.Cache.Size = l2Total / cores;
+            } else if (entry.Cache.Level == 3) {
+                keep = l3Kept++ < 1;
+                if (keep) entry.Cache.Size = l3Total;
+            }
         }
         if (keep) buffer[write++] = entry;
     }

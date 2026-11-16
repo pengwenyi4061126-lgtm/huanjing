@@ -289,6 +289,11 @@ rows report `USB` + `{36FC9E60-...}`, MI interfaces `HIDClass` +
 `{745A17A0-...}`, parent `USB\ROOT_HUB30\4&PROFILE&0&0`, driver instance
 `\0000`.
 
+CPU cache: `GetLogicalProcessorInformationEx(RelationCache)` compacts L1/L2
+entries to the Profile core count, rewrites per-core L2 and shared L3 sizes,
+and re-maps GroupMask. `cac-cache-probe.exe` reports 24/12/1 entries and
+3072/30720 KB outside versus 8/4/1 entries and 2048/16384 KB inside.
+
 Audio: `cac-audio-probe.exe` verifies the `IMMDeviceEnumerator` wrapper;
 endpoint IDs, friendly/interface names, endpoint GUID and form factor come
 from the Profile.

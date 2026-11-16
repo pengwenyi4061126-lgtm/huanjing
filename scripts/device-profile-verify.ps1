@@ -30,6 +30,7 @@ param(
     [string]$SmartProbe,
     [string]$MonitorWmiProbe,
     [string]$UsbProbe,
+    [string]$CacheProbe,
     [string]$PnpProbe,
     [string]$PnpWmiProbe,
     [string]$AudioProbe,
@@ -53,6 +54,7 @@ if (-not $VulkanProbe) { $VulkanProbe = Join-Path $repoRoot 'native\dist\cac-vul
 if (-not $SmartProbe) { $SmartProbe = Join-Path $repoRoot 'native\dist\cac-smart-probe.exe' }
 if (-not $MonitorWmiProbe) { $MonitorWmiProbe = Join-Path $repoRoot 'native\dist\cac-monitor-wmi-probe.exe' }
 if (-not $UsbProbe) { $UsbProbe = Join-Path $repoRoot 'native\dist\cac-usb-probe.exe' }
+if (-not $CacheProbe) { $CacheProbe = Join-Path $repoRoot 'native\dist\cac-cache-probe.exe' }
 if (-not $PnpProbe) { $PnpProbe = Join-Path $repoRoot 'native\dist\cac-pnp-probe.exe' }
 if (-not $PnpWmiProbe) { $PnpWmiProbe = Join-Path $repoRoot 'native\dist\cac-pnp-wmi-probe.exe' }
 if (-not $AudioProbe) { $AudioProbe = Join-Path $repoRoot 'native\dist\cac-audio-probe.exe' }
@@ -102,6 +104,10 @@ if (-not (Test-Path -LiteralPath $UsbProbe -PathType Leaf)) {
     throw "USB probe not found: $UsbProbe"
 }
 $UsbProbe = (Resolve-Path -LiteralPath $UsbProbe).Path
+if (-not (Test-Path -LiteralPath $CacheProbe -PathType Leaf)) {
+    throw "Cache probe not found: $CacheProbe"
+}
+$CacheProbe = (Resolve-Path -LiteralPath $CacheProbe).Path
 if (-not (Test-Path -LiteralPath $PnpProbe -PathType Leaf)) {
     throw "PNP probe not found: $PnpProbe"
 }
@@ -286,6 +292,10 @@ $usbLog = Join-Path $OutputDir 'usb-probe.txt'
 $usbCode = Invoke-Injected -Executable $UsbProbe -Arguments @() -LogPath $usbLog
 $usb = Read-KeyValues -Path $usbLog
 $usbText = if (Test-Path -LiteralPath $usbLog) { Get-Content -LiteralPath $usbLog -Raw } else { '' }
+
+$cacheLog = Join-Path $OutputDir 'cache-probe.txt'
+$cacheCode = Invoke-Injected -Executable $CacheProbe -Arguments @() -LogPath $cacheLog
+$cache = Read-KeyValues -Path $cacheLog
 
 $pnpLog = Join-Path $OutputDir 'pnp-probe.txt'
 $pnpCode = Invoke-Injected -Executable $PnpProbe -Arguments @() -LogPath $pnpLog
@@ -590,6 +600,15 @@ Add-Check 'hardware.usb_pnp_driver' 'fail' (
     $usbText -match '(?i)\{745a17a0-74d3-11d0-b6fe-00a0c90f57da\}\\0000' -and
     $usbText -match '(?i)\{36fc9e60-c465-11cf-8056-444553540000\}\\0000'
 ) 'HID/USB driver instance 0000' 'driver rows' 'DEVPKEY_Device_Driver'
+$cacheL2Entries = Convert-ToInt64 $cache['cache_l2_entries']
+$cacheL3Entries = Convert-ToInt64 $cache['cache_l3_entries']
+$cacheL1Entries = Convert-ToInt64 $cache['cache_l1_entries']
+$cacheL2Kb = Convert-ToInt64 $cache['cache_l2_total_kb']
+$cacheL3Kb = Convert-ToInt64 $cache['cache_l3_total_kb']
+Add-Check 'probe.cache' 'fail' ($cacheCode -eq 0 -and $cache['cache_state'] -eq 'ok') 'cache_state=ok' "exit=$cacheCode state=$($cache['cache_state'])" 'RelationCache probe'
+Add-Check 'hardware.cache_l1_entries' 'fail' ($cacheL1Entries -eq 8) '8 (2 per core)' "$cacheL1Entries" 'GetLogicalProcessorInformationEx(RelationCache)'
+Add-Check 'hardware.cache_l2' 'fail' ($cacheL2Entries -eq 4 -and $cacheL2Kb -eq 2048) '4 entries / 2048 KB' "$cacheL2Entries / $cacheL2Kb KB" 'L2 per-core 512 KB'
+Add-Check 'hardware.cache_l3' 'fail' ($cacheL3Entries -eq 1 -and $cacheL3Kb -eq 16384) '1 entry / 16384 KB' "$cacheL3Entries / $cacheL3Kb KB" 'shared 16 MB L3'
 
 $pnpInstances = @($pnp.Keys | Where-Object { $_ -match '^pnp\d+_instance$' } | ForEach-Object { [string]$pnp[$_] })
 $pnpText = $pnpInstances -join '|'
@@ -704,6 +723,7 @@ $result = [ordered]@{
         smart = $smart
         monitorWmi = $monitorWmi
         usb = $usb
+        cache = $cache
         pnp = $pnp
         pnpWmi = $pnpWmi
         pnpWmiOutside = $pnpWmiOutside
@@ -721,6 +741,7 @@ $result = [ordered]@{
         smartExit = $smartCode
         monitorWmiExit = $monitorWmiCode
         usbExit = $usbCode
+        cacheExit = $cacheCode
         pnpExit = $pnpCode
         pnpWmiExit = $pnpWmiCode
         audioExit = $audioCode

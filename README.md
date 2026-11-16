@@ -4,7 +4,7 @@ Claude Code 的 Windows 隐私保护工具 — 二进制补丁抹除中国特征
 
 当前版本：`1.0.44`，适配 Claude Code `2.1.294`，并提供 Claude Desktop `5.1231.2` 的独立 Profile 启动器。
 
- 最终审计快照（2026-11-17，当前发布快照）记录的 `native/dist` NativeBridge SHA-256 为 `E102DAE903DC18C4489E6FB39F7188ECA546B75CD9A71EA7B1664FED28F9CE3B`，`cac-native-launch.exe` SHA-256 为 `F3A135CBF6B8807C3C405B2948EB3411403A91B83AFC15B55A5DCFA118530F09`。本机 `%USERPROFILE%\.cac\native` 已同步到相同哈希；代理池 smoke、relay smoke、kernel smoke（含磁盘重写）、profile A/B 检查均通过。Desktop 历史 PID 审计在未启动真实 Desktop 的情况下保持 `PARTIAL`，不会被静态日志冒充为完整运行时通过。
+ 最终审计快照（2026-11-17，当前发布快照）记录的 `native/dist` NativeBridge SHA-256 为 `2758F1C3DD5B97D7FE69EE9F13BAECD2A09FB67B369DB7373234BA6E4E058A4F`，`cac-native-launch.exe` SHA-256 为 `B6B4F8B036250F0D156CD2C1AD4CB60A6D33782A5DA0282B01FD224F004252E9`。本机 `%USERPROFILE%\.cac\native` 已同步到相同哈希；代理池 smoke、relay smoke、kernel smoke（含磁盘重写）、profile A/B 检查均通过。Desktop 历史 PID 审计在未启动真实 Desktop 的情况下保持 `PARTIAL`，不会被静态日志冒充为完整运行时通过。
 
 ## 功能
 

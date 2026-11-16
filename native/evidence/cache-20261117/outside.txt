@@ -1,0 +1,7 @@
+cache_state=ok
+cache_l1_entries=24
+cache_l2_entries=12
+cache_l3_entries=1
+cache_l2_total_kb=3072
+cache_l3_total_kb=30720
+cache_l2_first_kb=256

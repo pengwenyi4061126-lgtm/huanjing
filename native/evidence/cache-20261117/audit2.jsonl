@@ -1,0 +1,124 @@
+{"utc":"2026-11-16T16:05:00.687Z","pid":14136,"surface":"native.bridge","action":"attach","detail":"process=main"}
+{"utc":"2026-11-16T16:05:00.688Z","pid":14136,"surface":"native.identity","action":"loaded","detail":"mac=B0:83:FE:09:f6:66 host=DESKTOP-3E2092A machine=7105ecbcb4a642a685ea9848ddd5d3ba disk=WD-W2H6F8RBV79H"}
+{"utc":"2026-11-16T16:05:00.688Z","pid":14136,"surface":"cpu.hash","action":"local","detail":"nativebridge"}
+{"utc":"2026-11-16T16:05:00.688Z","pid":14136,"surface":"cpu.manifest","action":"not-configured"}
+{"utc":"2026-11-16T16:05:00.689Z","pid":14136,"surface":"cpu.flags","action":"skipped","detail":"no-flag-layout"}
+{"utc":"2026-11-16T16:05:00.690Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"iphlpapi.dll!GetAdaptersAddresses"}
+{"utc":"2026-11-16T16:05:00.691Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"iphlpapi.dll!GetAdaptersInfo"}
+{"utc":"2026-11-16T16:05:00.691Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetVolumeInformationW"}
+{"utc":"2026-11-16T16:05:00.692Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GlobalMemoryStatusEx"}
+{"utc":"2026-11-16T16:05:00.693Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetPhysicallyInstalledSystemMemory"}
+{"utc":"2026-11-16T16:05:00.693Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetDiskFreeSpaceExW"}
+{"utc":"2026-11-16T16:05:00.694Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetDiskFreeSpaceExA"}
+{"utc":"2026-11-16T16:05:00.695Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetSystemInfo"}
+{"utc":"2026-11-16T16:05:00.695Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"kernel32.dll!GetSystemInfo iat=1 delay=0","value":"1"}
+{"utc":"2026-11-16T16:05:00.695Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetNativeSystemInfo"}
+{"utc":"2026-11-16T16:05:00.696Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetActiveProcessorCount"}
+{"utc":"2026-11-16T16:05:00.697Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetMaximumProcessorCount"}
+{"utc":"2026-11-16T16:05:00.697Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"psapi.dll!GetPerformanceInfo"}
+{"utc":"2026-11-16T16:05:00.698Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetLogicalProcessorInformationEx"}
+{"utc":"2026-11-16T16:05:00.699Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"kernel32.dll!GetLogicalProcessorInformationEx iat=1 delay=0","value":"1"}
+{"utc":"2026-11-16T16:05:00.699Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetLogicalProcessorInformation"}
+{"utc":"2026-11-16T16:05:00.700Z","pid":14136,"surface":"api.install","action":"optional-refused","detail":"user32.dll!EnumDisplaySettingsW: unsupported prologue instruction"}
+{"utc":"2026-11-16T16:05:00.701Z","pid":14136,"surface":"api.install","action":"optional-iat","detail":"user32.dll!GetMonitorInfoW iat=0 delay=1","value":"1"}
+{"utc":"2026-11-16T16:05:00.701Z","pid":14136,"surface":"api.install","action":"optional-refused","detail":"user32.dll!DisplayConfigGetDeviceInfo: unsupported prologue instruction"}
+{"utc":"2026-11-16T16:05:00.704Z","pid":14136,"surface":"api.nvml.late-load","action":"installed"}
+{"utc":"2026-11-16T16:05:00.705Z","pid":14136,"surface":"api.install","action":"optional-refused","detail":"vulkan-1.dll!vkGetPhysicalDeviceProperties: unsupported prologue instruction"}
+{"utc":"2026-11-16T16:05:00.706Z","pid":14136,"surface":"api.install","action":"optional-refused","detail":"vulkan-1.dll!vkGetPhysicalDeviceMemoryProperties: unsupported prologue instruction"}
+{"utc":"2026-11-16T16:05:00.707Z","pid":14136,"surface":"api.install","action":"optional-refused","detail":"OpenCL.dll!clGetDeviceInfo: unsupported prologue instruction"}
+{"utc":"2026-11-16T16:05:00.707Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetSystemFirmwareTable"}
+{"utc":"2026-11-16T16:05:00.708Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!EnumSystemFirmwareTables"}
+{"utc":"2026-11-16T16:05:00.709Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"ntdll.dll!NtQuerySystemInformation"}
+{"utc":"2026-11-16T16:05:00.710Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"ntdll.dll!NtQuerySystemInformation iat=10 delay=0","value":"10"}
+{"utc":"2026-11-16T16:05:00.710Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!DeviceIoControl"}
+{"utc":"2026-11-16T16:05:00.710Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"kernel32.dll!DeviceIoControl iat=2 delay=0","value":"2"}
+{"utc":"2026-11-16T16:05:00.711Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetComputerNameW"}
+{"utc":"2026-11-16T16:05:00.711Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"kernel32.dll!GetComputerNameW iat=1 delay=0","value":"1"}
+{"utc":"2026-11-16T16:05:00.711Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetComputerNameExW"}
+{"utc":"2026-11-16T16:05:00.712Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"advapi32.dll!GetUserNameW"}
+{"utc":"2026-11-16T16:05:00.713Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"advapi32.dll!RegGetValueW"}
+{"utc":"2026-11-16T16:05:00.714Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"advapi32.dll!RegGetValueW iat=1 delay=0","value":"1"}
+{"utc":"2026-11-16T16:05:00.714Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"advapi32.dll!RegQueryValueExW"}
+{"utc":"2026-11-16T16:05:00.715Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"hid.dll!HidD_GetSerialNumberString"}
+{"utc":"2026-11-16T16:05:00.715Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"hid.dll!HidD_GetAttributes"}
+{"utc":"2026-11-16T16:05:00.716Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"hid.dll!HidD_GetManufacturerString"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"hid.dll!HidD_GetProductString"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"hid.dll!HidP_GetCaps"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.getnativesysteminfo","action":"patched"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"setupapi.dll!SetupDiGetDevicePropertyW"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"setupapi.dll!SetupDiGetDeviceRegistryPropertyW"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"setupapi.dll!SetupDiGetDeviceInstanceIdW"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetVolumeInformationByHandleW"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetFileInformationByHandle"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"ntdll.dll!NtQueryVolumeInformationFile"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"ntdll.dll!NtQueryVolumeInformationFile iat=5 delay=0","value":"5"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"ntdll.dll!NtDeviceIoControlFile"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"ntdll.dll!NtDeviceIoControlFile iat=6 delay=0","value":"6"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"iphlpapi.dll!GetIfTable2"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"iphlpapi.dll!GetIfEntry2"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"iphlpapi.dll!GetIfTable"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"advapi32.dll!RegEnumValueW"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!K32EnumDeviceDrivers"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"alias","detail":"psapi.dll!EnumDeviceDrivers -> existing target"}
+{"utc":"2026-11-16T16:05:00.717Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"setupapi.dll!SetupDiGetClassDevsW"}
+{"utc":"2026-11-16T16:05:00.729Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!LoadLibraryW"}
+{"utc":"2026-11-16T16:05:00.730Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"kernel32.dll!LoadLibraryW iat=3 delay=0","value":"3"}
+{"utc":"2026-11-16T16:05:00.730Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!CreateFileW"}
+{"utc":"2026-11-16T16:05:00.731Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"kernel32.dll!CreateFileW iat=6 delay=0","value":"6"}
+{"utc":"2026-11-16T16:05:00.731Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!CreateFileA"}
+{"utc":"2026-11-16T16:05:00.732Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!CreateFile2"}
+{"utc":"2026-11-16T16:05:00.733Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"ntdll.dll!NtCreateFile"}
+{"utc":"2026-11-16T16:05:00.733Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"ntdll.dll!NtCreateFile iat=7 delay=0","value":"7"}
+{"utc":"2026-11-16T16:05:00.734Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetOverlappedResult"}
+{"utc":"2026-11-16T16:05:00.735Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetOverlappedResultEx"}
+{"utc":"2026-11-16T16:05:00.736Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetQueuedCompletionStatus"}
+{"utc":"2026-11-16T16:05:00.737Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetQueuedCompletionStatusEx"}
+{"utc":"2026-11-16T16:05:00.738Z","pid":14136,"surface":"api.install","action":"optional-refused","detail":"tbs.dll!Tbsip_Submit_Command: unsupported prologue instruction"}
+{"utc":"2026-11-16T16:05:00.739Z","pid":14136,"surface":"api.install","action":"complete","detail":"failures=0","value":"0"}
+{"utc":"2026-11-16T16:05:00.740Z","pid":14136,"surface":"api.getcomputernameex","action":"patched"}
+{"utc":"2026-11-16T16:05:00.741Z","pid":14136,"surface":"api.globalmemorystatusex","action":"patched"}
+{"utc":"2026-11-16T16:05:00.743Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.743Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.743Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.743Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.743Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.743Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.743Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.744Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.744Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.744Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.744Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.744Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.744Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.744Z","pid":14136,"surface":"api.enumdisplaydevices","action":"patched"}
+{"utc":"2026-11-16T16:05:00.745Z","pid":14136,"surface":"gpu.hook","action":"installed","detail":"dxgi-getdesc1"}
+{"utc":"2026-11-16T16:05:00.747Z","pid":14136,"surface":"audio.hook","action":"installed","detail":"immdevice-getid"}
+{"utc":"2026-11-16T16:05:00.747Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!CreateProcessW"}
+{"utc":"2026-11-16T16:05:00.748Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!CreateProcessInternalW"}
+{"utc":"2026-11-16T16:05:00.749Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"advapi32.dll!CreateProcessAsUserW"}
+{"utc":"2026-11-16T16:05:00.750Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"advapi32.dll!CreateProcessWithTokenW"}
+{"utc":"2026-11-16T16:05:00.751Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"ntdll.dll!NtCreateUserProcess"}
+{"utc":"2026-11-16T16:05:00.751Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"ntdll.dll!NtCreateUserProcess iat=1 delay=0","value":"1"}
+{"utc":"2026-11-16T16:05:00.752Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"ole32.dll!CoCreateInstance"}
+{"utc":"2026-11-16T16:05:00.752Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"ole32.dll!CoCreateInstance iat=1 delay=0","value":"1"}
+{"utc":"2026-11-16T16:05:00.753Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"ole32.dll!CoCreateInstanceEx"}
+{"utc":"2026-11-16T16:05:00.754Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"ole32.dll!CoGetClassObject"}
+{"utc":"2026-11-16T16:05:00.754Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"iphlpapi.dll!GetInterfaceInfo"}
+{"utc":"2026-11-16T16:05:00.755Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"iphlpapi.dll!ConvertInterfaceLuidToNameW"}
+{"utc":"2026-11-16T16:05:00.756Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"iphlpapi.dll!ConvertInterfaceLuidToAlias"}
+{"utc":"2026-11-16T16:05:00.756Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"iphlpapi.dll!ConvertInterfaceNameToLuidW"}
+{"utc":"2026-11-16T16:05:00.758Z","pid":14136,"surface":"api.getnativesysteminfo","action":"patched"}
+{"utc":"2026-11-16T16:05:00.758Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"winhttp.dll!WinHttpGetIEProxyConfigForCurrentUser"}
+{"utc":"2026-11-16T16:05:00.758Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"winhttp.dll!WinHttpGetProxyForUrl"}
+{"utc":"2026-11-16T16:05:00.759Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"winhttp.dll!WinHttpGetDefaultProxyConfiguration"}
+{"utc":"2026-11-16T16:05:00.760Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"winhttp.dll!WinHttpOpen"}
+{"utc":"2026-11-16T16:05:00.761Z","pid":14136,"surface":"api.getnativesysteminfo","action":"patched"}
+{"utc":"2026-11-16T16:05:00.761Z","pid":14136,"surface":"api.getnativesysteminfo","action":"patched"}
+{"utc":"2026-11-16T16:05:00.761Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"wininet.dll!InternetQueryOptionW"}
+{"utc":"2026-11-16T16:05:00.762Z","pid":14136,"surface":"api.install","action":"inline-primary","detail":"iphlpapi.dll!GetBestRoute2"}
+{"utc":"2026-11-16T16:05:00.763Z","pid":14136,"surface":"api.install","action":"iat+delay","detail":"iphlpapi.dll!GetBestRoute2 iat=0 delay=1","value":"1"}
+{"utc":"2026-11-16T16:05:00.763Z","pid":14136,"surface":"api.ntdeviceiocontrol","action":"observed","value":"2252812"}
+{"utc":"2026-11-16T16:05:00.763Z","pid":14136,"surface":"api.deviceiocontrol","action":"observed","value":"2252812"}
+{"utc":"2026-11-16T16:05:00.763Z","pid":14136,"surface":"kernel.policy","action":"verified","detail":"per-process policy","value":"14136"}
+{"utc":"2026-11-16T16:05:00.763Z","pid":14136,"surface":"native.bridge","action":"ready"}
+{"utc":"2026-11-16T16:05:00.763Z","pid":14136,"surface":"api.getlogicalprocessorinformationex","action":"cache"}
