@@ -77,6 +77,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install-macfilter.ps1 -Unins
 ## 验证与 soak
 
 ```powershell
+# 源码/二进制/BUILD/签名/服务状态一致性
+powershell -NoProfile -ExecutionPolicy Bypass -File verify-macfilter-artifacts.ps1
+
 # 不触碰服务的哈希/路径校验
 powershell -NoProfile -ExecutionPolicy Bypass -File install-macfilter.ps1 -DryRun
 

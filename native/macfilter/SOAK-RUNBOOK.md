@@ -16,6 +16,7 @@
 
 ```powershell
 cd E:\环境\huanjing\native\macfilter
+powershell -NoProfile -ExecutionPolicy Bypass -File verify-macfilter-artifacts.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File install-macfilter.ps1 -DryRun
 powershell -NoProfile -ExecutionPolicy Bypass -File install-macfilter.ps1 -Enable
 Restart-Computer
