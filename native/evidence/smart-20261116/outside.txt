@@ -1,0 +1,25 @@
+descriptor_state=ok
+disk_vendor=
+disk_model=CJ325060BC
+disk_firmware=1.00
+disk_serial=F4DJ13000878
+smart_state=ok
+smart_version=0x0000
+smart_attr1=100/100/0
+smart_attr2=100/100/0
+smart_attr3=100/100/0
+smart_attr5=100/100/0
+smart_attr7=100/100/0
+smart_attr8=100/100/0
+smart_attr9=100/100/6838
+smart_attr10=100/100/0
+smart_attr12=100/100/2203
+smart_attr167=100/100/0
+smart_attr168=100/100/1
+smart_attr169=100/100/1835013
+firmware_state=ok
+firmware_head=3800000038000000
+firmware_version=56
+firmware_slots=1
+firmware_slot0=1.00
+nvme_state=unsupported error=87

@@ -1,4 +1,5 @@
 #define _WIN32_WINNT 0x0A00
+#define NTDDI_VERSION 0x0A000000
 
 #include "ApiHooks.h"
 
@@ -7,6 +8,8 @@
 #include <windows.h>
 #include <iphlpapi.h>
 #include <winioctl.h>
+#include <ntddstor.h>
+#include <ntddscsi.h>
 #include <winternl.h>
 #include <tlhelp32.h>
 #include <bcrypt.h>
@@ -28,6 +31,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstddef>
+#include <cstdlib>
 #include <string>
 #include <cstdio>
 #include <cstring>
@@ -241,10 +245,15 @@ typedef int (*PFN_nvmlDeviceGetName)(nvmlDevice_t, char*, unsigned int);
 typedef int (*PFN_nvmlDeviceGetSerial)(nvmlDevice_t, char*, unsigned int);
 typedef int (*PFN_nvmlDeviceGetUUID)(nvmlDevice_t, char*, unsigned int);
 typedef int (*PFN_nvmlDeviceGetMemoryInfo)(nvmlDevice_t, CacNvmlMemory*);
+typedef void* VkPhysicalDevice;
+typedef void (*PFN_vkGetPhysicalDeviceProperties)(VkPhysicalDevice, void*);
+typedef void (*PFN_vkGetPhysicalDeviceMemoryProperties)(VkPhysicalDevice, void*);
 int HookNvmlGetName(nvmlDevice_t, char*, unsigned int);
 int HookNvmlGetSerial(nvmlDevice_t, char*, unsigned int);
 int HookNvmlGetUUID(nvmlDevice_t, char*, unsigned int);
 int HookNvmlGetMemoryInfo(nvmlDevice_t, CacNvmlMemory*);
+void HookVkGetPhysicalDeviceProperties(VkPhysicalDevice, void*);
+void HookVkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice, void*);
 typedef void* cl_device_id;
 typedef unsigned int cl_device_info;
 typedef unsigned int cl_uint;
@@ -317,6 +326,8 @@ PFN_nvmlDeviceGetName g_origNvmlGetName = nullptr;
 PFN_nvmlDeviceGetSerial g_origNvmlGetSerial = nullptr;
 PFN_nvmlDeviceGetUUID g_origNvmlGetUUID = nullptr;
 PFN_nvmlDeviceGetMemoryInfo g_origNvmlGetMemoryInfo = nullptr;
+PFN_vkGetPhysicalDeviceProperties g_origVkGetPhysicalDeviceProperties = nullptr;
+PFN_vkGetPhysicalDeviceMemoryProperties g_origVkGetPhysicalDeviceMemoryProperties = nullptr;
 PFN_clGetDeviceInfo g_origClGetDeviceInfo = nullptr;
 PFN_LoadLibraryW g_origLoadLibraryW = nullptr;
 PFN_GetProcAddress g_origGetProcAddress = nullptr;
@@ -1528,6 +1539,45 @@ int HookNvmlGetMemoryInfo(nvmlDevice_t device, CacNvmlMemory* memory) {
     return 0;
 }
 
+bool ParsePciIds(const std::string& pci, unsigned* vendor, unsigned* device) {
+    const size_t ven = pci.find("VEN_");
+    const size_t dev = pci.find("DEV_");
+    if (ven == std::string::npos || dev == std::string::npos) return false;
+    *vendor = static_cast<unsigned>(std::strtoul(pci.substr(ven + 4, 4).c_str(), nullptr, 16));
+    *device = static_cast<unsigned>(std::strtoul(pci.substr(dev + 4, 4).c_str(), nullptr, 16));
+    return true;
+}
+
+void HookVkGetPhysicalDeviceProperties(VkPhysicalDevice device, void* properties) {
+    if (!g_origVkGetPhysicalDeviceProperties) return;
+    g_origVkGetPhysicalDeviceProperties(device, properties);
+    if (!properties || !NativeHardwareHooksEnabled()) return;
+    unsigned char* bytes = static_cast<unsigned char*>(properties);
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    unsigned vendor = 0x10DE;
+    unsigned deviceId = 0x1F82;
+    ParsePciIds(identity.gpuPciId, &vendor, &deviceId);
+    std::memcpy(bytes + 8, &vendor, sizeof(vendor));
+    std::memcpy(bytes + 12, &deviceId, sizeof(deviceId));
+    const uint32_t deviceType = 2;  // VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+    std::memcpy(bytes + 16, &deviceType, sizeof(deviceType));
+    strncpy_s(reinterpret_cast<char*>(bytes + 20), 256, identity.gpuName.c_str(), _TRUNCATE);
+    AuditEventRateLimited("api.vulkan.properties", "patched");
+}
+
+void HookVkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice device, void* properties) {
+    if (!g_origVkGetPhysicalDeviceMemoryProperties) return;
+    g_origVkGetPhysicalDeviceMemoryProperties(device, properties);
+    if (!properties || !NativeHardwareHooksEnabled()) return;
+    unsigned char* bytes = static_cast<unsigned char*>(properties);
+    uint32_t heapCount = 0;
+    std::memcpy(&heapCount, bytes + 260, sizeof(heapCount));
+    if (heapCount == 0 || heapCount > 16) return;
+    const uint64_t heapSize = ProfileIdentity::Get().gpuMemoryMb * 1024ULL * 1024ULL;
+    std::memcpy(bytes + 264, &heapSize, sizeof(heapSize));
+    AuditEventRateLimited("api.vulkan.memory", "patched");
+}
+
 cl_int ReturnClString(const std::string& text, size_t size, void* value, size_t* sizeRet) {
     const size_t needed = text.size() + 1;
     if (sizeRet) *sizeRet = needed;
@@ -1806,6 +1856,93 @@ NTSTATUS NTAPI HookNtQuerySystemInformation(ULONG infoClass, PVOID info, ULONG l
     return status;
 }
 
+void FillSmartIdentity(void* output, DWORD available) {
+    struct SmartAttribute {
+        BYTE id;
+        BYTE raw[6];
+    };
+    static const SmartAttribute kAttributes[] = {
+        {5, {0, 0, 0, 0, 0, 0}},
+        {9, {0x2B, 0x1A, 0, 0, 0, 0}},
+        {12, {0x3C, 0, 0, 0, 0, 0}},
+        {187, {0, 0, 0, 0, 0, 0}},
+        {190, {0x22, 0, 0, 0, 0, 0}},
+        {194, {0x22, 0, 0, 0, 0, 0}},
+        {197, {0, 0, 0, 0, 0, 0}},
+        {198, {0, 0, 0, 0, 0, 0}},
+        {199, {0, 0, 0, 0, 0, 0}},
+        {200, {0, 0, 0, 0, 0, 0}},
+    };
+    BYTE data[512] = {};
+    data[0] = 0x10;  // ATA8 SMART data version
+    size_t offset = 2;
+    for (const SmartAttribute& attribute : kAttributes) {
+        if (offset + 12 > sizeof(data)) break;
+        data[offset] = attribute.id;
+        data[offset + 1] = 0x00;  // collectable
+        data[offset + 2] = 0x27;  // prefailure, online, auto-offline
+        data[offset + 3] = 100;   // normalized
+        data[offset + 4] = 100;   // worst
+        std::memcpy(data + offset + 5, attribute.raw, sizeof(attribute.raw));
+        offset += 12;
+    }
+    const size_t header = offsetof(SENDCMDOUTPARAMS, bBuffer);
+    if (available <= header) return;
+    const size_t payload = available - header;
+    std::memcpy(static_cast<BYTE*>(output) + header, data,
+                payload < sizeof(data) ? payload : sizeof(data));
+    AuditEventRateLimited("api.storage.smart", "synthesized",
+                          nullptr, static_cast<unsigned long long>(payload), true);
+}
+
+void PatchStorageDescriptor(void* output, DWORD available) {
+    if (available < sizeof(STORAGE_DEVICE_DESCRIPTOR)) return;
+    auto* descriptor = static_cast<STORAGE_DEVICE_DESCRIPTOR*>(output);
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    const auto patch = [&](DWORD offset, const std::string& text) {
+        if (offset == 0 || offset >= available) return;
+        ReplaceBufferString(static_cast<char*>(output) + offset, available - offset, text);
+    };
+    patch(descriptor->SerialNumberOffset, identity.diskSerial);
+    patch(descriptor->ProductIdOffset, identity.diskModel);
+    patch(descriptor->ProductRevisionOffset, "X61190WD");
+    AuditEventRateLimited("api.storage.descriptor", "patched", nullptr, available, true);
+}
+
+void PatchNvmeIdentify(void* output, DWORD available) {
+    if (available < sizeof(STORAGE_PROTOCOL_DATA_DESCRIPTOR)) return;
+    auto* descriptor = static_cast<STORAGE_PROTOCOL_DATA_DESCRIPTOR*>(output);
+    STORAGE_PROTOCOL_SPECIFIC_DATA& specific = descriptor->ProtocolSpecificData;
+    if (specific.ProtocolType != ProtocolTypeNvme) return;
+    if (specific.DataType != 1) return;  // NVMeDataTypeIdentify
+    const DWORD relative = specific.ProtocolDataOffset;
+    const DWORD length = specific.ProtocolDataLength;
+    if (relative < sizeof(STORAGE_PROTOCOL_SPECIFIC_DATA) || length < 72) return;
+    BYTE* payload = reinterpret_cast<BYTE*>(&specific) + relative;
+    const BYTE* end = static_cast<const BYTE*>(output) + available;
+    if (payload + 72 > end) return;
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    std::memset(payload + 4, ' ', 20);
+    std::memcpy(payload + 4, identity.diskSerial.data(),
+                identity.diskSerial.size() < 20 ? identity.diskSerial.size() : 20);
+    std::memset(payload + 24, ' ', 40);
+    std::memcpy(payload + 24, identity.diskModel.data(),
+                identity.diskModel.size() < 40 ? identity.diskModel.size() : 40);
+    std::memset(payload + 64, ' ', 8);
+    std::memcpy(payload + 64, "X61190WD", 8);
+    AuditEventRateLimited("api.storage.nvme", "patched", nullptr, length, true);
+}
+
+void PatchStorageFirmware(void* output, DWORD available) {
+    if (available < sizeof(STORAGE_HW_FIRMWARE_INFO)) return;
+    auto* info = static_cast<STORAGE_HW_FIRMWARE_INFO*>(output);
+    if (info->SlotCount == 0) return;
+    if (available < sizeof(STORAGE_HW_FIRMWARE_INFO)) return;
+    std::memset(info->Slot[0].Revision, 0, sizeof(info->Slot[0].Revision));
+    std::memcpy(info->Slot[0].Revision, "X61190WD", 8);
+    AuditEventRateLimited("api.storage.firmware", "patched", nullptr, available, true);
+}
+
 void SanitizeStorageOutput(DWORD code, const void* input, DWORD inputSize, void* output,
                            DWORD outputSize, DWORD returned, const char* surface) {
     if (!output || returned == 0) return;
@@ -1833,11 +1970,12 @@ void SanitizeStorageOutput(DWORD code, const void* input, DWORD inputSize, void*
             return;
         }
     }
-    if (identifierOnly) {
-        // SMART and firmware payloads are pure hardware identifiers. They are
-        // cleared in both modes instead of leaking a real disk/firmware serial.
-        std::memset(output, 0, available);
-        AuditEventRateLimited(surface, "cleared", nullptr, code, true);
+    if (code == IOCTL_SMART_RECEIVE_DRIVE_DATA) {
+        FillSmartIdentity(output, available);
+        return;
+    }
+    if (code == IOCTL_STORAGE_FIRMWARE_GET_INFO) {
+        PatchStorageFirmware(output, available);
         return;
     }
     if (code == IOCTL_STORAGE_QUERY_PROPERTY && input && inputSize >= sizeof(STORAGE_PROPERTY_QUERY) &&
@@ -1849,14 +1987,13 @@ void SanitizeStorageOutput(DWORD code, const void* input, DWORD inputSize, void*
             AuditEventRateLimited(surface, "cleared", nullptr, code, true);
             return;
         }
+        if (query->PropertyId == StorageAdapterProtocolSpecificProperty) {
+            PatchNvmeIdentify(output, available);
+            return;
+        }
         if (query->PropertyId == StorageDeviceProperty && query->QueryType == PropertyStandardQuery &&
-            descriptor->Size <= available && descriptor->SerialNumberOffset > 0 &&
-            descriptor->SerialNumberOffset < available) {
-            char* serial = static_cast<char*>(output) + descriptor->SerialNumberOffset;
-            const size_t max = available - descriptor->SerialNumberOffset;
-            if (ReplaceBufferString(serial, max, ProfileIdentity::Get().diskSerial)) {
-                AuditEventRateLimited(surface, "patched", nullptr, code, true);
-            }
+            descriptor->Size <= available) {
+            PatchStorageDescriptor(output, available);
         }
     }
 }
@@ -3581,6 +3718,12 @@ bool InstallApiHooks() {
         if (HMODULE nvml = LoadLibraryW(L"nvml.dll")) {
             InstallNvmlHooksFromModule(nvml);
         }
+        InstallOptionalInlineThenIat("vulkan-1.dll", "vkGetPhysicalDeviceProperties",
+                                     reinterpret_cast<void*>(&HookVkGetPhysicalDeviceProperties),
+                                     reinterpret_cast<void**>(&g_origVkGetPhysicalDeviceProperties));
+        InstallOptionalInlineThenIat("vulkan-1.dll", "vkGetPhysicalDeviceMemoryProperties",
+                                     reinterpret_cast<void*>(&HookVkGetPhysicalDeviceMemoryProperties),
+                                     reinterpret_cast<void**>(&g_origVkGetPhysicalDeviceMemoryProperties));
         LoadLibraryW(L"OpenCL.dll");
         InstallOptionalInlineThenIat("OpenCL.dll", "clGetDeviceInfo",
                              reinterpret_cast<void*>(&HookClGetDeviceInfo),

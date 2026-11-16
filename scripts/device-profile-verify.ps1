@@ -26,6 +26,8 @@ param(
     [string]$DisplayProbe,
     [string]$HidProbe,
     [string]$NvmlProbe,
+    [string]$VulkanProbe,
+    [string]$SmartProbe,
     [string]$PnpProbe,
     [string]$PnpWmiProbe,
     [string]$AudioProbe,
@@ -45,6 +47,8 @@ if (-not $DiskProbe) { $DiskProbe = Join-Path $repoRoot 'native\dist\cac-disk-pr
 if (-not $DisplayProbe) { $DisplayProbe = Join-Path $repoRoot 'native\dist\cac-display-probe.exe' }
 if (-not $HidProbe) { $HidProbe = Join-Path $repoRoot 'native\dist\cac-hid-probe.exe' }
 if (-not $NvmlProbe) { $NvmlProbe = Join-Path $repoRoot 'native\dist\cac-nvml-probe.exe' }
+if (-not $VulkanProbe) { $VulkanProbe = Join-Path $repoRoot 'native\dist\cac-vulkan-probe.exe' }
+if (-not $SmartProbe) { $SmartProbe = Join-Path $repoRoot 'native\dist\cac-smart-probe.exe' }
 if (-not $PnpProbe) { $PnpProbe = Join-Path $repoRoot 'native\dist\cac-pnp-probe.exe' }
 if (-not $PnpWmiProbe) { $PnpWmiProbe = Join-Path $repoRoot 'native\dist\cac-pnp-wmi-probe.exe' }
 if (-not $AudioProbe) { $AudioProbe = Join-Path $repoRoot 'native\dist\cac-audio-probe.exe' }
@@ -78,6 +82,14 @@ if (-not (Test-Path -LiteralPath $NvmlProbe -PathType Leaf)) {
     throw "NVML probe not found: $NvmlProbe"
 }
 $NvmlProbe = (Resolve-Path -LiteralPath $NvmlProbe).Path
+if (-not (Test-Path -LiteralPath $VulkanProbe -PathType Leaf)) {
+    throw "Vulkan probe not found: $VulkanProbe"
+}
+$VulkanProbe = (Resolve-Path -LiteralPath $VulkanProbe).Path
+if (-not (Test-Path -LiteralPath $SmartProbe -PathType Leaf)) {
+    throw "SMART probe not found: $SmartProbe"
+}
+$SmartProbe = (Resolve-Path -LiteralPath $SmartProbe).Path
 if (-not (Test-Path -LiteralPath $PnpProbe -PathType Leaf)) {
     throw "PNP probe not found: $PnpProbe"
 }
@@ -246,6 +258,14 @@ $nvmlLog = Join-Path $OutputDir 'nvml-probe.txt'
 $nvmlCode = Invoke-Injected -Executable $NvmlProbe -Arguments @() -LogPath $nvmlLog
 $nvml = Read-KeyValues -Path $nvmlLog
 
+$vulkanLog = Join-Path $OutputDir 'vulkan-probe.txt'
+$vulkanCode = Invoke-Injected -Executable $VulkanProbe -Arguments @() -LogPath $vulkanLog
+$vulkan = Read-KeyValues -Path $vulkanLog
+
+$smartLog = Join-Path $OutputDir 'smart-probe.txt'
+$smartCode = Invoke-Injected -Executable $SmartProbe -Arguments @() -LogPath $smartLog
+$smart = Read-KeyValues -Path $smartLog
+
 $pnpLog = Join-Path $OutputDir 'pnp-probe.txt'
 $pnpCode = Invoke-Injected -Executable $PnpProbe -Arguments @() -LogPath $pnpLog
 $pnp = Read-KeyValues -Path $pnpLog
@@ -289,6 +309,8 @@ Add-Check 'probe.disk' 'fail' ($diskCode -eq 0 -and $disk['disk_state'] -eq 'ok'
 Add-Check 'probe.display' 'fail' ($displayCode -eq 0 -and $display['display_state'] -eq 'ok') 'display_state=ok' "exit=$displayCode state=$($display['display_state'])" 'DisplayConfig probe'
 Add-Check 'probe.hid' 'fail' ($hidCode -eq 0 -and $hid['hid_state'] -eq 'ok') 'hid_state=ok' "exit=$hidCode state=$($hid['hid_state'])" 'HID probe'
 Add-Check 'probe.nvml' 'fail' ($nvmlCode -eq 0 -and $nvml['nvml_state'] -eq 'ok') 'nvml_state=ok' "exit=$nvmlCode state=$($nvml['nvml_state'])" 'NVML static-import probe'
+Add-Check 'probe.vulkan' 'fail' ($vulkanCode -eq 0 -and $vulkan['vulkan_state'] -eq 'ok') 'vulkan_state=ok' "exit=$vulkanCode state=$($vulkan['vulkan_state'])" 'Vulkan static-import probe'
+Add-Check 'probe.smart' 'fail' ($smartCode -eq 0 -and $smart['smart_state'] -eq 'ok') 'smart_state=ok' "exit=$smartCode state=$($smart['smart_state'])" 'SMART/NVMe/firmware probe'
 Add-Check 'probe.pnp' 'fail' ($pnpCode -eq 0 -and $pnp['pnp_state'] -eq 'ok') 'pnp_state=ok' "exit=$pnpCode state=$($pnp['pnp_state'])" 'SetupDi PnP probe'
 Add-Check 'probe.audio' 'fail' ($audioCode -eq 0 -and $audio['audio_state'] -eq 'ok') 'audio_state=ok' "exit=$audioCode state=$($audio['audio_state'])" 'IMMDevice audio probe'
 Add-Check 'probe.opencl' 'fail' ($openclCode -eq 0 -and $opencl['opencl_state'] -eq 'ok') 'opencl_state=ok' "exit=$openclCode state=$($opencl['opencl_state'])" 'OpenCL probe'
@@ -330,6 +352,13 @@ Add-Check 'identity.serial_realism' 'fail' (
     [string]$identity.board_serial -match '^[0-9]{10,18}$' -and
     [string]$identity.system_serial -match '^[A-Z0-9]{8,16}$'
 ) 'vendor serial shapes' "$($identity.disk_serial)/$($identity.bios_serial)/$($identity.board_serial)/$($identity.system_serial)" 'hex-digest serials read as synthetic'
+$requiredProfileFields = @('gpu_name', 'disk_model', 'monitor_name', 'audio_friendly_name', 'nic_name', 'system_product')
+$missingProfileFields = @($requiredProfileFields | Where-Object {
+    [string]::IsNullOrWhiteSpace([string]$identity.$_)
+})
+Add-Check 'identity.fields_complete' 'fail' ($missingProfileFields.Count -eq 0) (
+    'gpu/disk/monitor/audio/nic/system fields present'
+) ($missingProfileFields -join ',') 'a truncated identity.json must not fall back to DLL defaults'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -478,6 +507,22 @@ Add-Check 'hardware.nvml_name' 'fail' ($nvmlName -eq $expectedNvmlName) $expecte
 Add-Check 'hardware.nvml_serial' 'fail' ($nvmlSerial -eq $expectedNvmlSerial) $expectedNvmlSerial $nvmlSerial 'nvmlDeviceGetSerial'
 Add-Check 'hardware.nvml_uuid' 'fail' ($nvmlUuid -eq $expectedNvmlUuid) $expectedNvmlUuid $nvmlUuid 'nvmlDeviceGetUUID'
 Add-Check 'hardware.nvml_memory' 'fail' ($nvmlMemory -eq 4096) '4096 MB' "$nvmlMemory MB" 'nvmlDeviceGetMemoryInfo'
+$vulkanName = [string]$vulkan['vulkan0_name']
+$vulkanVendor = [string]$vulkan['vulkan0_vendor']
+$vulkanDevice = [string]$vulkan['vulkan0_device']
+$vulkanHeap = Convert-ToInt64 $vulkan['vulkan0_heap0_mb']
+Add-Check 'hardware.vulkan_name' 'fail' ($vulkanName -eq $expectedNvmlName) $expectedNvmlName $vulkanName 'vkGetPhysicalDeviceProperties deviceName'
+Add-Check 'hardware.vulkan_pci' 'fail' ($vulkanVendor -eq '0x10de' -and $vulkanDevice -eq '0x1f82') '0x10de/0x1f82' "$vulkanVendor/$vulkanDevice" 'vkGetPhysicalDeviceProperties vendorID/deviceID'
+Add-Check 'hardware.vulkan_memory' 'fail' ($vulkanHeap -eq 4096) '4096 MB' "$vulkanHeap MB" 'vkGetPhysicalDeviceMemoryProperties heap0'
+Add-Check 'hardware.smart_model' 'fail' ([string]$smart['disk_model'] -eq ([string]$identity.disk_model)) ([string]$identity.disk_model) ([string]$smart['disk_model']) 'STORAGE_DEVICE_DESCRIPTOR ProductId'
+Add-Check 'hardware.smart_serial' 'fail' ([string]$smart['disk_serial'] -eq ([string]$identity.disk_serial)) ([string]$identity.disk_serial) ([string]$smart['disk_serial']) 'STORAGE_DEVICE_DESCRIPTOR SerialNumber'
+Add-Check 'hardware.smart_firmware' 'fail' ([string]$smart['disk_firmware'] -eq 'X61190WD') 'X61190WD' ([string]$smart['disk_firmware']) 'STORAGE_DEVICE_DESCRIPTOR ProductRevision'
+Add-Check 'hardware.smart_attributes' 'fail' (
+    [string]$smart['smart_version'] -eq '0x0010' -and
+    ((Convert-ToInt64 (([string]$smart['smart_attr9']) -split '/')[-1])) -gt 0 -and
+    ((Convert-ToInt64 (([string]$smart['smart_attr194']) -split '/')[-1])) -gt 0
+) 'version 0x0010 + nonzero hours/temperature' "$($smart['smart_version'])/$($smart['smart_attr9'])/$($smart['smart_attr194'])" 'ATA SMART READ DATA'
+Add-Check 'hardware.smart_firmware_slot' 'fail' ([string]$smart['firmware_slot0'] -eq 'X61190WD') 'X61190WD' ([string]$smart['firmware_slot0']) 'IOCTL_STORAGE_FIRMWARE_GET_INFO'
 
 $pnpInstances = @($pnp.Keys | Where-Object { $_ -match '^pnp\d+_instance$' } | ForEach-Object { [string]$pnp[$_] })
 $pnpText = $pnpInstances -join '|'
@@ -588,6 +633,8 @@ $result = [ordered]@{
         display = $display
         hid = $hid
         nvml = $nvml
+        vulkan = $vulkan
+        smart = $smart
         pnp = $pnp
         pnpWmi = $pnpWmi
         pnpWmiOutside = $pnpWmiOutside
@@ -601,6 +648,8 @@ $result = [ordered]@{
         displayExit = $displayCode
         hidExit = $hidCode
         nvmlExit = $nvmlCode
+        vulkanExit = $vulkanCode
+        smartExit = $smartCode
         pnpExit = $pnpCode
         pnpWmiExit = $pnpWmiCode
         audioExit = $audioCode

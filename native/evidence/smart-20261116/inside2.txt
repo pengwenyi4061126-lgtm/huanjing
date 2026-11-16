@@ -1,0 +1,23 @@
+descriptor_state=ok
+disk_vendor=
+disk_model=WDC WDS500G2B0A-00SM50
+disk_firmware=X61190WD
+disk_serial=WD-W2H6F8RBV79H
+smart_state=ok
+smart_version=0x0010
+smart_attr5=100/100/0
+smart_attr9=100/100/6699
+smart_attr12=100/100/60
+smart_attr187=100/100/0
+smart_attr190=100/100/34
+smart_attr194=100/100/34
+smart_attr197=100/100/0
+smart_attr198=100/100/0
+smart_attr199=100/100/0
+smart_attr200=100/100/0
+firmware_state=ok
+firmware_head=3800000038000000
+firmware_version=56
+firmware_slots=1
+firmware_slot0=X61190WD
+nvme_state=unsupported error=87

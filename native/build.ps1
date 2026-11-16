@@ -266,9 +266,13 @@ try {
     Set-Content -LiteralPath (Join-Path $dist "cac-opencl-probe.sha256") -Value $openclProbeHash -Encoding ASCII
 
     Write-Host "Building cac-vulkan-probe.exe ..." -ForegroundColor Cyan
+    $vulkanDef = Join-Path $root "VulkanProbe\vulkan.def"
+    $vulkanLib = Join-Path $obj "vulkan.lib"
+    & lib.exe /nologo "/def:$vulkanDef" "/out:$vulkanLib" /machine:x64
+    if ($LASTEXITCODE -ne 0) { throw "vulkan.lib generation failed ($LASTEXITCODE)" }
     & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
-        (Join-Path $root "VulkanProbe\main.cpp") `
+        (Join-Path $root "VulkanProbe\main.cpp") $vulkanLib `
         "/Fo$obj\" "/Fe:$dist\cac-vulkan-probe.exe" `
         /link /guard:cf /Brepro
     if ($LASTEXITCODE -ne 0) { throw "cac-vulkan-probe.exe build failed ($LASTEXITCODE)" }
@@ -276,6 +280,18 @@ try {
     $vulkanProbePath = Join-Path $dist "cac-vulkan-probe.exe"
     $vulkanProbeHash = Get-CacSha256 $vulkanProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-vulkan-probe.sha256") -Value $vulkanProbeHash -Encoding ASCII
+
+    Write-Host "Building cac-smart-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "SmartProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-smart-probe.exe" `
+        /link /guard:cf /Brepro
+    if ($LASTEXITCODE -ne 0) { throw "cac-smart-probe.exe build failed ($LASTEXITCODE)" }
+
+    $smartProbePath = Join-Path $dist "cac-smart-probe.exe"
+    $smartProbeHash = Get-CacSha256 $smartProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-smart-probe.sha256") -Value $smartProbeHash -Encoding ASCII
 
     Write-Host "Verifying dist artifact hashes ..." -ForegroundColor Cyan
     $manifest = New-Object System.Collections.Generic.List[string]

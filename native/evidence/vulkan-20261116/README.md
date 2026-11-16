@@ -1,7 +1,7 @@
 # Vulkan probe — 2026-11-16
 
 Profile: `C:\Users\Administrator\.cac\desktop\audit-clean`
-Binary: `native\dist\NativeBridge.dll` (`A3463907A4FEB6469EFAC949F8B87C14BEAB2C0481B60828AB54E93A33AB41B9`)
+Binary: `native\dist\NativeBridge.dll` (`34FCE609674DDB9ADDAD0CD67745B67822AE078107F5DB38EE10A96F28C68CB7`)
 
 ## Commands
 
@@ -12,20 +12,16 @@ native\dist\cac-native-launch.exe native\dist\cac-vulkan-probe.exe
 
 ## Result
 
-Both runs report the real host adapter:
+The probe imports `vulkan-1.dll` statically, so the bridge patches its IAT
+slots. Outside reports the real adapter; inside reports the profile:
 
-```text
-vulkan_state=ok
-vulkan0_name=NVIDIA GeForce GTX 1050 Ti
-vulkan0_vendor=0x10de
-vulkan0_device=0x1c82
-vulkan0_heap0_mb=4017
-```
+| Field | Outside | Inside |
+| --- | --- | --- |
+| name | `NVIDIA GeForce GTX 1050 Ti` | `NVIDIA GeForce GTX 1650` |
+| vendor/device | `0x10de/0x1c82` | `0x10de/0x1f82` |
+| heap0 | 4017 MB | 4096 MB |
 
-Vulkan identity is **not spoofed yet**. `vulkan-1.dll` exports are 5-byte
-`jmp rel32` terminator thunks (`E9 ....`). The generic inline engine records
-`optional-refused: unsupported prologue instruction`. A direct thunk patch
-re-enters the loader dispatch and fail-fasts with `0xC0000409`; that attempt
-was reverted. The probe stays as the regression harness; the safe path is a
-`vkGetInstanceProcAddr` wrapper that returns profile-backed property
-functions without patching the loader terminator.
+Audit: `optional-iat` for both functions, then `api.vulkan.properties=patched`
+and `api.vulkan.memory=patched`. The loader's 5-byte `jmp rel32` export thunks
+are left untouched: patching them re-enters loader dispatch and fail-fasts
+with `0xC0000409`. Dynamic `vkGetInstanceProcAddr` resolution is still open.

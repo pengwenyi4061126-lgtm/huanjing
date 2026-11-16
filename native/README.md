@@ -251,13 +251,22 @@ NVML: statically imported `nvml.dll` is covered (IAT/inline), verified by
 main-module `GetProcAddress` IAT hook crashed with `0xC0000409` and was
 removed.
 
-Vulkan: `cac-vulkan-probe.exe` creates an instance, enumerates physical
-devices and prints `name/vendor/device/type/api/driver/heap0_mb`. Vulkan
-identity is not spoofed yet: `vulkan-1.dll` exports are 5-byte `jmp rel32`
-terminator thunks. The generic inline engine refuses that prologue, and a
-naive thunk patch re-enters the loader dispatch and fail-fasts with
-`0xC0000409`. The probe is kept as the measurement harness; a safe
-`vkGetInstanceProcAddr` wrapper is the next step.
+Vulkan: statically imported `vulkan-1.dll` is covered through the IAT path
+for `vkGetPhysicalDeviceProperties` and `vkGetPhysicalDeviceMemoryProperties`
+(name/vendor/device/type plus heap0 size). `cac-vulkan-probe.exe` reports the
+real GTX 1050 Ti outside and the profile GTX 1650 / `0x1f82` / 4096 MB inside.
+The loader exports are 5-byte `jmp rel32` terminator thunks: the generic
+inline engine refuses them, and patching the thunk re-enters loader dispatch
+and fail-fasts with `0xC0000409`, so that path is deliberately not used.
+Dynamic `vkGetInstanceProcAddr` resolution remains open.
+
+Disk identity: `STORAGE_DEVICE_DESCRIPTOR` now rewrites model, serial and
+firmware revision; `IOCTL_SMART_RECEIVE_DRIVE_DATA` returns a synthesized
+ATA8 attribute set instead of an all-zero payload; `IOCTL_STORAGE_FIRMWARE_GET_INFO`
+rewrites the active slot revision; NVMe identify SN/MN/FR are rewritten when
+the driver returns a protocol-specific identify payload. `cac-smart-probe.exe`
+shows the real `CJ325060BC / F4DJ13000878 / 1.00` outside and the profile
+`WDC WDS500G2B0A-00SM50 / WD-W2H6F8RBV79H / X61190WD` inside.
 
 Audio: `cac-audio-probe.exe` verifies the `IMMDeviceEnumerator` wrapper;
 endpoint IDs, friendly/interface names, endpoint GUID and form factor come

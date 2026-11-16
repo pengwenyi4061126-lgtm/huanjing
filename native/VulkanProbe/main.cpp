@@ -31,12 +31,6 @@ struct VkInstanceCreateInfo {
     const char* const* ppEnabledExtensionNames = nullptr;
 };
 
-typedef VkResult (*PFN_vkCreateInstance)(const VkInstanceCreateInfo*, const void*, VkInstance*);
-typedef void (*PFN_vkDestroyInstance)(VkInstance, const void*);
-typedef VkResult (*PFN_vkEnumeratePhysicalDevices)(VkInstance, uint32_t*, VkPhysicalDevice*);
-typedef void (*PFN_vkGetPhysicalDeviceProperties)(VkPhysicalDevice, void*);
-typedef void (*PFN_vkGetPhysicalDeviceMemoryProperties)(VkPhysicalDevice, void*);
-
 constexpr size_t kPropertyBytes = 2048;
 constexpr size_t kMemoryBytes = 2048;
 constexpr size_t kDeviceNameOffset = 20;
@@ -56,47 +50,39 @@ const char* DeviceTypeName(uint32_t type) {
 
 }  // namespace
 
-int wmain() {
-    HMODULE loader = LoadLibraryW(L"vulkan-1.dll");
-    if (!loader) {
-        std::printf("vulkan_state=unavailable\n");
-        return 0;
-    }
-    auto createInstance =
-        reinterpret_cast<PFN_vkCreateInstance>(GetProcAddress(loader, "vkCreateInstance"));
-    auto destroyInstance =
-        reinterpret_cast<PFN_vkDestroyInstance>(GetProcAddress(loader, "vkDestroyInstance"));
-    auto enumerateDevices = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
-        GetProcAddress(loader, "vkEnumeratePhysicalDevices"));
-    auto getProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
-        GetProcAddress(loader, "vkGetPhysicalDeviceProperties"));
-    auto getMemory = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
-        GetProcAddress(loader, "vkGetPhysicalDeviceMemoryProperties"));
-    if (!createInstance || !enumerateDevices || !getProperties || !getMemory) {
-        std::printf("vulkan_state=exports-missing\n");
-        return 2;
-    }
+// Static imports give the bridge a patchable IAT slot for the Vulkan identity
+// hooks. The loader export thunks themselves are left untouched.
+extern "C" {
+__declspec(dllimport) VkResult vkCreateInstance(const VkInstanceCreateInfo*, const void*,
+                                                VkInstance*);
+__declspec(dllimport) void vkDestroyInstance(VkInstance, const void*);
+__declspec(dllimport) VkResult vkEnumeratePhysicalDevices(VkInstance, uint32_t*,
+                                                          VkPhysicalDevice*);
+__declspec(dllimport) void vkGetPhysicalDeviceProperties(VkPhysicalDevice, void*);
+__declspec(dllimport) void vkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice, void*);
+}
 
+int wmain() {
     VkApplicationInfo app;
     VkInstanceCreateInfo createInfo;
     createInfo.pApplicationInfo = &app;
     VkInstance instance = nullptr;
-    if (createInstance(&createInfo, nullptr, &instance) < 0 || !instance) {
+    if (vkCreateInstance(&createInfo, nullptr, &instance) < 0 || !instance) {
         std::printf("vulkan_state=instance-failed\n");
         return 3;
     }
 
     uint32_t count = 0;
-    if (enumerateDevices(instance, &count, nullptr) < 0 || count == 0) {
+    if (vkEnumeratePhysicalDevices(instance, &count, nullptr) < 0 || count == 0) {
         std::printf("vulkan_state=no-device\n");
-        if (destroyInstance) destroyInstance(instance, nullptr);
+        vkDestroyInstance(instance, nullptr);
         return 0;
     }
     if (count > 8) count = 8;
     VkPhysicalDevice devices[8] = {};
-    if (enumerateDevices(instance, &count, devices) < 0) {
+    if (vkEnumeratePhysicalDevices(instance, &count, devices) < 0) {
         std::printf("vulkan_state=enumerate-failed\n");
-        if (destroyInstance) destroyInstance(instance, nullptr);
+        vkDestroyInstance(instance, nullptr);
         return 4;
     }
 
@@ -104,7 +90,7 @@ int wmain() {
     std::printf("vulkan_count=%u\n", count);
     for (uint32_t index = 0; index < count; ++index) {
         unsigned char properties[kPropertyBytes] = {};
-        getProperties(devices[index], properties);
+        vkGetPhysicalDeviceProperties(devices[index], properties);
         const uint32_t apiVersion = *reinterpret_cast<const uint32_t*>(properties);
         const uint32_t driverVersion = *reinterpret_cast<const uint32_t*>(properties + 4);
         const uint32_t vendorId = *reinterpret_cast<const uint32_t*>(properties + 8);
@@ -122,7 +108,7 @@ int wmain() {
         std::printf("vulkan%u_driver=0x%08x\n", index, driverVersion);
 
         unsigned char memory[kMemoryBytes] = {};
-        getMemory(devices[index], memory);
+        vkGetPhysicalDeviceMemoryProperties(devices[index], memory);
         const uint32_t heapCount =
             *reinterpret_cast<const uint32_t*>(memory + kMemoryHeapCountOffset);
         std::printf("vulkan%u_heaps=%u\n", index, heapCount);
@@ -133,6 +119,6 @@ int wmain() {
                         static_cast<unsigned long long>(heap0 / (1024ULL * 1024ULL)));
         }
     }
-    if (destroyInstance) destroyInstance(instance, nullptr);
+    vkDestroyInstance(instance, nullptr);
     return 0;
 }
