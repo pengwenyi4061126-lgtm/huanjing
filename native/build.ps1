@@ -196,6 +196,18 @@ try {
     $hidProbePath = Join-Path $dist "cac-hid-probe.exe"
     $hidProbeHash = Get-CacSha256 $hidProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-hid-probe.sha256") -Value $hidProbeHash -Encoding ASCII
+
+    Write-Host "Building cac-nvml-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "NvmlProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-nvml-probe.exe" `
+        /link /guard:cf /Brepro
+    if ($LASTEXITCODE -ne 0) { throw "cac-nvml-probe.exe build failed ($LASTEXITCODE)" }
+
+    $nvmlProbePath = Join-Path $dist "cac-nvml-probe.exe"
+    $nvmlProbeHash = Get-CacSha256 $nvmlProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-nvml-probe.sha256") -Value $nvmlProbeHash -Encoding ASCII
 } finally {
     Pop-Location
 }

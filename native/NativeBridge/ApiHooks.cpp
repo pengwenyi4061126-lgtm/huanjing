@@ -228,6 +228,19 @@ typedef BOOL (WINAPI* PFN_GetLogicalProcessorInformationEx)(
     LOGICAL_PROCESSOR_RELATIONSHIP, PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, PDWORD);
 typedef BOOL (WINAPI* PFN_GetLogicalProcessorInformation)(
     PSYSTEM_LOGICAL_PROCESSOR_INFORMATION, PDWORD);
+typedef void* nvmlDevice_t;
+struct CacNvmlMemory { unsigned long long total, free, used; };
+void InstallNvmlHooksFromModule(HMODULE module);
+typedef HMODULE (WINAPI* PFN_LoadLibraryW)(LPCWSTR);
+typedef FARPROC (WINAPI* PFN_GetProcAddress)(HMODULE, LPCSTR);
+typedef int (*PFN_nvmlDeviceGetName)(nvmlDevice_t, char*, unsigned int);
+typedef int (*PFN_nvmlDeviceGetSerial)(nvmlDevice_t, char*, unsigned int);
+typedef int (*PFN_nvmlDeviceGetUUID)(nvmlDevice_t, char*, unsigned int);
+typedef int (*PFN_nvmlDeviceGetMemoryInfo)(nvmlDevice_t, CacNvmlMemory*);
+int HookNvmlGetName(nvmlDevice_t, char*, unsigned int);
+int HookNvmlGetSerial(nvmlDevice_t, char*, unsigned int);
+int HookNvmlGetUUID(nvmlDevice_t, char*, unsigned int);
+int HookNvmlGetMemoryInfo(nvmlDevice_t, CacNvmlMemory*);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExW)(LPCWSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExA)(LPCSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef void (WINAPI* PFN_GetSystemInfo)(LPSYSTEM_INFO);
@@ -289,6 +302,12 @@ PFN_GetPerformanceInfo g_origGetPerformanceInfo = nullptr;
 PFN_DisplayConfigGetDeviceInfo g_origDisplayConfigGetDeviceInfo = nullptr;
 PFN_GetLogicalProcessorInformationEx g_origGetLogicalProcessorInformationEx = nullptr;
 PFN_GetLogicalProcessorInformation g_origGetLogicalProcessorInformation = nullptr;
+PFN_nvmlDeviceGetName g_origNvmlGetName = nullptr;
+PFN_nvmlDeviceGetSerial g_origNvmlGetSerial = nullptr;
+PFN_nvmlDeviceGetUUID g_origNvmlGetUUID = nullptr;
+PFN_nvmlDeviceGetMemoryInfo g_origNvmlGetMemoryInfo = nullptr;
+PFN_LoadLibraryW g_origLoadLibraryW = nullptr;
+PFN_GetProcAddress g_origGetProcAddress = nullptr;
 PFN_GetDiskFreeSpaceExW g_origGetDiskFreeSpaceExW = nullptr;
 PFN_GetDiskFreeSpaceExA g_origGetDiskFreeSpaceExA = nullptr;
 PFN_GetSystemInfo g_origGetSystemInfo = nullptr;
@@ -1187,6 +1206,46 @@ BOOL WINAPI HookGetLogicalProcessorInformation(
     return result;
 }
 
+HMODULE WINAPI HookLoadLibraryW(LPCWSTR name) {
+    HMODULE module = g_origLoadLibraryW ? g_origLoadLibraryW(name) : LoadLibraryW(name);
+    if (module && name) {
+        const wchar_t* base = wcsrchr(name, L'\\');
+        base = base ? base + 1 : name;
+        if (_wcsicmp(base, L"nvml.dll") == 0) {
+            InstallNvmlHooksFromModule(module);
+        }
+    }
+    return module;
+}
+
+FARPROC WINAPI HookGetProcAddress(HMODULE module, LPCSTR name) {
+    FARPROC original = g_origGetProcAddress
+        ? g_origGetProcAddress(module, name)
+        : GetProcAddress(module, name);
+    if (!original || !name || !NativeHardwareHooksEnabled()) return original;
+    if (std::strcmp(name, "nvmlDeviceGetName") == 0) {
+        g_origNvmlGetName = reinterpret_cast<PFN_nvmlDeviceGetName>(original);
+        AuditEventRateLimited("api.getprocaddress.nvml", "name");
+        return reinterpret_cast<FARPROC>(&HookNvmlGetName);
+    }
+    if (std::strcmp(name, "nvmlDeviceGetSerial") == 0) {
+        g_origNvmlGetSerial = reinterpret_cast<PFN_nvmlDeviceGetSerial>(original);
+        AuditEventRateLimited("api.getprocaddress.nvml", "serial");
+        return reinterpret_cast<FARPROC>(&HookNvmlGetSerial);
+    }
+    if (std::strcmp(name, "nvmlDeviceGetUUID") == 0) {
+        g_origNvmlGetUUID = reinterpret_cast<PFN_nvmlDeviceGetUUID>(original);
+        AuditEventRateLimited("api.getprocaddress.nvml", "uuid");
+        return reinterpret_cast<FARPROC>(&HookNvmlGetUUID);
+    }
+    if (std::strcmp(name, "nvmlDeviceGetMemoryInfo") == 0) {
+        g_origNvmlGetMemoryInfo = reinterpret_cast<PFN_nvmlDeviceGetMemoryInfo>(original);
+        AuditEventRateLimited("api.getprocaddress.nvml", "memory");
+        return reinterpret_cast<FARPROC>(&HookNvmlGetMemoryInfo);
+    }
+    return original;
+}
+
 LONG WINAPI HookDisplayConfigGetDeviceInfo(DISPLAYCONFIG_DEVICE_INFO_HEADER* header) {
     const LONG result = g_origDisplayConfigGetDeviceInfo
         ? g_origDisplayConfigGetDeviceInfo(header)
@@ -1234,6 +1293,56 @@ LONG WINAPI HookDisplayConfigGetDeviceInfo(DISPLAYCONFIG_DEVICE_INFO_HEADER* hea
         AuditEventRateLimited("api.displayconfig.adapter", "patched");
     }
     return result;
+}
+
+int HookNvmlGetName(nvmlDevice_t device, char* name, unsigned int length) {
+    (void)device;
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origNvmlGetName ? g_origNvmlGetName(device, name, length) : 1;
+    }
+    if (!name || length == 0) return 1;
+    strncpy_s(name, length, ProfileIdentity::Get().gpuName.c_str(), _TRUNCATE);
+    AuditEventRateLimited("api.nvml.name", "patched");
+    return 0;
+}
+
+int HookNvmlGetSerial(nvmlDevice_t device, char* serial, unsigned int length) {
+    (void)device;
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origNvmlGetSerial ? g_origNvmlGetSerial(device, serial, length) : 1;
+    }
+    if (!serial || length == 0) return 1;
+    strncpy_s(serial, length, ProfileIdentity::Get().gpuSerial.c_str(), _TRUNCATE);
+    AuditEventRateLimited("api.nvml.serial", "patched");
+    return 0;
+}
+
+int HookNvmlGetUUID(nvmlDevice_t device, char* uuid, unsigned int length) {
+    (void)device;
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origNvmlGetUUID ? g_origNvmlGetUUID(device, uuid, length) : 1;
+    }
+    if (!uuid || length == 0) return 1;
+    strncpy_s(uuid, length, ProfileIdentity::Get().gpuUuid.c_str(), _TRUNCATE);
+    AuditEventRateLimited("api.nvml.uuid", "patched");
+    return 0;
+}
+
+int HookNvmlGetMemoryInfo(nvmlDevice_t device, CacNvmlMemory* memory) {
+    (void)device;
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origNvmlGetMemoryInfo
+            ? g_origNvmlGetMemoryInfo(device, memory)
+            : 1;
+    }
+    if (!memory) return 1;
+    const unsigned long long total =
+        ProfileIdentity::Get().gpuMemoryMb * 1024ULL * 1024ULL;
+    memory->total = total;
+    memory->free = total * 3 / 4;
+    memory->used = total - memory->free;
+    AuditEventRateLimited("api.nvml.memory", "patched");
+    return 0;
 }
 
 BOOL WINAPI HookEnumDisplayDevicesW(LPCWSTR device, DWORD deviceIndex,
@@ -2504,6 +2613,14 @@ void InstallOptionalInlineThenIat(const char* dllName, const char* functionName,
     }
 }
 
+void InstallNvmlHooksFromModule(HMODULE module) {
+    if (!module) return;
+    static bool installed = false;
+    if (installed) return;
+    installed = true;
+    AuditEvent("api.nvml.late-load", "installed");
+}
+
 bool ReadManifestLines(const std::wstring& path, std::vector<std::string>& lines) {
     HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -3202,6 +3319,7 @@ bool InstallApiHooks() {
         InstallOptionalInlineThenIat("user32.dll", "DisplayConfigGetDeviceInfo",
                              reinterpret_cast<void*>(&HookDisplayConfigGetDeviceInfo),
                              reinterpret_cast<void**>(&g_origDisplayConfigGetDeviceInfo));
+        LoadLibraryW(L"nvml.dll");
     }
     InstallInlineThenIat("kernel32.dll", "GetSystemFirmwareTable", reinterpret_cast<void*>(&HookGetSystemFirmwareTable),
                          reinterpret_cast<void**>(&g_origGetSystemFirmwareTable));
@@ -3268,6 +3386,8 @@ bool InstallApiHooks() {
                          reinterpret_cast<void**>(&g_origEnumDeviceDrivers));
     InstallInlineThenIat("setupapi.dll", "SetupDiGetClassDevsW", reinterpret_cast<void*>(&HookSetupDiGetClassDevsW),
                          reinterpret_cast<void**>(&g_origSetupDiGetClassDevs));
+    InstallInlineThenIat("kernel32.dll", "LoadLibraryW", reinterpret_cast<void*>(&HookLoadLibraryW),
+                         reinterpret_cast<void**>(&g_origLoadLibraryW));
     InstallInlineThenIat("kernel32.dll", "CreateFileW", reinterpret_cast<void*>(&HookCreateFileW),
                          reinterpret_cast<void**>(&g_origCreateFile));
     InstallInlineThenIat("kernel32.dll", "CreateFileA", reinterpret_cast<void*>(&HookCreateFileA),

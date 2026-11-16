@@ -781,6 +781,8 @@ function Initialize-ProfileIdentity {
         gpu_pci_id = 'PCI\VEN_10DE&DEV_1F82&SUBSYS_1F8210DE&REV_A1'
         gpu_memory_mb = 4096
         gpu_driver_version = '31.0.15.3699'
+        gpu_serial = '1321919076543'
+        gpu_uuid = 'GPU-8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f'
         memory_vendor = 'Samsung'
         memory_part = 'M378A1K43CB2-CRC'
         memory_total_mb = 16384

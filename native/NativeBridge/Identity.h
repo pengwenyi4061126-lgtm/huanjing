@@ -57,6 +57,8 @@ struct ProfileIdentity {
     std::string gpuVendor = "NVIDIA";
     std::string gpuDriverVersion = "31.0.15.3699";
     std::string gpuPciId = "PCI\\VEN_10DE&DEV_1F82&SUBSYS_1F8210DE&REV_A1";
+    std::string gpuSerial = "1321919076543";
+    std::string gpuUuid = "GPU-8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f";
     std::string monitorName = "Dell U2419H";
     std::string monitorPnpId = "DEL41A9";
     uint32_t monitorEdidManufacturer = 0x10AC;

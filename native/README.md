@@ -229,6 +229,10 @@ manufacturer/product IDs, monitor path and adapter path.
 `cac-hid-probe.exe` enumerates HID interfaces and prints
 `hidN_vendor/product/version/manufacturer/product_string/serial`.
 
+NVML: `cac-nvml-probe.exe` and a `LoadLibraryW` late-load hook exist, but
+the probe still receives the real `nvmlDeviceGet*` exports. NVML identity
+is WIP, not part of the current verifier baseline.
+
 ## Boundaries
 
 - NativeBridge remains a userland return-value layer. CacKernel is a separate SCM-loaded storage filter and control plane for per-process registration/lifecycle evidence; `network_mode=enforce` adds a dynamic user-mode WFP session for the Claude image.
