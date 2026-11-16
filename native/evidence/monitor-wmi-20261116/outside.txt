@@ -1,0 +1,7 @@
+monitor_wmi_state=ok
+monitor_wmi0_instance=DISPLAY\PHLC031\5&42c5546&0&UID12545_0
+monitor_wmi0_manufacturer=
+monitor_wmi0_product=
+monitor_wmi0_serial=
+monitor_wmi0_friendly=
+monitor_wmi_count=1

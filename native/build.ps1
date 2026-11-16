@@ -293,6 +293,18 @@ try {
     $smartProbeHash = Get-CacSha256 $smartProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-smart-probe.sha256") -Value $smartProbeHash -Encoding ASCII
 
+    Write-Host "Building cac-monitor-wmi-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "MonitorWmiProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-monitor-wmi-probe.exe" `
+        /link /guard:cf /Brepro wbemuuid.lib ole32.lib oleaut32.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-monitor-wmi-probe.exe build failed ($LASTEXITCODE)" }
+
+    $monitorWmiProbePath = Join-Path $dist "cac-monitor-wmi-probe.exe"
+    $monitorWmiProbeHash = Get-CacSha256 $monitorWmiProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-monitor-wmi-probe.sha256") -Value $monitorWmiProbeHash -Encoding ASCII
+
     Write-Host "Verifying dist artifact hashes ..." -ForegroundColor Cyan
     $manifest = New-Object System.Collections.Generic.List[string]
     $mismatches = New-Object System.Collections.Generic.List[string]

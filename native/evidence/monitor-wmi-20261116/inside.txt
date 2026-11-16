@@ -1,0 +1,7 @@
+monitor_wmi_state=ok
+monitor_wmi0_instance=DISPLAY\DEL41A9\5&PROFILE&0&UID4352
+monitor_wmi0_manufacturer=DEL
+monitor_wmi0_product=41A9
+monitor_wmi0_serial=MON-bed5c608a7
+monitor_wmi0_friendly=Dell U2419H
+monitor_wmi_count=1

@@ -500,6 +500,75 @@ bool PnpPropertyOverride(IWbemClassObject* object, LPCWSTR property, std::wstrin
     return true;
 }
 
+bool SetWideArrayValue(VARIANT* value, const std::wstring& text) {
+    if (!value) return false;
+    SAFEARRAY* array = SafeArrayCreateVector(VT_UI2, 0, static_cast<ULONG>(text.size()));
+    if (!array) return false;
+    for (LONG index = 0; index < static_cast<LONG>(text.size()); ++index) {
+        USHORT unit = static_cast<USHORT>(text[static_cast<size_t>(index)]);
+        if (FAILED(SafeArrayPutElement(array, &index, &unit))) {
+            SafeArrayDestroy(array);
+            return false;
+        }
+    }
+    value->vt = VT_ARRAY | VT_UI2;
+    value->parray = array;
+    return true;
+}
+
+// WmiMonitorID exposes the monitor identity as UINT16 arrays in ROOT\WMI.
+// Rewrite the manufacturer/product/serial/friendly arrays and their lengths
+// from the Profile so the EDID path and the WMI path agree.
+bool MonitorIdOverride(IWbemClassObject* object, LPCWSTR property, VARIANT* value, CIMTYPE* type,
+                       long* flavor) {
+    if (!object || !property || !value || !NativeHardwareHooksEnabled()) return false;
+    const std::wstring cls = GetObjectString(object, L"__CLASS");
+    if (_wcsicmp(cls.c_str(), L"WmiMonitorID") != 0) return false;
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    const std::wstring pnp = ToWide(identity.monitorPnpId);
+    const std::wstring manufacturer = pnp.size() >= 3 ? pnp.substr(0, 3) : L"DEL";
+    const std::wstring product = pnp.size() >= 7 ? pnp.substr(3, 4) : L"41A9";
+    const std::wstring serial = !identity.monitorSerial.empty()
+        ? ToWide(identity.monitorSerial)
+        : ToWide(identity.systemSerial);
+    const std::wstring friendly = ToWide(identity.monitorName);
+    VariantClear(value);
+    if (flavor) *flavor = 0;
+    if (_wcsicmp(property, L"ManufacturerName") == 0) {
+        if (!SetWideArrayValue(value, manufacturer)) return false;
+    } else if (_wcsicmp(property, L"ProductCodeID") == 0) {
+        if (!SetWideArrayValue(value, product)) return false;
+    } else if (_wcsicmp(property, L"SerialNumberID") == 0) {
+        if (!SetWideArrayValue(value, serial)) return false;
+    } else if (_wcsicmp(property, L"UserFriendlyName") == 0) {
+        if (!SetWideArrayValue(value, friendly)) return false;
+    } else if (_wcsicmp(property, L"ManufacturerNameLength") == 0 ||
+               _wcsicmp(property, L"ProductCodeIDLength") == 0 ||
+               _wcsicmp(property, L"SerialNumberIDLength") == 0 ||
+               _wcsicmp(property, L"UserFriendlyNameLength") == 0) {
+        const size_t length = _wcsicmp(property, L"ManufacturerNameLength") == 0
+            ? manufacturer.size()
+            : _wcsicmp(property, L"ProductCodeIDLength") == 0
+                ? product.size()
+                : _wcsicmp(property, L"SerialNumberIDLength") == 0 ? serial.size()
+                                                                    : friendly.size();
+        value->vt = VT_UI4;
+        value->ulVal = static_cast<ULONG>(length);
+        if (type) *type = CIM_UINT32;
+    } else if (_wcsicmp(property, L"InstanceName") == 0) {
+        std::wstring instance = std::wstring(L"DISPLAY\\") + pnp + L"\\5&PROFILE&0&UID4352";
+        value->vt = VT_BSTR;
+        value->bstrVal = SysAllocString(instance.c_str());
+        if (!value->bstrVal) return false;
+        if (type) *type = CIM_STRING;
+    } else {
+        return false;
+    }
+    if (type && value->vt == (VT_ARRAY | VT_UI2)) *type = CIM_UINT16 | CIM_FLAG_ARRAY;
+    AuditEventRateLimited("wmi.monitorid", "patched");
+    return true;
+}
+
 class WmiObject : public IWbemClassObject, public RefCounted {
 public:
     explicit WmiObject(IWbemClassObject* inner) : inner_(inner) {}
@@ -526,6 +595,7 @@ public:
         if (FAILED(original)) return original;
         if (name && value) {
             const CIMTYPE originalType = type ? *type : CIM_ILLEGAL;
+            if (MonitorIdOverride(inner_, name, value, type, flavor)) return S_OK;
             std::wstring pnpText;
             if (PnpPropertyOverride(inner_, name, &pnpText)) {
                 VariantClear(value);
@@ -572,6 +642,7 @@ public:
         const HRESULT hr = inner_->Next(flags, name, value, type, flavor);
         if (FAILED(hr) || !name || !*name || !value) return hr;
         const CIMTYPE originalType = type ? *type : CIM_ILLEGAL;
+        if (MonitorIdOverride(inner_, *name, value, type, flavor)) return hr;
         std::wstring pnpText;
         if (PnpPropertyOverride(inner_, *name, &pnpText)) {
             VariantClear(value);
