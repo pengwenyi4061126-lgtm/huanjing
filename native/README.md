@@ -77,6 +77,13 @@ force filtering in those images, and `CAC_NATIVE_DISABLE_WMI=1` to disable
 WMI hooks for every process. `Get-WmiObject` still crashes under injection
 and is a known separate gap; use `Get-CimInstance` or `wmic`.
 
+The `IWbemServices` wrapper forwards `IClientSecurity`, so CIM/MI queries
+no longer fail with `WBEM_E_ACCESS_DENIED` when WMI hooks are enabled.
+That restores availability, not filtering: MI/CIM results bypass the COM
+wrapper and still show real hardware values. The C++ `IWbemLocator` path
+is the covered one; `Win32_BIOS` over CIM under hooks remains a known
+type-mismatch gap.
+
 `CAC_NETWORK_MODE=enforce` additionally sets `CAC_NETWORK_ENFORCE=1`. NativeBridge opens a dynamic WFP session and installs rules for the current executable image: `127.0.0.1` and `::1` are permitted for a local proxy, while other ALE Connect traffic is blocked. Set `CAC_WFP_REQUIRED=1` to refuse readiness when the WFP session cannot be installed. This is not an NDIS lightweight filter or a kernel WFP callout.
 
 Enable it for a Code Profile with:

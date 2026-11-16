@@ -687,7 +687,7 @@ private:
     IEnumWbemClassObject* inner_;
 };
 
-class WmiServices : public IWbemServices, public RefCounted {
+class WmiServices : public IWbemServices, public IClientSecurity, public RefCounted {
 public:
     explicit WmiServices(IWbemServices* inner) : inner_(inner) {}
     ~WmiServices() override { if (inner_) inner_->Release(); }
@@ -699,10 +699,33 @@ public:
             AddRef();
             return S_OK;
         }
+        if (riid == IID_IClientSecurity) {
+            *ppv = static_cast<IClientSecurity*>(this);
+            AddRef();
+            return S_OK;
+        }
         return inner_->QueryInterface(riid, ppv);
     }
     ULONG STDMETHODCALLTYPE AddRef() override { return RefCounted::AddRef(); }
     ULONG STDMETHODCALLTYPE Release() override { return RefCounted::Release(); }
+
+    HRESULT STDMETHODCALLTYPE QueryBlanket(IUnknown* pProxy, DWORD* pAuthnSvc, DWORD* pAuthzSvc,
+                                           OLECHAR** pServerPrincName, DWORD* pAuthnLevel,
+                                           DWORD* pImpLevel, void** pAuthInfo,
+                                           DWORD* pCapabilities) override {
+        return CoQueryProxyBlanket(inner_, pAuthnSvc, pAuthzSvc, pServerPrincName,
+                                   pAuthnLevel, pImpLevel, pAuthInfo, pCapabilities);
+    }
+    HRESULT STDMETHODCALLTYPE SetBlanket(IUnknown* pProxy, DWORD AuthnSvc, DWORD AuthzSvc,
+                                         OLECHAR* pServerPrincName, DWORD AuthnLevel,
+                                         DWORD ImpLevel, void* pAuthInfo,
+                                         DWORD Capabilities) override {
+        return CoSetProxyBlanket(inner_, AuthnSvc, AuthzSvc, pServerPrincName,
+                                 AuthnLevel, ImpLevel, pAuthInfo, Capabilities);
+    }
+    HRESULT STDMETHODCALLTYPE CopyProxy(IUnknown* pProxy, IUnknown** ppCopy) override {
+        return CoCopyProxy(inner_, ppCopy);
+    }
 
     HRESULT STDMETHODCALLTYPE OpenNamespace(const BSTR name, long flags, IWbemContext* context,
                                             IWbemServices** workingNamespace,
