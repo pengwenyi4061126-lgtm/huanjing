@@ -294,6 +294,11 @@ entries to the Profile core count, rewrites per-core L2 and shared L3 sizes,
 and re-maps GroupMask. `cac-cache-probe.exe` reports 24/12/1 entries and
 3072/30720 KB outside versus 8/4/1 entries and 2048/16384 KB inside.
 
+Network clean mode also hides the known VPN process images
+(`clash-verge`, `clash-verge-service`, `verge-mihomo`, `mihomo`, `clash`,
+`clash-meta`) by compacting `SystemProcessInformation`; `Get-Process`
+returns no rows inside while the real processes remain outside.
+
 Audio: `cac-audio-probe.exe` verifies the `IMMDeviceEnumerator` wrapper;
 endpoint IDs, friendly/interface names, endpoint GUID and form factor come
 from the Profile.

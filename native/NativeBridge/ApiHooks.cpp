@@ -32,6 +32,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdlib>
+#include <cwctype>
 #include <string>
 #include <cstdio>
 #include <cstring>
@@ -2026,6 +2027,63 @@ UINT WINAPI HookEnumSystemFirmwareTables(DWORD provider, PVOID buffer, DWORD siz
     return bytes;
 }
 
+bool IsHiddenProcessImage(const UNICODE_STRING& image) {
+    if (!image.Buffer || image.Length == 0) return false;
+    std::wstring name(image.Buffer, image.Length / sizeof(wchar_t));
+    for (wchar_t& ch : name) ch = static_cast<wchar_t>(towlower(ch));
+    static const wchar_t* const kHidden[] = {
+        L"clash-verge.exe",
+        L"clash-verge-service.exe",
+        L"verge-mihomo.exe",
+        L"mihomo.exe",
+        L"clash.exe",
+        L"clash-meta.exe",
+    };
+    for (const wchar_t* candidate : kHidden) {
+        if (name == candidate) return true;
+    }
+    return false;
+}
+
+void FilterProcessInformation(PVOID info, ULONG length, PULONG returnLength) {
+    BYTE* base = static_cast<BYTE*>(info);
+    DWORD total = (returnLength && *returnLength) ? *returnLength : length;
+    DWORD read = 0;
+    DWORD write = 0;
+    DWORD previous = 0;
+    bool first = true;
+    int hidden = 0;
+    while (read + sizeof(SYSTEM_PROCESS_INFORMATION) <= total) {
+        auto* entry = reinterpret_cast<SYSTEM_PROCESS_INFORMATION*>(base + read);
+        const DWORD next = entry->NextEntryOffset;
+        const DWORD size = next ? next : (total - read);
+        if (size < sizeof(SYSTEM_PROCESS_INFORMATION) || read + size > total) break;
+        const bool hide = IsHiddenProcessImage(entry->ImageName);
+        if (!hide) {
+            if (write != read) std::memmove(base + write, base + read, size);
+            if (!first) {
+                reinterpret_cast<SYSTEM_PROCESS_INFORMATION*>(base + previous)->NextEntryOffset =
+                    write - previous;
+            }
+            previous = write;
+            write += size;
+            first = false;
+        } else {
+            ++hidden;
+        }
+        if (next == 0) break;
+        read += size;
+    }
+    if (!first) {
+        reinterpret_cast<SYSTEM_PROCESS_INFORMATION*>(base + previous)->NextEntryOffset = 0;
+        if (returnLength) *returnLength = write;
+    }
+    if (hidden > 0) {
+        AuditEventRateLimited("api.process", "hidden", nullptr,
+                              static_cast<unsigned long long>(hidden), true);
+    }
+}
+
 NTSTATUS NTAPI HookNtQuerySystemInformation(ULONG infoClass, PVOID info, ULONG length, PULONG returnLength) {
     if (EmptyReadsEnabled() && infoClass == 11) {  // SystemModuleInformation: driver list
         (void)info; (void)length;
@@ -2042,6 +2100,9 @@ NTSTATUS NTAPI HookNtQuerySystemInformation(ULONG infoClass, PVOID info, ULONG l
     const NTSTATUS status = g_origNtQuerySystemInformation
         ? g_origNtQuerySystemInformation(infoClass, info, length, returnLength)
         : static_cast<NTSTATUS>(0xC0000002L);
+    if (status >= 0 && infoClass == 5 && info && NativeHardwareHooksEnabled()) {
+        FilterProcessInformation(info, length, returnLength);
+    }
     if (status >= 0 && infoClass == 11 && info && length > sizeof(ULONG) &&
         NativeModuleFilterEnabled() &&
         !ProfileIdentity::Get().hypervisorPresent) {
