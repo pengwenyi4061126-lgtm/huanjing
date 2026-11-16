@@ -14,6 +14,7 @@
 #include <setupapi.h>
 #include <hidsdi.h>
 #include <devpropdef.h>
+#include <devpkey.h>
 #include <initguid.h>
 #include <devguid.h>
 #include <netioapi.h>
@@ -755,6 +756,17 @@ BOOLEAN WINAPI HookHidD_GetProductString(HANDLE device, PVOID buffer, ULONG buff
                                "api.hid.product");
 }
 
+const DEVPROPKEY kDevPkeyDeviceDesc = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 2};
+const DEVPROPKEY kDevPkeyDeviceManufacturer = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 13};
+const DEVPROPKEY kDevPkeyDeviceFriendlyName = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 14};
+
+bool SameDevPropKey(const DEVPROPKEY* left, const DEVPROPKEY& right) {
+    return left && IsEqualGUID(left->fmtid, right.fmtid) && left->pid == right.pid;
+}
+
 BOOL WINAPI HookSetupDiGetDevicePropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, const DEVPROPKEY* key,
                                           DEVPROPTYPE* type, PBYTE buffer, DWORD bufferSize,
                                           PDWORD required, DWORD flags) {
@@ -776,6 +788,36 @@ BOOL WINAPI HookSetupDiGetDevicePropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, c
             SetLastError(ERROR_NOT_FOUND);
             AuditEventRateLimited("api.setupdi.property", "virtual-hidden");
             return FALSE;
+        }
+    }
+    if (NativeHardwareHooksEnabled() && key && set && info && g_origSetupDiGetInstanceId) {
+        wchar_t instance[512] = {};
+        DWORD instanceNeeded = 0;
+        if (g_origSetupDiGetInstanceId(set, info, instance, _countof(instance), &instanceNeeded)) {
+            const bool gpu = wcsstr(instance, L"VEN_10DE") != nullptr;
+            const bool monitor = wcsstr(instance, L"DISPLAY\\") != nullptr;
+            if (gpu || monitor) {
+                const ProfileIdentity& identity = ProfileIdentity::Get();
+                std::wstring value;
+                if (SameDevPropKey(key, kDevPkeyDeviceFriendlyName) ||
+                    SameDevPropKey(key, kDevPkeyDeviceDesc)) {
+                    value = Utf8ToWide(gpu ? identity.gpuName : identity.monitorName);
+                } else if (SameDevPropKey(key, kDevPkeyDeviceManufacturer)) {
+                    value = Utf8ToWide(gpu ? identity.gpuVendor : identity.monitorManufacturer);
+                }
+                if (!value.empty()) {
+                    const size_t bytes = (value.size() + 1) * sizeof(wchar_t);
+                    if (type) *type = DEVPROP_TYPE_STRING;
+                    if (required) *required = static_cast<DWORD>(bytes);
+                    if (!buffer || bufferSize < bytes) {
+                        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+                        return FALSE;
+                    }
+                    std::memcpy(buffer, value.c_str(), bytes);
+                    AuditEventRateLimited("api.setupdi.property", "profile-rewrite");
+                    return TRUE;
+                }
+            }
         }
     }
     const BOOL result = g_origSetupDiGetDeviceProperty

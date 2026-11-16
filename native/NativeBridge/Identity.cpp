@@ -195,6 +195,7 @@ bool ProfileIdentity::Load() {
     JsonString(document, "gpu_serial", gpuSerial);
     JsonString(document, "gpu_uuid", gpuUuid);
     JsonString(document, "monitor_name", monitorName);
+    JsonString(document, "monitor_manufacturer", monitorManufacturer);
     JsonString(document, "monitor_pnp_id", monitorPnpId);
     JsonU32(document, "monitor_edid_manufacturer", monitorEdidManufacturer);
     JsonU32(document, "monitor_edid_product", monitorEdidProduct);

@@ -66,6 +66,7 @@ struct ProfileIdentity {
     std::string gpuSerial = "1321919076543";
     std::string gpuUuid = "GPU-8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f";
     std::string monitorName = "Dell U2419H";
+    std::string monitorManufacturer = "Dell";
     std::string monitorPnpId = "DEL41A9";
     uint32_t monitorEdidManufacturer = 0x10AC;
     uint32_t monitorEdidProduct = 0x41A9;

@@ -806,6 +806,7 @@ function Initialize-ProfileIdentity {
         volume_label = 'System'
         filesystem = 'NTFS'
         monitor_name = 'Dell U2419H'
+        monitor_manufacturer = 'Dell'
         monitor_pnp_id = 'DEL41A9'
         monitor_edid_manufacturer = 0x10AC
         monitor_edid_product = 0x41A9

@@ -432,6 +432,12 @@ Add-Check 'hardware.pnp_virtual_hidden' 'fail' (
     $pnpAll -notmatch 'GameViewer' -and
     $pnpAll -notmatch 'ROOT\\DISPLAY'
 ) 'no GameViewer virtual display' $pnpAll 'SetupDiGetDeviceInstanceIdW virtual-hidden'
+Add-Check 'hardware.pnp_devprops' 'fail' (
+    $pnpAll -match 'NVIDIA' -and
+    $pnpAll -match 'Dell' -and
+    $pnpAll -notmatch 'GTX 1050' -and
+    $pnpAll -notmatch 'Philips'
+) 'profile DEVPKEY strings' $pnpAll 'SetupDiGetDevicePropertyW'
 
 $expectedAudioId = [string]$identity.audio_endpoint_id
 if (-not $expectedAudioId) {
