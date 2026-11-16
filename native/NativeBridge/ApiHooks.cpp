@@ -817,6 +817,16 @@ BOOL WINAPI HookSetupDiGetDeviceRegistryPropertyW(HDEVINFO set, PSP_DEVINFO_DATA
     return result;
 }
 
+void ReplaceAllWide(std::wstring& text, const wchar_t* from, const wchar_t* to) {
+    if (!from || !*from) return;
+    const size_t fromLength = wcslen(from);
+    size_t position = 0;
+    while ((position = text.find(from, position)) != std::wstring::npos) {
+        text.replace(position, fromLength, to);
+        position += wcslen(to);
+    }
+}
+
 BOOL WINAPI HookSetupDiGetDeviceInstanceIdW(HDEVINFO set, PSP_DEVINFO_DATA info, PWSTR instanceId,
                                             DWORD instanceIdSize, PDWORD required) {
     if (EmptyReadsEnabled()) {
@@ -837,6 +847,15 @@ BOOL WINAPI HookSetupDiGetDeviceInstanceIdW(HDEVINFO set, PSP_DEVINFO_DATA info,
         SetLastError(ERROR_NOT_FOUND);
         AuditEventRateLimited("api.setupdi.instanceid", "virtual-hidden");
         return FALSE;
+    }
+    if (result && instanceId && NativeHardwareHooksEnabled()) {
+        std::wstring value = instanceId;
+        ReplaceAllWide(value, L"VEN_10DE&DEV_1C82", L"VEN_10DE&DEV_1F82");
+        ReplaceAllWide(value, L"PHLC031", L"DEL41A9");
+        if (value != instanceId && (value.size() + 1) <= instanceIdSize) {
+            wcscpy_s(instanceId, instanceIdSize, value.c_str());
+            AuditEventRateLimited("api.setupdi.instanceid", "profile-rewrite");
+        }
     }
     AuditEventRateLimited("api.setupdi.instanceid", result ? "observed" : "error");
     return result;

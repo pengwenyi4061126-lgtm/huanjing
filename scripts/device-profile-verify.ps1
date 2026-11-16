@@ -26,6 +26,7 @@ param(
     [string]$DisplayProbe,
     [string]$HidProbe,
     [string]$NvmlProbe,
+    [string]$PnpProbe,
     [string]$WmiProbe,
     [switch]$SkipCim
 )
@@ -41,6 +42,7 @@ if (-not $DiskProbe) { $DiskProbe = Join-Path $repoRoot 'native\dist\cac-disk-pr
 if (-not $DisplayProbe) { $DisplayProbe = Join-Path $repoRoot 'native\dist\cac-display-probe.exe' }
 if (-not $HidProbe) { $HidProbe = Join-Path $repoRoot 'native\dist\cac-hid-probe.exe' }
 if (-not $NvmlProbe) { $NvmlProbe = Join-Path $repoRoot 'native\dist\cac-nvml-probe.exe' }
+if (-not $PnpProbe) { $PnpProbe = Join-Path $repoRoot 'native\dist\cac-pnp-probe.exe' }
 if (-not $WmiProbe) { $WmiProbe = Join-Path $repoRoot 'artifacts\wmi_probe.exe' }
 $ProfilePath = (Resolve-Path -LiteralPath $ProfilePath).Path
 $Launcher = (Resolve-Path -LiteralPath $Launcher).Path
@@ -70,6 +72,10 @@ if (-not (Test-Path -LiteralPath $NvmlProbe -PathType Leaf)) {
     throw "NVML probe not found: $NvmlProbe"
 }
 $NvmlProbe = (Resolve-Path -LiteralPath $NvmlProbe).Path
+if (-not (Test-Path -LiteralPath $PnpProbe -PathType Leaf)) {
+    throw "PNP probe not found: $PnpProbe"
+}
+$PnpProbe = (Resolve-Path -LiteralPath $PnpProbe).Path
 if (-not (Test-Path -LiteralPath $WmiProbe -PathType Leaf)) {
     throw "WMI probe not found: $WmiProbe"
 }
@@ -222,6 +228,10 @@ $nvmlLog = Join-Path $OutputDir 'nvml-probe.txt'
 $nvmlCode = Invoke-Injected -Executable $NvmlProbe -Arguments @() -LogPath $nvmlLog
 $nvml = Read-KeyValues -Path $nvmlLog
 
+$pnpLog = Join-Path $OutputDir 'pnp-probe.txt'
+$pnpCode = Invoke-Injected -Executable $PnpProbe -Arguments @() -LogPath $pnpLog
+$pnp = Read-KeyValues -Path $pnpLog
+
 $cimCode = $null
 $cimLog = Join-Path $OutputDir 'cim-probe.txt'
 if (-not $SkipCim) {
@@ -246,6 +256,7 @@ Add-Check 'probe.disk' 'fail' ($diskCode -eq 0 -and $disk['disk_state'] -eq 'ok'
 Add-Check 'probe.display' 'fail' ($displayCode -eq 0 -and $display['display_state'] -eq 'ok') 'display_state=ok' "exit=$displayCode state=$($display['display_state'])" 'DisplayConfig probe'
 Add-Check 'probe.hid' 'fail' ($hidCode -eq 0 -and $hid['hid_state'] -eq 'ok') 'hid_state=ok' "exit=$hidCode state=$($hid['hid_state'])" 'HID probe'
 Add-Check 'probe.nvml' 'fail' ($nvmlCode -eq 0 -and $nvml['nvml_state'] -eq 'ok') 'nvml_state=ok' "exit=$nvmlCode state=$($nvml['nvml_state'])" 'NVML static-import probe'
+Add-Check 'probe.pnp' 'fail' ($pnpCode -eq 0 -and $pnp['pnp_state'] -eq 'ok') 'pnp_state=ok' "exit=$pnpCode state=$($pnp['pnp_state'])" 'SetupDi PnP probe'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -389,6 +400,15 @@ Add-Check 'hardware.nvml_serial' 'fail' ($nvmlSerial -eq $expectedNvmlSerial) $e
 Add-Check 'hardware.nvml_uuid' 'fail' ($nvmlUuid -eq $expectedNvmlUuid) $expectedNvmlUuid $nvmlUuid 'nvmlDeviceGetUUID'
 Add-Check 'hardware.nvml_memory' 'fail' ($nvmlMemory -eq 4096) '4096 MB' "$nvmlMemory MB" 'nvmlDeviceGetMemoryInfo'
 
+$pnpInstances = @($pnp.Keys | Where-Object { $_ -match '^pnp\d+_instance$' } | ForEach-Object { [string]$pnp[$_] })
+$pnpText = $pnpInstances -join '|'
+Add-Check 'hardware.pnp_instance_ids' 'fail' (
+    $pnpText -notmatch 'VEN_10DE&DEV_1C82' -and
+    $pnpText -notmatch 'PHLC031' -and
+    $pnpText -match 'VEN_10DE&DEV_1F82' -and
+    $pnpText -match 'DEL41A9'
+) 'profile GPU/monitor PnP ids' $pnpText 'SetupDiGetDeviceInstanceIdW'
+
 $processNames = @()
 if (Test-Path -LiteralPath $processLog) {
     $processNames = @(Get-Content -LiteralPath $processLog | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() } | Sort-Object -Unique)
@@ -420,6 +440,7 @@ $result = [ordered]@{
         display = $display
         hid = $hid
         nvml = $nvml
+        pnp = $pnp
         wmi = $wmi
         hardwareExit = $hardwareCode
         gpuExit = $gpuCode
@@ -428,6 +449,7 @@ $result = [ordered]@{
         displayExit = $displayCode
         hidExit = $hidCode
         nvmlExit = $nvmlCode
+        pnpExit = $pnpCode
         wmiExit = $wmiCode
         cimExit = $cimCode
         processExit = $processCode

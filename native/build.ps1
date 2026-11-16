@@ -224,6 +224,18 @@ try {
     $audioProbePath = Join-Path $dist "cac-audio-probe.exe"
     $audioProbeHash = Get-CacSha256 $audioProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-audio-probe.sha256") -Value $audioProbeHash -Encoding ASCII
+
+    Write-Host "Building cac-pnp-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "PnpProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-pnp-probe.exe" `
+        /link /guard:cf /Brepro setupapi.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-pnp-probe.exe build failed ($LASTEXITCODE)" }
+
+    $pnpProbePath = Join-Path $dist "cac-pnp-probe.exe"
+    $pnpProbeHash = Get-CacSha256 $pnpProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-pnp-probe.sha256") -Value $pnpProbeHash -Encoding ASCII
 } finally {
     Pop-Location
 }
