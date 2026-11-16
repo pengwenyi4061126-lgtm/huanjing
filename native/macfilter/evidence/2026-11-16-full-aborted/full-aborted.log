@@ -1,0 +1,19 @@
+﻿**********************
+Windows PowerShell 脚本开始
+开始时间: 20261116150835
+用户名: DESKTOP-614945G\Administrator
+RunAs 用户: DESKTOP-614945G\Administrator
+配置名称: 
+计算机: DESKTOP-614945G (Microsoft Windows NT 10.0.22631.0)
+主机应用程序: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -noprofile -executionpolicy bypass -file c:\cacmac\guest-full.ps1
+进程 ID: 5128
+PSVersion: 5.1.22621.7376
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.22621.7376
+BuildVersion: 10.0.22621.7376
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+已启动脚本，输出文件为 C:\cacmac\full.log

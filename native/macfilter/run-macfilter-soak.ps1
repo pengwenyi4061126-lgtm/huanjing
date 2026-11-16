@@ -94,6 +94,16 @@ function Invoke-OidStorm {
 function Invoke-Traffic {
     param([int]$Seconds, [string]$Target)
     if ($Seconds -le 0) { return }
+    if (-not ('CacPower.Native' -as [type])) {
+        Add-Type -Namespace CacPower -Name Native -MemberDefinition @'
+[DllImport("kernel32.dll")]
+public static extern uint SetThreadExecutionState(uint esFlags);
+'@
+    }
+    $esContinuous = [uint32]2147483648
+    $esSystemRequired = [uint32]1
+    [void][CacPower.Native]::SetThreadExecutionState($esContinuous -bor $esSystemRequired)
+
     $gateway = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
         Sort-Object RouteMetric | Select-Object -First 1).NextHop
     if (-not $gateway) { $gateway = '127.0.0.1' }
@@ -116,8 +126,24 @@ function Invoke-Traffic {
             phase = 'traffic'; action = 'start'; seconds = $Seconds;
             gateway = $gateway; target = $Target; tcpClients = $clients.Count
         }
-        Start-Sleep -Seconds $Seconds
+        $started = Get-Date
+        $deadline = $started.AddSeconds($Seconds)
+        $lastHeartbeat = $started
+        while ((Get-Date) -lt $deadline) {
+            $remaining = [int][Math]::Max(1, [Math]::Min(30, ($deadline - (Get-Date)).TotalSeconds))
+            Start-Sleep -Seconds $remaining
+            if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 300) {
+                Write-Record @{
+                    phase = 'traffic'; action = 'heartbeat';
+                    remainingSeconds = [int][Math]::Max(0, ($deadline - (Get-Date)).TotalSeconds);
+                    state = (Get-MacState)
+                }
+                $lastHeartbeat = Get-Date
+            }
+        }
+        $elapsed = [int]((Get-Date) - $started).TotalSeconds
         Invoke-OidStorm -Iterations 10
+        Write-Record @{ phase = 'traffic'; action = 'complete'; elapsedSeconds = $elapsed }
     } finally {
         foreach ($item in $clients) {
             try { $item.Client.Close() } catch { }
@@ -125,6 +151,7 @@ function Invoke-Traffic {
         if ($ping -and -not $ping.HasExited) {
             Stop-Process -Id $ping.Id -Force -ErrorAction SilentlyContinue
         }
+        [void][CacPower.Native]::SetThreadExecutionState($esContinuous)
         Write-Record @{ phase = 'traffic'; action = 'stop' }
     }
 }

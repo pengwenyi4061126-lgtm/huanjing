@@ -46,10 +46,15 @@
   `attached 1 → 6`，`detached 0 → 5`。
 - Fault：clone fail、lower fail、fault reset、set-short/set-long/state-short、
   fault-invalid 全部按预期；`pass=true`。
-- 当前正在运行：`soak-20261116-150836`。30× disable/enable 和
-  10× restart 已完成（`attached=59`、`detached=55`、`oidRewrites=114`），
-  OID storm 完成（`oidDelta=569`），2h 流量从 15:15:21 开始，
-  预计 17:15:21 结束；完成后自动归档到 `evidence/`。
+- 第一次 full run `soak-20261116-150836` 完成了 30× disable/enable、
+  10× restart 和 OID storm（`attached=59`、`detached=55`、
+  `oidRewrites=114`、`oidDelta=569`），但测试机在 2h 窗口结束前被
+  挂起/关机，未产出 traffic complete/summary；该结果保留为
+  `evidence/2026-11-16-full-aborted/`，不算 2h 通过。
+- 已修复 traffic 逻辑：`SetThreadExecutionState` 防止测试机睡眠，
+  deadline 循环替代裸 `Start-Sleep`，每 5 分钟写 heartbeat，结束时写
+  `traffic complete`。新的 traffic-only run `soak-20261116-174921`
+  从 17:49:21 开始，预计 19:49:21 结束。
 - 隔离测试机 `C:\Windows\System32\drivers\CacMacLwf.sys` 实测
   SHA-256 = `DA5AC0634A92F36EB7FCFE303D5835A4647CA2E2D8C16DCEE6157DB96C22E670`，
   与本仓库 `bin` 构建一致。

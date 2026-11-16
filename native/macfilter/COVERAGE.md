@@ -18,7 +18,7 @@
 | 测试 | `-DryRun` 无副作用校验 | DONE | `install` / `soak` / `fault` |
 | 测试 | 5× Restart-NetAdapter + boot + ping | DONE（clone 构建） | `LWF-FIX-TEST-20261116.md` §8-9 |
 | 测试 | 30× disable/enable + 10× restart + 3× sleep | PARTIAL（smoke 3/2 通过，full 运行中） | `evidence/2026-11-16-guest-smoke` |
-| 测试 | 2h 流量 + 100 并发 TCP + OID storm | PARTIAL（OID storm 通过，2h 运行中） | `evidence/2026-11-16-guest-smoke` |
+| 测试 | 2h 流量 + 100 并发 TCP + OID storm | PARTIAL（OID storm 通过，traffic-only 2h 运行中） | `soak-20261116-174921` |
 | 测试 | 5× boot | READY（手动 `-RecordBoot`） | `run-macfilter-soak.ps1` |
 | 测试 | clone fail / lower fail / invalid IOCTL | DONE | `evidence/2026-11-16-guest-smoke/fault-20261116-150548` |
 | 测试 | 低权限 IOCTL 拒绝 | READY（需标准账号） | `run-macfilter-fault.ps1 -LowPrivCredential` |
