@@ -1,6 +1,6 @@
 [
   {
-    "pid": 25300,
+    "pid": 13508,
     "module": "cowork-svc.exe",
     "base": "0x7ff761fa0000",
     "rva": "0x2ba0",
@@ -23,7 +23,7 @@
     ]
   },
   {
-    "pid": 25300,
+    "pid": 13508,
     "module": "cowork-svc.exe",
     "base": "0x7ff761fa0000",
     "rva": "0x2bc0",
@@ -44,7 +44,7 @@
     ]
   },
   {
-    "pid": 25300,
+    "pid": 13508,
     "module": "cowork-svc.exe",
     "base": "0x7ff761fa0000",
     "rva": "0x212a60",
@@ -67,7 +67,7 @@
     ]
   },
   {
-    "pid": 25300,
+    "pid": 13508,
     "module": "cowork-svc.exe",
     "base": "0x7ff761fa0000",
     "rva": "0x212a80",

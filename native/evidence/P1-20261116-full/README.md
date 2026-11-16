@@ -7,7 +7,7 @@
 
 ```text
 服务启动前   : GODEBUG=cpu.all=off 作用于 vendor/golang.org/x/sys/cpu
-进程出现后   : 注入器在 ~43 ms 内直接中和 internal/cpu 与 vendor cpu 的 flag 字节
+进程出现后   : 注入器在 ~19 ms 内直接中和 internal/cpu 与 vendor cpu 的 flag 字节
 NativeBridge : 再次校验并中和，安装 4 个 Go ABI cpuid/xgetbv 入口
 运行时       : 4 个入口的 cpuid/xgetbv 结果按 neutral 过滤
 ```
@@ -23,7 +23,7 @@ cowork hash    : 88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA413364
 NativeBridge   : 5B9506607428007B0EC140C31C282BB76D03A27D57698DF6246EDAF78E24C5BF
 injector       : C5B0707899F3A44A37190F88B5277859E638DB14E6B448ECE36A1C81FA10BE0C
 probe          : CBF9A000AF57BD03F6281095EF0AAEA824987775B5B4F5342CBEBC13D14FC6F3
-最终 PID       : 25300
+最终 PID       : 13508
 ```
 
 ## 关键发现
@@ -61,6 +61,11 @@ GODEBUG=cpu.all=off
 
 `install-service-injector.ps1` 在启动 Cowork 服务前自动调用它，
 `-Uninstall` 时移除该值。当前 registry 输出见 `service-env.txt`。
+
+安装器还把 `CacServiceInjector` 加入 `CoworkVMService` 的 SCM
+`DependOnService`（保留原有 `staterepository`），让开机 auto-start
+按注入器优先的顺序启动。手动 `sc start CoworkVMService` 不会自动
+拉起依赖，运维脚本会先启动注入器。
 
 ### 2. 注入器早期中和
 
@@ -115,7 +120,7 @@ cpu.flags neutralized internal=0/21 vendor=0/45 osxsave-kept sse2-kept
 “前”：停止 `CacServiceInjector`、移除 `GODEBUG`，只启动
 `CoworkVMService`，PID 16748。
 
-“后”：恢复 `GODEBUG`、启动注入器、重启服务，PID 25300。
+“后”：恢复 `GODEBUG`、启动注入器、重启服务，PID 13508。
 
 `cpu-flags-before.json` / `cpu-flags-after.json` 的统计：
 
@@ -148,7 +153,7 @@ vendor:   HasSSE2=1，其余 44 个为 0
 cpu-flags internal=14/21 vendor=16/45
 ```
 
-对 PID 25300 的启动补丁审计为：
+对 PID 13508 的启动补丁审计为：
 
 ```text
 cpu-flags internal=14/21 vendor=0/45 hash=cache
@@ -162,23 +167,23 @@ cpu-flags internal=14/21 vendor=0/45 hash=cache
 `timing.txt`：
 
 ```text
-process_start          03:43:11.736
-service_log_start      03:43:11.767  (+31 ms)
-target_found           03:43:11.778  (+42 ms)
-early_cpu_flags        03:43:11.779  (+43 ms)
-native_bridge_attach   03:43:11.782  (+46 ms)
-cpu_hash_trusted       03:43:11.783  (+47 ms)
-manifest_complete      03:43:11.785  (+49 ms)
-native_bridge_ready    03:43:11.839  (+103 ms)
-signature_verification 03:43:11.888  (+152 ms)
-service_ready          03:43:11.888  (+152 ms)
+process_start          03:46:59.941
+target_found           03:46:59.960  (+19 ms)
+early_cpu_flags        03:46:59.960  (+19 ms)
+native_bridge_attach   03:46:59.964  (+23 ms)
+cpu_hash_trusted       03:46:59.964  (+23 ms)
+service_log_start      03:46:59.967  (+26 ms)
+manifest_complete      03:46:59.967  (+26 ms)
+native_bridge_ready    03:47:00.025  (+84 ms)
+signature_verification 03:47:00.095  (+154 ms)
+service_ready          03:47:00.095  (+154 ms)
 ```
 
 `C:\ProgramData\Claude\Logs\cowork-service.log` 显示服务自身在
-`11.888` 才完成 signature verification 并开始监听 named pipe；
-CPU flags 在 `11.779`、4 条 CPU hooks 在 `11.785` 已经就位，早于
-服务 ready 约 103 ms。`hash=cache` 命中后，注入器从 target-found
-到写完 flags 只用了约 1 ms。
+`00.095` 才完成 signature verification 并开始监听 named pipe；
+CPU flags 在 `59.960`、4 条 CPU hooks 在 `59.967` 已经就位，早于
+服务 ready 约 128 ms。`hash=cache` 命中后，注入器从 target-found
+到写完 flags 只用了不到 1 ms。
 
 ## 服务内 CPU 探测
 
@@ -206,6 +211,7 @@ cpu.goxgetbv observed go xcr0=0x7
 | A | desktop-1 | 7764 | `mac=02:2a:09:f6:66:f2 host=host-7105ecbc machine=7105ecbc... disk=WD-84490e004894` |
 | B | desktop-b | 17764 | `mac=02:bb:bb:bb:bb:bb host=host-bbbb machine=bbbbbbbb... disk=WD-bbbbbbbbbbbb` |
 | A | desktop-1 | 25300 | `mac=02:2a:09:f6:66:f2 host=host-7105ecbc machine=7105ecbc... disk=WD-84490e004894` |
+| A（最终 clean restart） | desktop-1 | 13508 | 同上 |
 
 三次启动都满足：
 
@@ -231,9 +237,9 @@ original_claude_3p  false
 
 ## 边界
 
-- 早期补丁发生在进程启动后约 43 ms。0-43 ms 内只有 Go runtime
+- 早期补丁发生在进程启动后约 19 ms。0-19 ms 内只有 Go runtime
   `cpuinit` 等初始化；服务日志显示应用层 signature verification 和
-  named pipe ready 在 +152 ms，晚于补丁和 4 条 CPU hooks（+49 ms）。
+  named pipe ready 在 +154 ms，晚于补丁和 4 条 CPU hooks（+26 ms）。
   若未来服务把 CPU 指纹
   提前到 runtime 初始化期间，仍需进程入口前注入（内核 loader
   notify / IFEO / 服务 wrapper），不在本阶段。
@@ -243,6 +249,9 @@ original_claude_3p  false
   leaf；`empty`/`passthrough` 模式保持原有语义，早期补丁会跳过。
 - `ant-did` 重定向覆盖 `CreateFileW/A/2` 的精确后缀；直接
   `NtCreateFile` 路径只审计，不重写。
+- SCM 依赖只约束开机 auto-start；手动单独 `sc start
+  CoworkVMService` 不会启动 `CacServiceInjector`，应先启动注入器或
+  使用 `install-service-injector.ps1`。
 
 ## 复现
 
@@ -273,5 +282,5 @@ timing.txt              启动到补丁/ready 的时间
 hashes.txt              产物哈希
 ```
 
-最终状态：`desktop-1`，PID 25300，manifest 4/4，
+最终状态：`desktop-1`，PID 13508，manifest 4/4，
 `cpu.flags` neutral，`redirect_ant_did=1`，服务 ready。

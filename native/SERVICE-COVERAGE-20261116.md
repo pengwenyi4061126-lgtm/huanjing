@@ -83,14 +83,14 @@ C:\ProgramData\CAC\active-profile.ini
    - `cac-service-injector` 轮询改为 50 ms，找到进程后先按哈希校验，
      在注入前直接中和 `internal/cpu.X86` 与 vendor `cpu.X86` 的
      flag 字节；
-   - 当前版本实测在进程启动后约 43 ms 完成中和；
+   - 当前版本实测在进程启动后约 19 ms 完成中和；
    - NativeBridge 的 `NeutralizeGoCpuFlags()` 再做一次兜底。
 
 ## 实测结果
 
 ```text
 注入器服务: CacServiceInjector RUNNING
-目标进程:   cowork-svc.exe PID 25300
+目标进程:   cowork-svc.exe PID 13508
 模块:       NativeBridge.dll
 审计:       native.bridge ready
 身份:       mac=02:2a:09:f6:66:f2
@@ -120,8 +120,10 @@ CreateFileW/A/2 / NtCreateFile
 
 ## 当前边界
 
-- 注入器服务 Auto 启动，但 CoworkVMService 也 Auto；启动顺序不是强绑定，
-  首次启动可能存在约 0-2 秒未注入窗口。后续可加服务依赖/触发器。
+- 安装器把 `CacServiceInjector` 加入 `CoworkVMService` 的
+  `DependOnService`，开机 auto-start 按注入器优先的顺序启动。
+  手动 `sc start CoworkVMService` 不会自动拉起依赖，需先启动注入器
+  或使用 `install-service-injector.ps1`。
 - MSIX 更新会替换 `cowork-svc.exe`，注入器按进程名/模块重新注入。
 - `ant-did` 重定向已实现并独立验证；尚未观察到 cowork-svc 自身读取
   ant-did，服务内仍保留观察审计。
@@ -129,9 +131,9 @@ CreateFileW/A/2 / NtCreateFile
   （RVA 0x79356/0x79381/0x170BBD/0x504C4F）没有匹配的 Go 布局，
   未挂载。
 - Go runtime 的 `internal/cpu.Initialize` 在 DLL 注入前已经执行；
-  flags 由注入器在进程出现后约 43 ms 内直接中和，NativeBridge 在
-  +49 ms 安装 4 条 CPU hooks。服务日志显示应用层 ready 在 +152 ms，
-  晚于补丁和 hooks；0-43 ms 内只有 runtime 初始化。进程入口前注入
+  flags 由注入器在进程出现后约 19 ms 内直接中和，NativeBridge 在
+  +26 ms 安装 4 条 CPU hooks。服务日志显示应用层 ready 在 +154 ms，
+  晚于补丁和 hooks；0-19 ms 内只有 runtime 初始化。进程入口前注入
   不在本阶段。
 - CPU flags 补丁按 `cowork-svc.exe` 的 SHA-256 和固定 RVA 生效；
   Claude 更新后哈希变化会自动跳过，需要重新生成 RVAs/哈希。
@@ -178,7 +180,7 @@ native.identity loaded mac=02:bb:bb:bb:bb:bb host=host-bbbb machine=bbbb... disk
 native.bridge ready
 ```
 
-恢复 Desktop profile 1 后（PID 25300）：
+恢复 Desktop profile 1 后（PID 13508）：
 
 ```text
 MAC:        02:2a:09:f6:66:f2

@@ -16,3 +16,9 @@
 {"utc":"2026-11-16T03:43:11.785Z","pid":25300,"surface":"cpu.manifest","action":"complete","detail":"entries=4 installed=4"}
 {"utc":"2026-11-16T03:43:11.785Z","pid":25300,"surface":"cpu.flags","action":"neutralized","detail":"internal=0/21 vendor=0/45 osxsave-kept sse2-kept"}
 {"utc":"2026-11-16T03:43:11.839Z","pid":25300,"surface":"native.bridge","action":"ready"}
+{"utc":"2026-11-16T03:46:59.964Z","pid":13508,"surface":"native.bridge","action":"attach","detail":"process=main"}
+{"utc":"2026-11-16T03:46:59.964Z","pid":13508,"surface":"native.identity","action":"loaded","detail":"mac=02:2a:09:f6:66:f2 host=host-7105ecbc machine=7105ecbcb4a642a685ea9848ddd5d3ba disk=WD-84490e004894"}
+{"utc":"2026-11-16T03:46:59.964Z","pid":13508,"surface":"cpu.hash","action":"trusted","detail":"injector"}
+{"utc":"2026-11-16T03:46:59.967Z","pid":13508,"surface":"cpu.manifest","action":"complete","detail":"entries=4 installed=4"}
+{"utc":"2026-11-16T03:46:59.967Z","pid":13508,"surface":"cpu.flags","action":"neutralized","detail":"internal=0/21 vendor=0/45 osxsave-kept sse2-kept"}
+{"utc":"2026-11-16T03:47:00.025Z","pid":13508,"surface":"native.bridge","action":"ready"}

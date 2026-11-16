@@ -1,13 +1,13 @@
-{"utc":"2026-11-16T03:43:11.778Z","surface":"service.injector","action":"target-found","pid":25300,"detail":""}
-{"utc":"2026-11-16T03:43:11.779Z","surface":"service.injector","action":"cpu-flags","pid":25300,"detail":"internal=14/21 vendor=0/45 hash=cache"}
-{"utc":"2026-11-16T03:43:11.839Z","surface":"service.injector","action":"injected","pid":25300,"detail":""}
-{"utc":"2026-11-16T03:43:11.782Z","pid":25300,"surface":"native.bridge","action":"attach","detail":"process=main"}
-{"utc":"2026-11-16T03:43:11.782Z","pid":25300,"surface":"native.identity","action":"loaded","detail":"mac=02:2a:09:f6:66:f2 host=host-7105ecbc machine=7105ecbcb4a642a685ea9848ddd5d3ba disk=WD-84490e004894"}
-{"utc":"2026-11-16T03:43:11.783Z","pid":25300,"surface":"cpu.hash","action":"trusted","detail":"injector"}
-{"utc":"2026-11-16T03:43:11.783Z","pid":25300,"surface":"cpu.install","action":"installed","detail":"gocpuid","value":"11168"}
-{"utc":"2026-11-16T03:43:11.783Z","pid":25300,"surface":"cpu.install","action":"installed","detail":"goxgetbv","value":"11200"}
-{"utc":"2026-11-16T03:43:11.784Z","pid":25300,"surface":"cpu.install","action":"installed","detail":"gocpuid","value":"2173536"}
-{"utc":"2026-11-16T03:43:11.785Z","pid":25300,"surface":"cpu.install","action":"installed","detail":"goxgetbv","value":"2173568"}
-{"utc":"2026-11-16T03:43:11.785Z","pid":25300,"surface":"cpu.manifest","action":"complete","detail":"entries=4 installed=4"}
-{"utc":"2026-11-16T03:43:11.785Z","pid":25300,"surface":"cpu.flags","action":"neutralized","detail":"internal=0/21 vendor=0/45 osxsave-kept sse2-kept"}
-{"utc":"2026-11-16T03:43:11.839Z","pid":25300,"surface":"native.bridge","action":"ready"}
+{"utc":"2026-11-16T03:46:59.960Z","surface":"service.injector","action":"target-found","pid":13508,"detail":""}
+{"utc":"2026-11-16T03:46:59.960Z","surface":"service.injector","action":"cpu-flags","pid":13508,"detail":"internal=14/21 vendor=0/45 hash=cache"}
+{"utc":"2026-11-16T03:47:00.025Z","surface":"service.injector","action":"injected","pid":13508,"detail":""}
+{"utc":"2026-11-16T03:46:59.964Z","pid":13508,"surface":"native.bridge","action":"attach","detail":"process=main"}
+{"utc":"2026-11-16T03:46:59.964Z","pid":13508,"surface":"native.identity","action":"loaded","detail":"mac=02:2a:09:f6:66:f2 host=host-7105ecbc machine=7105ecbcb4a642a685ea9848ddd5d3ba disk=WD-84490e004894"}
+{"utc":"2026-11-16T03:46:59.964Z","pid":13508,"surface":"cpu.hash","action":"trusted","detail":"injector"}
+{"utc":"2026-11-16T03:46:59.965Z","pid":13508,"surface":"cpu.install","action":"installed","detail":"gocpuid","value":"11168"}
+{"utc":"2026-11-16T03:46:59.965Z","pid":13508,"surface":"cpu.install","action":"installed","detail":"goxgetbv","value":"11200"}
+{"utc":"2026-11-16T03:46:59.966Z","pid":13508,"surface":"cpu.install","action":"installed","detail":"gocpuid","value":"2173536"}
+{"utc":"2026-11-16T03:46:59.967Z","pid":13508,"surface":"cpu.install","action":"installed","detail":"goxgetbv","value":"2173568"}
+{"utc":"2026-11-16T03:46:59.967Z","pid":13508,"surface":"cpu.manifest","action":"complete","detail":"entries=4 installed=4"}
+{"utc":"2026-11-16T03:46:59.967Z","pid":13508,"surface":"cpu.flags","action":"neutralized","detail":"internal=0/21 vendor=0/45 osxsave-kept sse2-kept"}
+{"utc":"2026-11-16T03:47:00.025Z","pid":13508,"surface":"native.bridge","action":"ready"}

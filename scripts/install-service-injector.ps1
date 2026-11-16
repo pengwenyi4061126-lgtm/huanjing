@@ -6,6 +6,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $serviceName = 'CacServiceInjector'
+$coworkServiceName = 'CoworkVMService'
+$coworkKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$coworkServiceName"
 $nativeTarget = Join-Path $DataRoot 'native'
 $dist = Join-Path (Split-Path -Parent $PSScriptRoot) 'native\dist'
 
@@ -25,9 +27,25 @@ function Assert-Hash([string]$Path, [string]$HashFile) {
     }
 }
 
+function Set-CoworkDependency {
+    param([bool]$Add)
+    if (-not (Test-Path -LiteralPath $coworkKey)) { return }
+    $current = @((Get-ItemProperty -Path $coworkKey -Name DependOnService -ErrorAction SilentlyContinue).DependOnService)
+    $next = @($current | Where-Object { $_ -and $_ -ne $serviceName })
+    if ($Add) {
+        $next += $serviceName
+    }
+    if ($next.Count -gt 0) {
+        Set-ItemProperty -Path $coworkKey -Name DependOnService -Value ([string[]]$next) -Type MultiString
+    } else {
+        Remove-ItemProperty -Path $coworkKey -Name DependOnService -ErrorAction SilentlyContinue
+    }
+}
+
 Assert-Admin
 
 if ($Uninstall) {
+    Set-CoworkDependency -Add $false
     & sc.exe stop $serviceName 2>$null | Out-Null
     & sc.exe delete $serviceName 2>$null | Out-Null
     & (Join-Path $PSScriptRoot 'set-cowork-service-env.ps1') -Remove -NoRestart | Out-Null
@@ -56,7 +74,6 @@ foreach ($name in $required) {
 }
 
 New-Item -ItemType Directory -Force -Path $nativeTarget, (Join-Path $DataRoot 'logs') | Out-Null
-$coworkKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\CoworkVMService'
 $coworkImage = (Get-ItemProperty -Path $coworkKey -Name ImagePath -ErrorAction SilentlyContinue).ImagePath
 if ($coworkImage) {
     $coworkImage = $coworkImage.Trim('"')
@@ -107,6 +124,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 & sc.exe description $serviceName 'Injects NativeBridge into Claude Cowork service processes.' | Out-Null
 & sc.exe start $serviceName | Out-Null
+Set-CoworkDependency -Add $true
 & (Join-Path $PSScriptRoot 'set-cowork-service-env.ps1') -NoRestart | Out-Null
 if ($coworkWasRunning) {
     & sc.exe start 'CoworkVMService' | Out-Null
