@@ -260,6 +260,7 @@ typedef unsigned int cl_uint;
 typedef unsigned long long cl_ulong;
 typedef int cl_int;
 typedef cl_int(__stdcall* PFN_clGetDeviceInfo)(cl_device_id, cl_device_info, size_t, void*, size_t*);
+cl_int __stdcall HookClGetDeviceInfo(cl_device_id, cl_device_info, size_t, void*, size_t*);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExW)(LPCWSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExA)(LPCSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef void (WINAPI* PFN_GetSystemInfo)(LPSYSTEM_INFO);
@@ -1539,6 +1540,29 @@ FARPROC WINAPI HookGetProcAddress(HMODULE module, LPCSTR name) {
         g_origNvmlGetMemoryInfo = reinterpret_cast<PFN_nvmlDeviceGetMemoryInfo>(original);
         AuditEventRateLimited("api.getprocaddress.nvml", "memory");
         return reinterpret_cast<FARPROC>(&HookNvmlGetMemoryInfo);
+    }
+    if (std::strcmp(name, "vkGetPhysicalDeviceProperties") == 0) {
+        if (!g_origVkGetPhysicalDeviceProperties) {
+            g_origVkGetPhysicalDeviceProperties =
+                reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(original);
+        }
+        AuditEventRateLimited("api.getprocaddress.vulkan", "properties");
+        return reinterpret_cast<FARPROC>(&HookVkGetPhysicalDeviceProperties);
+    }
+    if (std::strcmp(name, "vkGetPhysicalDeviceMemoryProperties") == 0) {
+        if (!g_origVkGetPhysicalDeviceMemoryProperties) {
+            g_origVkGetPhysicalDeviceMemoryProperties =
+                reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(original);
+        }
+        AuditEventRateLimited("api.getprocaddress.vulkan", "memory");
+        return reinterpret_cast<FARPROC>(&HookVkGetPhysicalDeviceMemoryProperties);
+    }
+    if (std::strcmp(name, "clGetDeviceInfo") == 0) {
+        if (!g_origClGetDeviceInfo) {
+            g_origClGetDeviceInfo = reinterpret_cast<PFN_clGetDeviceInfo>(original);
+        }
+        AuditEventRateLimited("api.getprocaddress.opencl", "deviceinfo");
+        return reinterpret_cast<FARPROC>(&HookClGetDeviceInfo);
     }
     return original;
 }

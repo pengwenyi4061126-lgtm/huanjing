@@ -258,7 +258,9 @@ real GTX 1050 Ti outside and the profile GTX 1650 / `0x1f82` / 4096 MB inside.
 The loader exports are 5-byte `jmp rel32` terminator thunks: the generic
 inline engine refuses them, and patching the thunk re-enters loader dispatch
 and fail-fasts with `0xC0000409`, so that path is deliberately not used.
-Dynamic `vkGetInstanceProcAddr` resolution remains open.
+Dynamic `vkGetInstanceProcAddr`/`GetProcAddress` resolution remains open:
+patching only the main-module `GetProcAddress` IAT slot also fail-fasts with
+`0xC0000409` after readiness (`native/evidence/dynamic-gpa-20261116`).
 
 Disk identity: `STORAGE_DEVICE_DESCRIPTOR` now rewrites model, serial and
 firmware revision; `IOCTL_SMART_RECEIVE_DRIVE_DATA` returns a synthesized
