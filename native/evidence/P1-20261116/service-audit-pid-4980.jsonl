@@ -1,0 +1,16 @@
+{"utc":"2026-11-16T03:09:01.121Z","pid":4980,"surface":"native.bridge","action":"attach","detail":"process=main"}
+{"utc":"2026-11-16T03:09:01.121Z","pid":4980,"surface":"native.identity","action":"loaded","detail":"mac=02:2a:09:f6:66:f2 host=host-7105ecbc machine=7105ecbcb4a642a685ea9848ddd5d3ba disk=WD-84490e004894"}
+{"utc":"2026-11-16T03:09:01.244Z","pid":4980,"surface":"cpu.install","action":"installed","detail":"gocpuid","value":"11168"}
+{"utc":"2026-11-16T03:09:01.316Z","pid":4980,"surface":"cpu.install","action":"installed","detail":"goxgetbv","value":"11200"}
+{"utc":"2026-11-16T03:09:01.388Z","pid":4980,"surface":"cpu.install","action":"installed","detail":"gocpuid","value":"2173536"}
+{"utc":"2026-11-16T03:09:01.460Z","pid":4980,"surface":"cpu.install","action":"installed","detail":"goxgetbv","value":"2173568"}
+{"utc":"2026-11-16T03:09:01.460Z","pid":4980,"surface":"cpu.manifest","action":"complete","detail":"entries=4 installed=4"}
+{"utc":"2026-11-16T03:09:01.461Z","pid":4980,"surface":"native.bridge","action":"ready"}
+{"utc":"2026-11-16T03:09:34.237Z","pid":4980,"surface":"cpu.gocpuid","action":"filtered","detail":"go leaf=0x40000000 subleaf=0x0 eax=0x0 ebx=0x0 ecx=0x0 edx=0x0"}
+{"utc":"2026-11-16T03:09:34.255Z","pid":4980,"surface":"cpu.goxgetbv","action":"observed","detail":"go xcr0=0x7"}
+{"utc":"2026-11-16T03:09:34.264Z","pid":4980,"surface":"cpu.gocpuid","action":"filtered","detail":"go leaf=0x40000000 subleaf=0x0 eax=0x0 ebx=0x0 ecx=0x0 edx=0x0"}
+{"utc":"2026-11-16T03:09:34.271Z","pid":4980,"surface":"cpu.goxgetbv","action":"observed","detail":"go xcr0=0x7"}
+{"utc":"2026-11-16T03:09:58.295Z","pid":4980,"surface":"cpu.gocpuid","action":"filtered","detail":"go leaf=0x40000000 subleaf=0x0 eax=0x0 ebx=0x0 ecx=0x0 edx=0x0"}
+{"utc":"2026-11-16T03:09:58.313Z","pid":4980,"surface":"cpu.goxgetbv","action":"observed","detail":"go xcr0=0x7"}
+{"utc":"2026-11-16T03:09:58.323Z","pid":4980,"surface":"cpu.gocpuid","action":"filtered","detail":"go leaf=0x40000000 subleaf=0x0 eax=0x0 ebx=0x0 ecx=0x0 edx=0x0"}
+{"utc":"2026-11-16T03:09:58.330Z","pid":4980,"surface":"cpu.goxgetbv","action":"observed","detail":"go xcr0=0x7"}

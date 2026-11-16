@@ -60,19 +60,32 @@ C:\ProgramData\CAC\active-profile.ini
 5. `ant-did` / `Claude-3p` 文件路径观察
    - NativeBridge 的 CreateFileW/A/2、NtCreateFile 现在记录
      `claudeprofile observed` 审计事件；
-   - 尚未观察到 cowork-svc 读取 ant-did，后续按实际调用决定是否重定向。
+   - `redirect_ant_did=1` 时，`...\Claude\ant-did` 重定向到
+     `%CAC_PROFILE_DIR%\ant-did`，`...\Claude-3p\ant-did` 重定向到
+     `%CAC_PROFILE_DIR%\Claude-3p\ant-did`；
+   - 用 `cac-native-launch.exe` + cmd 独立验证通过，原路径不落文件。
+
+6. Go ABI CPU manifest
+   - `native/NativeBridge/GoCpuDetours.asm` 按 Go 1.25
+     `internal/cpu` 的栈式参数/结果布局保存 rbp 并回写；
+   - `scripts/build-cowork-cpu-manifest.ps1` 扫描
+     `cowork-svc.exe`，只保留 prologue 精确匹配的 Go ABI 入口；
+   - 当前版本命中 4 条：`0x2BA0/0x2BC0/0x212A60/0x212A80`；
+   - `native/CpuProbe` + `scripts/probe-service-cpu.ps1` 在服务进程内
+     调用被 hook 的入口，验证 neutral 结果。
 
 ## 实测结果
 
 ```text
 注入器服务: CacServiceInjector RUNNING
-目标进程:   cowork-svc.exe PID 25764
+目标进程:   cowork-svc.exe PID 4980
 模块:       NativeBridge.dll
 审计:       native.bridge ready
 身份:       mac=02:2a:09:f6:66:f2
             host=host-7105ecbc
             machine=7105ecbcb4a642a685ea9848ddd5d3ba
             disk=WD-84490e004894
+CPU:        cpu.manifest complete entries=4 installed=4
 内核策略:   kernel.policy verified
 ```
 
@@ -97,8 +110,14 @@ CreateFileW/A/2 / NtCreateFile
 - 注入器服务 Auto 启动，但 CoworkVMService 也 Auto；启动顺序不是强绑定，
   首次启动可能存在约 0-2 秒未注入窗口。后续可加服务依赖/触发器。
 - MSIX 更新会替换 `cowork-svc.exe`，注入器按进程名/模块重新注入。
-- `ant-did` 尚未观察到实际读取；已加观察 Hook，等实际调用再重定向。
-- CPU manifest 当前未配置；`cpuid/xgetbv` 仍是用户态 Hook 的下一步。
+- `ant-did` 重定向已实现并独立验证；尚未观察到 cowork-svc 自身读取
+  ant-did，服务内仍保留观察审计。
+- CPU manifest 只覆盖 4 个精确 Go ABI 入口；其他 cpuid 包含函数
+  （RVA 0x79356/0x79381/0x170BBD/0x504C4F）没有匹配的 Go 布局，
+  未挂载。
+- Go runtime 的 `internal/cpu.Initialize` 在 DLL 注入前已经执行；
+  manifest 不能追溯修改启动时算出的 feature flags，只覆盖注入后
+  经过这 4 个入口的调用。
 - 该服务是用户态 SYSTEM，不是 Ring-0；注入可以覆盖它的用户态 API，
   但 TPM quote / Ring-0 CPUID / PCI/DMA 仍不在非 VM 可解范围。
 
@@ -126,31 +145,29 @@ C:\ProgramData\CAC\logs\cowork-svc-native.jsonl
 
 ## A/B 验证
 
-测试 Profile B（临时）：
+测试 Profile B（临时，PID 23912）：
 
 ```text
-MAC:        02:11:22:33:44:55
-hostname:   host-testb
-machine_id: 11111111111111111111111111111111
-disk:       WD-testb000000
-pid:        15972
+MAC:        02:bb:bb:bb:bb:bb
+hostname:   host-bbbb
+machine_id: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+disk:       WD-bbbbbbbbbbbb
 ```
 
 日志：
 
 ```text
-native.identity loaded mac=02:11:22:33:44:55 host=host-testb ...
+native.identity loaded mac=02:bb:bb:bb:bb:bb host=host-bbbb machine=bbbb... disk=WD-bbbbbbbbbbbb
 native.bridge ready
 ```
 
-恢复 Desktop profile 1 后：
+恢复 Desktop profile 1 后（PID 4980）：
 
 ```text
 MAC:        02:2a:09:f6:66:f2
 hostname:   host-7105ecbc
 machine_id: 7105ecbcb4a642a685ea9848ddd5d3ba
 disk:       WD-84490e004894
-pid:        26432
 ```
 
 日志：
@@ -162,3 +179,7 @@ native.bridge ready
 
 结论：`cowork-svc` 的 identity 不是写死的，会随
 `active-profile.ini` 切换；注入器在服务重启后重新注入新 PID。
+每次服务启动都重新安装 CPU manifest，4/4 成功。
+
+P1 第一阶段的完整证据和复现命令见
+`native/evidence/P1-20261116/README.md`。

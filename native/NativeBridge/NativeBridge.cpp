@@ -101,6 +101,7 @@ void LoadProgramDataProfile() {
         else if (key == L"manifest") SetProfileEnvironment(L"CAC_NATIVE_MANIFEST", value);
         else if (key == L"network_mode") SetProfileEnvironment(L"CAC_NETWORK_MODE", value);
         else if (key == L"audit") SetProfileEnvironment(L"CAC_NATIVE_AUDIT", value);
+        else if (key == L"redirect_ant_did") SetProfileEnvironment(L"CAC_REDIRECT_ANT_DID", value);
     }
 }
 

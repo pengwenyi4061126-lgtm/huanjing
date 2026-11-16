@@ -1,0 +1,6 @@
+# cac native CPU hook manifest (Go ABI)
+# module|sha256|rva|kind|prologue_hex
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\cowork-svc.exe|88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646|0x2BA0|gocpuid|8b4424088b4c240c
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\cowork-svc.exe|88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646|0x2BC0|goxgetbv|b900000000
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\cowork-svc.exe|88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646|0x212A60|gocpuid|8b4424088b4c240c
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\cowork-svc.exe|88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646|0x212A80|goxgetbv|b900000000

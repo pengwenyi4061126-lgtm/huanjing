@@ -27,6 +27,17 @@ if (-not (Test-Path -LiteralPath $nativeAudit)) {
     New-Item -ItemType File -Path $nativeAudit | Out-Null
 }
 
+$cpuManifest = Join-Path $profileDir 'service-cpu-manifest.txt'
+$manifestLine = $null
+try {
+    & (Join-Path $PSScriptRoot 'build-cowork-cpu-manifest.ps1') -Output $cpuManifest | Out-Null
+    if (Test-Path -LiteralPath $cpuManifest) {
+        $manifestLine = "manifest=$cpuManifest"
+    }
+} catch {
+    Write-Warning "CPU manifest generation skipped: $($_.Exception.Message)"
+}
+
 $iniPath = Join-Path $DataRoot 'active-profile.ini'
 $lines = @(
     "profile_dir=$profileDir"
@@ -37,8 +48,10 @@ $lines = @(
     "username=$($identity.username)"
     'read_policy=profile'
     'cpuid_mode=neutral'
+    'redirect_ant_did=1'
     "audit=$nativeAudit"
 )
+if ($manifestLine) { $lines += $manifestLine }
 $lines | Set-Content -LiteralPath $iniPath -Encoding Unicode
 
 # Keep the handoff readable by LocalSystem and Administrators only.

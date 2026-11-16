@@ -64,12 +64,20 @@ $dllSources = @(
     "NativeBridge\NativeBridge.cpp"
 ) | ForEach-Object { Join-Path $root $_ }
 
+$ml64 = Join-Path $msvc.MsvcVersion "bin\Hostx64\x64\ml64.exe"
+$asmSource = Join-Path $root "NativeBridge\GoCpuDetours.asm"
+$asmObject = Join-Path $obj "GoCpuDetours.obj"
+
 Push-Location $root
 try {
+    Write-Host "Assembling Go CPU detours ..." -ForegroundColor Cyan
+    & $ml64 /nologo /c "/Fo$asmObject" $asmSource
+    if ($LASTEXITCODE -ne 0) { throw "GoCpuDetours.asm build failed ($LASTEXITCODE)" }
+
     Write-Host "Building NativeBridge.dll ..." -ForegroundColor Cyan
     & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime /LD `
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
-        $dllSources `
+        ($dllSources + $asmObject) `
         "/Fo$obj\" "/Fe:$dist\NativeBridge.dll" `
         /link /DLL /guard:cf /Brepro iphlpapi.lib bcrypt.lib wbemuuid.lib ole32.lib oleaut32.lib fwpuclnt.lib ws2_32.lib
     if ($LASTEXITCODE -ne 0) { throw "NativeBridge.dll build failed ($LASTEXITCODE)" }
@@ -103,6 +111,18 @@ try {
     $injectorPath = Join-Path $dist "cac-service-injector.exe"
     $injectorHash = Get-CacSha256 $injectorPath
     Set-Content -LiteralPath (Join-Path $dist "cac-service-injector.sha256") -Value $injectorHash -Encoding ASCII
+
+    Write-Host "Building cac-cpu-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "CpuProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-cpu-probe.exe" `
+        /link /guard:cf /Brepro advapi32.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-cpu-probe.exe build failed ($LASTEXITCODE)" }
+
+    $probePath = Join-Path $dist "cac-cpu-probe.exe"
+    $probeHash = Get-CacSha256 $probePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-cpu-probe.sha256") -Value $probeHash -Encoding ASCII
 } finally {
     Pop-Location
 }

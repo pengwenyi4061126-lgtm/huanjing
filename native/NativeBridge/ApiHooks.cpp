@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <cwctype>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,9 @@
 
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "bcrypt.lib")
+
+extern "C" void GoCpuidDetour();
+extern "C" void GoXgetbvDetour();
 
 namespace {
 
@@ -1147,16 +1151,74 @@ void AuditClaudeProfilePath(const char* surface, const wchar_t* path) {
     AuditEventRateLimited(surface, "observed", detail.c_str());
 }
 
+bool RedirectClaudeProfilePath(const std::wstring& input, std::wstring& output) {
+    output.clear();
+    char enabled[8] = {};
+    if (GetEnvironmentVariableA("CAC_REDIRECT_ANT_DID", enabled, sizeof(enabled)) == 0 ||
+        enabled[0] != '1') {
+        return false;
+    }
+    wchar_t profileBuffer[32768] = {};
+    const DWORD profileLength = GetEnvironmentVariableW(
+        L"CAC_PROFILE_DIR", profileBuffer, static_cast<DWORD>(_countof(profileBuffer)));
+    if (profileLength == 0 || profileLength >= _countof(profileBuffer)) return false;
+    std::wstring profileDir(profileBuffer, profileLength);
+    while (!profileDir.empty() && (profileDir.back() == L'\\' || profileDir.back() == L'/')) {
+        profileDir.pop_back();
+    }
+    if (input.empty() || profileDir.empty()) {
+        return false;
+    }
+    if (_wcsnicmp(input.c_str(), profileDir.c_str(), profileDir.size()) == 0 &&
+        (input.size() == profileDir.size() || input[profileDir.size()] == L'\\' ||
+         input[profileDir.size()] == L'/')) {
+        return false;
+    }
+
+    std::wstring lower = input;
+    for (wchar_t& c : lower) {
+        if (c == L'/') c = L'\\';
+        c = static_cast<wchar_t>(towlower(c));
+    }
+    const std::wstring suffix3p = L"\\claude-3p\\ant-did";
+    const std::wstring suffix = L"\\claude\\ant-did";
+    const bool is3p = lower.size() >= suffix3p.size() &&
+                      lower.compare(lower.size() - suffix3p.size(), suffix3p.size(), suffix3p) == 0;
+    const bool isDesktop = lower.size() >= suffix.size() &&
+                           lower.compare(lower.size() - suffix.size(), suffix.size(), suffix) == 0;
+    std::wstring target;
+    if (is3p) {
+        const std::wstring parent = profileDir + L"\\Claude-3p";
+        CreateDirectoryW(parent.c_str(), nullptr);
+        target = parent + L"\\ant-did";
+    } else if (isDesktop) {
+        target = profileDir + L"\\ant-did";
+    } else {
+        return false;
+    }
+
+    if (_wcsicmp(input.c_str(), target.c_str()) == 0) return false;
+    output = target;
+    const std::string detail = WideToUtf8(input) + " -> " + WideToUtf8(target);
+    AuditEventRateLimited("api.claudeprofile", "redirect", detail.c_str());
+    return true;
+}
+
 HANDLE WINAPI HookCreateFileW(LPCWSTR fileName, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
                               DWORD creation, DWORD flags, HANDLE templateFile) {
     AuditClaudeProfilePath("api.createfile.claudeprofile", fileName);
-    if (EmptyReadsEnabled() && IsRawHardwarePath(fileName)) {
+    std::wstring redirected;
+    const wchar_t* effective = fileName;
+    if (fileName && RedirectClaudeProfilePath(fileName, redirected)) {
+        effective = redirected.c_str();
+    }
+    if (EmptyReadsEnabled() && IsRawHardwarePath(effective)) {
         AuditEventRateLimited("api.createfile.rawdevice", "denied");
         SetLastError(ERROR_ACCESS_DENIED);
         return INVALID_HANDLE_VALUE;
     }
     return g_origCreateFile
-        ? g_origCreateFile(fileName, access, share, security, creation, flags, templateFile)
+        ? g_origCreateFile(effective, access, share, security, creation, flags, templateFile)
         : INVALID_HANDLE_VALUE;
 }
 
@@ -1164,6 +1226,12 @@ HANDLE WINAPI HookCreateFileA(LPCSTR fileName, DWORD access, DWORD share, LPSECU
                               DWORD creation, DWORD flags, HANDLE templateFile) {
     const std::wstring wideName = AnsiToWide(fileName);
     AuditClaudeProfilePath("api.createfilea.claudeprofile", wideName.c_str());
+    std::wstring redirected;
+    if (!wideName.empty() && RedirectClaudeProfilePath(wideName, redirected)) {
+        return g_origCreateFile
+            ? g_origCreateFile(redirected.c_str(), access, share, security, creation, flags, templateFile)
+            : INVALID_HANDLE_VALUE;
+    }
     if (IsRawHardwarePath(wideName.c_str())) {
         if (EmptyReadsEnabled()) {
             AuditEventRateLimited("api.createfilea.rawdevice", "denied");
@@ -1188,8 +1256,13 @@ HANDLE WINAPI HookCreateFile2(LPCWSTR fileName, DWORD access, DWORD share, DWORD
         }
         AuditEventRateLimited("api.createfile2.rawdevice", "observed");
     }
+    std::wstring redirected;
+    const wchar_t* effective = fileName;
+    if (fileName && RedirectClaudeProfilePath(fileName, redirected)) {
+        effective = redirected.c_str();
+    }
     return g_origCreateFile2
-        ? g_origCreateFile2(fileName, access, share, creation, extended)
+        ? g_origCreateFile2(effective, access, share, creation, extended)
         : INVALID_HANDLE_VALUE;
 }
 
@@ -1743,7 +1816,9 @@ bool InstallManifestEntry(const std::string& line) {
     }
 
     void* detour = nullptr;
-    if (kind == "cpuid") detour = reinterpret_cast<void*>(&CpuIdDetour);
+    if (kind == "gocpuid") detour = reinterpret_cast<void*>(&GoCpuidDetour);
+    else if (kind == "goxgetbv") detour = reinterpret_cast<void*>(&GoXgetbvDetour);
+    else if (kind == "cpuid") detour = reinterpret_cast<void*>(&CpuIdDetour);
     else if (kind == "cpuidex") detour = reinterpret_cast<void*>(&CpuIdExDetour);
     else if (kind == "xgetbv") detour = reinterpret_cast<void*>(&XgetbvDetour);
     else {
@@ -1765,6 +1840,41 @@ bool InstallManifestEntry(const std::string& line) {
 }
 
 }  // namespace
+
+// Go 1.25 internal/cpu assembly ABI: arguments and results live on the
+// caller's stack.  The stubs in GoCpuDetours.asm preserve that layout and
+// call these C helpers.
+extern "C" void __cdecl CacGoCpuidFilter(unsigned int leaf, unsigned int subleaf,
+                                         unsigned int out[4]) {
+    int regs[4] = {};
+    if (GetCpuidReadMode() != CpuidReadMode::Empty) {
+        __cpuidex(regs, static_cast<int>(leaf), static_cast<int>(subleaf));
+    }
+    CpuIdFilter(regs, static_cast<int>(leaf));
+    for (int i = 0; i < 4; ++i) out[i] = static_cast<unsigned int>(regs[i]);
+    char detail[128] = {};
+    std::snprintf(detail, sizeof(detail),
+                  "go leaf=0x%x subleaf=0x%x eax=0x%x ebx=0x%x ecx=0x%x edx=0x%x",
+                  leaf, subleaf, out[0], out[1], out[2], out[3]);
+    AuditEventRateLimited("cpu.gocpuid", "filtered", detail);
+}
+
+extern "C" void __cdecl CacGoXgetbvFilter(unsigned int out[2]) {
+    unsigned long long value = 0;
+    if (GetCpuidReadMode() != CpuidReadMode::Empty) {
+        int regs[4] = {};
+        __cpuidex(regs, 1, 0);
+        if ((regs[2] & (1 << 27)) != 0) {
+            value = _xgetbv(0);
+        }
+    }
+    out[0] = static_cast<unsigned int>(value);
+    out[1] = static_cast<unsigned int>(value >> 32);
+    char detail[64] = {};
+    std::snprintf(detail, sizeof(detail), "go xcr0=0x%llx",
+                  static_cast<unsigned long long>(value));
+    AuditEventRateLimited("cpu.goxgetbv", "observed", detail);
+}
 
 void InstallHookShared(const char* dllName, const char* functionName, void* detour,
                        void** original, bool allowInline) {
