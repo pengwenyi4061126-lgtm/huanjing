@@ -24,6 +24,7 @@ param(
     [string]$CpuDeepProbe,
     [string]$DiskProbe,
     [string]$DisplayProbe,
+    [string]$HidProbe,
     [string]$WmiProbe,
     [switch]$SkipCim
 )
@@ -37,6 +38,7 @@ if (-not $GpuProbe) { $GpuProbe = Join-Path $repoRoot 'native\dist\cac-gpu-probe
 if (-not $CpuDeepProbe) { $CpuDeepProbe = Join-Path $repoRoot 'native\dist\cac-cpu-deep-probe.exe' }
 if (-not $DiskProbe) { $DiskProbe = Join-Path $repoRoot 'native\dist\cac-disk-probe.exe' }
 if (-not $DisplayProbe) { $DisplayProbe = Join-Path $repoRoot 'native\dist\cac-display-probe.exe' }
+if (-not $HidProbe) { $HidProbe = Join-Path $repoRoot 'native\dist\cac-hid-probe.exe' }
 if (-not $WmiProbe) { $WmiProbe = Join-Path $repoRoot 'artifacts\wmi_probe.exe' }
 $ProfilePath = (Resolve-Path -LiteralPath $ProfilePath).Path
 $Launcher = (Resolve-Path -LiteralPath $Launcher).Path
@@ -58,6 +60,10 @@ if (-not (Test-Path -LiteralPath $DisplayProbe -PathType Leaf)) {
     throw "Display probe not found: $DisplayProbe"
 }
 $DisplayProbe = (Resolve-Path -LiteralPath $DisplayProbe).Path
+if (-not (Test-Path -LiteralPath $HidProbe -PathType Leaf)) {
+    throw "HID probe not found: $HidProbe"
+}
+$HidProbe = (Resolve-Path -LiteralPath $HidProbe).Path
 if (-not (Test-Path -LiteralPath $WmiProbe -PathType Leaf)) {
     throw "WMI probe not found: $WmiProbe"
 }
@@ -202,6 +208,10 @@ $displayLog = Join-Path $OutputDir 'display-probe.txt'
 $displayCode = Invoke-Injected -Executable $DisplayProbe -Arguments @() -LogPath $displayLog
 $display = Read-KeyValues -Path $displayLog
 
+$hidLog = Join-Path $OutputDir 'hid-probe.txt'
+$hidCode = Invoke-Injected -Executable $HidProbe -Arguments @() -LogPath $hidLog
+$hid = Read-KeyValues -Path $hidLog
+
 $cimCode = $null
 $cimLog = Join-Path $OutputDir 'cim-probe.txt'
 if (-not $SkipCim) {
@@ -224,6 +234,7 @@ Add-Check 'probe.gpu' 'fail' ($gpuCode -eq 0 -and $gpu['gpu_state'] -eq 'ok') 'g
 Add-Check 'probe.cpudeep' 'fail' ($cpuCode -eq 0 -and $cpu.Count -gt 0) 'exit 0 + key=value' "exit=$cpuCode lines=$($cpu.Count)" 'CPU/memory deep probe'
 Add-Check 'probe.disk' 'fail' ($diskCode -eq 0 -and $disk['disk_state'] -eq 'ok') 'disk_state=ok' "exit=$diskCode state=$($disk['disk_state'])" 'Disk layout probe'
 Add-Check 'probe.display' 'fail' ($displayCode -eq 0 -and $display['display_state'] -eq 'ok') 'display_state=ok' "exit=$displayCode state=$($display['display_state'])" 'DisplayConfig probe'
+Add-Check 'probe.hid' 'fail' ($hidCode -eq 0 -and $hid['hid_state'] -eq 'ok') 'hid_state=ok' "exit=$hidCode state=$($hid['hid_state'])" 'HID probe'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -331,6 +342,14 @@ Add-Check 'hardware.display_path' 'fail' ($displayPath -notmatch 'PHLC031|PHL') 
 $displayAdapterPath = [string]$display['adapter0_path']
 Add-Check 'hardware.display_adapter_path' 'fail' ($displayAdapterPath -notmatch 'DEV_1C82|DEV_1c82') 'profile GPU PCI id' $displayAdapterPath 'real GPU PCI id must not leak'
 
+$hidVendor = [string]$hid['hid0_vendor']
+$hidProduct = [string]$hid['hid0_product']
+Add-Check 'hardware.hid_vendor' 'fail' ($hidVendor -eq '0x046d' -and $hidProduct -eq '0xc52b') '0x046d/0xc52b' "$hidVendor/$hidProduct" 'HidD_GetAttributes'
+$hidManufacturer = [string]$hid['hid0_manufacturer']
+Add-Check 'hardware.hid_manufacturer' 'fail' ($hidManufacturer -eq 'Logitech') 'Logitech' $hidManufacturer 'HidD_GetManufacturerString'
+$hidProductString = [string]$hid['hid0_product_string']
+Add-Check 'hardware.hid_product' 'fail' ($hidProductString -eq 'USB Receiver') 'USB Receiver' $hidProductString 'HidD_GetProductString'
+
 $processNames = @()
 if (Test-Path -LiteralPath $processLog) {
     $processNames = @(Get-Content -LiteralPath $processLog | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() } | Sort-Object -Unique)
@@ -360,12 +379,14 @@ $result = [ordered]@{
         cpu = $cpu
         disk = $disk
         display = $display
+        hid = $hid
         wmi = $wmi
         hardwareExit = $hardwareCode
         gpuExit = $gpuCode
         cpuExit = $cpuCode
         diskExit = $diskCode
         displayExit = $displayCode
+        hidExit = $hidCode
         wmiExit = $wmiCode
         cimExit = $cimCode
         processExit = $processCode

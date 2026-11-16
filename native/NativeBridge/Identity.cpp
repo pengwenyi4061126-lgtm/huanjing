@@ -158,6 +158,11 @@ bool ProfileIdentity::Load() {
     JsonString(document, "system_uuid", systemUuid);
     JsonString(document, "processor_id", processorId);
     JsonString(document, "hid_serial", hidSerial);
+    JsonU32(document, "hid_vendor_id", hidVendorId);
+    JsonU32(document, "hid_product_id", hidProductId);
+    JsonU32(document, "hid_version", hidVersion);
+    JsonString(document, "hid_manufacturer", hidManufacturer);
+    JsonString(document, "hid_product", hidProduct);
     JsonString(document, "volume_serial", volumeSerialHex_);
     JsonU64(document, "memory_total_mb", memoryTotalMb);
     JsonU64(document, "memory_available_mb", memoryAvailableMb);

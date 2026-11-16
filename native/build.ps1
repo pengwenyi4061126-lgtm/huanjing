@@ -184,6 +184,18 @@ try {
     $displayProbePath = Join-Path $dist "cac-display-probe.exe"
     $displayProbeHash = Get-CacSha256 $displayProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-display-probe.sha256") -Value $displayProbeHash -Encoding ASCII
+
+    Write-Host "Building cac-hid-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "HidProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-hid-probe.exe" `
+        /link /guard:cf /Brepro hid.lib setupapi.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-hid-probe.exe build failed ($LASTEXITCODE)" }
+
+    $hidProbePath = Join-Path $dist "cac-hid-probe.exe"
+    $hidProbeHash = Get-CacSha256 $hidProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-hid-probe.sha256") -Value $hidProbeHash -Encoding ASCII
 } finally {
     Pop-Location
 }

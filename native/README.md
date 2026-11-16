@@ -33,6 +33,7 @@ replacement process by name. Profile handoff uses
 | `GetUserNameW` | inline-primary + IAT/delay patch | on |
 | `RegGetValueW` / `RegQueryValueExW` (MachineGuid/BIOS/CPU values) | inline-primary + IAT/delay patch | on |
 | `HidD_GetSerialNumberString` | inline-primary + IAT/delay patch | on |
+| `HidD_GetAttributes` / `GetManufacturerString` / `GetProductString` | profile VID/PID/version and strings | on |
 | `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | inline-primary with IAT/delay fallback; profile mode hides virtual device IDs/properties, empty policy clears output | profile |
 | `GetIfTable2` / `GetIfEntry2` / `GetIfTable` | inline-primary + IAT/delay patch + MAC rewrite | on |
 | `RegEnumValueW` | inline-primary + IAT/delay patch + value rewrite | on |
@@ -203,7 +204,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 
   -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
 ```
 
-The 2026-11-16 baseline is `pass=38 fail=1 warn=0`; the only failure is
+The 2026-11-16 baseline is `pass=42 fail=1 warn=0`; the only failure is
 Clash process visibility, which belongs to the deferred TUN+clean work.
 SMBIOS Type 17 now rewrites only populated slots, so the sum of module
 sizes matches the profile memory total instead of filling empty slots.
@@ -222,6 +223,9 @@ the launcher to compare.
 
 `cac-display-probe.exe` prints the DisplayConfig friendly name, EDID
 manufacturer/product IDs, monitor path and adapter path.
+
+`cac-hid-probe.exe` enumerates HID interfaces and prints
+`hidN_vendor/product/version/manufacturer/product_string/serial`.
 
 ## Boundaries
 

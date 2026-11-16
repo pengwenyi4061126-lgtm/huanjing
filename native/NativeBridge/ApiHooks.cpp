@@ -12,6 +12,7 @@
 #include <bcrypt.h>
 #include <intrin.h>
 #include <setupapi.h>
+#include <hidsdi.h>
 #include <devpropdef.h>
 #include <initguid.h>
 #include <devguid.h>
@@ -245,6 +246,9 @@ typedef BOOL (WINAPI* PFN_GetUserNameW)(LPWSTR, LPDWORD);
 typedef LSTATUS (WINAPI* PFN_RegGetValueW)(HKEY, LPCWSTR, LPCWSTR, DWORD, LPDWORD, PVOID, LPDWORD);
 typedef LSTATUS (WINAPI* PFN_RegQueryValueExW)(HKEY, LPCWSTR, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
 typedef BOOLEAN (WINAPI* PFN_HidD_GetSerialNumberString)(HANDLE, PVOID, ULONG);
+typedef BOOLEAN (WINAPI* PFN_HidD_GetAttributes)(HANDLE, PHIDD_ATTRIBUTES);
+typedef BOOLEAN (WINAPI* PFN_HidD_GetManufacturerString)(HANDLE, PVOID, ULONG);
+typedef BOOLEAN (WINAPI* PFN_HidD_GetProductString)(HANDLE, PVOID, ULONG);
 typedef BOOL (WINAPI* PFN_SetupDiGetDevicePropertyW)(HDEVINFO, PSP_DEVINFO_DATA, const DEVPROPKEY*, DEVPROPTYPE*, PBYTE, DWORD, PDWORD, DWORD);
 typedef BOOL (WINAPI* PFN_SetupDiGetDeviceRegistryPropertyW)(HDEVINFO, PSP_DEVINFO_DATA, DWORD, PDWORD, PBYTE, DWORD, PDWORD);
 typedef BOOL (WINAPI* PFN_SetupDiGetDeviceInstanceIdW)(HDEVINFO, PSP_DEVINFO_DATA, PWSTR, DWORD, PDWORD);
@@ -299,6 +303,9 @@ PFN_GetUserNameW g_origGetUserName = nullptr;
 PFN_RegGetValueW g_origRegGetValue = nullptr;
 PFN_RegQueryValueExW g_origRegQueryValueEx = nullptr;
 PFN_HidD_GetSerialNumberString g_origHidGetSerial = nullptr;
+PFN_HidD_GetAttributes g_origHidGetAttributes = nullptr;
+PFN_HidD_GetManufacturerString g_origHidGetManufacturer = nullptr;
+PFN_HidD_GetProductString g_origHidGetProduct = nullptr;
 PFN_SetupDiGetDevicePropertyW g_origSetupDiGetDeviceProperty = nullptr;
 PFN_SetupDiGetDeviceRegistryPropertyW g_origSetupDiGetRegistryProperty = nullptr;
 PFN_SetupDiGetDeviceInstanceIdW g_origSetupDiGetInstanceId = nullptr;
@@ -668,6 +675,57 @@ BOOLEAN WINAPI HookHidD_GetSerialNumberString(HANDLE device, PVOID buffer, ULONG
     std::memcpy(buffer, value.c_str(), needed);
     AuditEventRateLimited("api.hid.serial", EmptyReadsEnabled() ? "empty" : "patched");
     return TRUE;
+}
+
+BOOLEAN WriteHidStringValue(PVOID buffer, ULONG bufferLength,
+                            const std::string& value, const char* surface) {
+    const std::wstring text = EmptyReadsEnabled() ? std::wstring() : Utf8ToWide(value);
+    const size_t needed = (text.size() + 1) * sizeof(wchar_t);
+    if (!buffer || bufferLength < needed) {
+        AuditEventRateLimited(surface, "buffer-too-small");
+        return FALSE;
+    }
+    std::memcpy(buffer, text.c_str(), needed);
+    AuditEventRateLimited(surface, EmptyReadsEnabled() ? "empty" : "patched");
+    return TRUE;
+}
+
+BOOLEAN WINAPI HookHidD_GetAttributes(HANDLE device, PHIDD_ATTRIBUTES attributes) {
+    const BOOLEAN result = g_origHidGetAttributes
+        ? g_origHidGetAttributes(device, attributes)
+        : FALSE;
+    if (result && attributes && NativeHardwareHooksEnabled()) {
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        attributes->VendorID = static_cast<USHORT>(identity.hidVendorId);
+        attributes->ProductID = static_cast<USHORT>(identity.hidProductId);
+        attributes->VersionNumber = static_cast<USHORT>(identity.hidVersion);
+        AuditEventRateLimited("api.hid.attributes", "patched");
+    }
+    return result;
+}
+
+BOOLEAN WINAPI HookHidD_GetManufacturerString(HANDLE device, PVOID buffer, ULONG bufferLength) {
+    (void)device;
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origHidGetManufacturer
+            ? g_origHidGetManufacturer(device, buffer, bufferLength)
+            : FALSE;
+    }
+    return WriteHidStringValue(buffer, bufferLength,
+                               ProfileIdentity::Get().hidManufacturer,
+                               "api.hid.manufacturer");
+}
+
+BOOLEAN WINAPI HookHidD_GetProductString(HANDLE device, PVOID buffer, ULONG bufferLength) {
+    (void)device;
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origHidGetProduct
+            ? g_origHidGetProduct(device, buffer, bufferLength)
+            : FALSE;
+    }
+    return WriteHidStringValue(buffer, bufferLength,
+                               ProfileIdentity::Get().hidProduct,
+                               "api.hid.product");
 }
 
 BOOL WINAPI HookSetupDiGetDevicePropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, const DEVPROPKEY* key,
@@ -3027,6 +3085,14 @@ bool InstallApiHooks() {
                          reinterpret_cast<void**>(&g_origRegQueryValueEx));
     InstallInlineThenIat("hid.dll", "HidD_GetSerialNumberString", reinterpret_cast<void*>(&HookHidD_GetSerialNumberString),
                          reinterpret_cast<void**>(&g_origHidGetSerial));
+    InstallInlineThenIat("hid.dll", "HidD_GetAttributes", reinterpret_cast<void*>(&HookHidD_GetAttributes),
+                         reinterpret_cast<void**>(&g_origHidGetAttributes));
+    InstallInlineThenIat("hid.dll", "HidD_GetManufacturerString",
+                         reinterpret_cast<void*>(&HookHidD_GetManufacturerString),
+                         reinterpret_cast<void**>(&g_origHidGetManufacturer));
+    InstallInlineThenIat("hid.dll", "HidD_GetProductString",
+                         reinterpret_cast<void*>(&HookHidD_GetProductString),
+                         reinterpret_cast<void**>(&g_origHidGetProduct));
     InstallInlineThenIat("setupapi.dll", "SetupDiGetDevicePropertyW",
                          reinterpret_cast<void*>(&HookSetupDiGetDevicePropertyW),
                          reinterpret_cast<void**>(&g_origSetupDiGetDeviceProperty));

@@ -807,6 +807,11 @@ function Initialize-ProfileIdentity {
         monitor_pnp_id = 'DEL41A9'
         monitor_edid_manufacturer = 0x10AC
         monitor_edid_product = 0x41A9
+        hid_vendor_id = 0x046D
+        hid_product_id = 0xC52B
+        hid_version = 0x0111
+        hid_manufacturer = 'Logitech'
+        hid_product = 'USB Receiver'
     }
     $encoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
     [System.IO.File]::WriteAllText($Paths.IdentityPath, ($identity | ConvertTo-Json -Depth 5), $encoding)

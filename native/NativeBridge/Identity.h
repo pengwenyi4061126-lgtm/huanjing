@@ -23,6 +23,11 @@ struct ProfileIdentity {
     std::string  systemUuid;       // 32 hex chars
     std::string  processorId;      // 16 hex chars
     std::string  hidSerial;
+    uint32_t     hidVendorId = 0x046D;
+    uint32_t     hidProductId = 0xC52B;
+    uint32_t     hidVersion = 0x0111;
+    std::string  hidManufacturer = "Logitech";
+    std::string  hidProduct = "USB Receiver";
     std::string  volumeSerialHex_;
     DWORD        volumeSerial = 0;
 

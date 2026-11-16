@@ -509,6 +509,11 @@ function Ensure-ProfileLayout {
         monitor_pnp_id = "DEL41A9"
         monitor_edid_manufacturer = 0x10AC
         monitor_edid_product = 0x41A9
+        hid_vendor_id = 0x046D
+        hid_product_id = 0xC52B
+        hid_version = 0x0111
+        hid_manufacturer = "Logitech"
+        hid_product = "USB Receiver"
     }
     $identityChanged = (-not $identityValid)
     foreach ($key in $derived.Keys) {
