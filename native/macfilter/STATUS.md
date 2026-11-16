@@ -33,6 +33,9 @@
 - 控制设备通过 `IoCreateDeviceSecure` 限制为 `SYSTEM + Administrators`；
   `CAC_MAC_IOCTL_SET` 只接受 6 字节，`STATE` 只接受 0 输入，
   `FAULT` 只接受 0/1/2。
+- `verify-macfilter-artifacts.ps1` 当前结果：`PASS=True FAIL=0 WARN=1`；
+  唯一警告是本机已安装的旧驱动 `E3A307C0...` 仍是 11-14 版本，服务
+  `DISABLED`，未加载。
 
 ## 明确边界
 
