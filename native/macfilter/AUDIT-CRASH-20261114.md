@@ -1,13 +1,11 @@
 # CacMacLwf 蓝屏事故审计（2026-11-14）
 
-> **2026-11-16 复核修正：** 下方“NDIS/WFP 框架缺陷”的结论不成立，至少不能作为
-> 首选解释。Microsoft `FILTER_PAUSE` 文档明确写明 “NDIS drivers cannot fail a
-> pause request.”，而本驱动在 `Outstanding != 0` 时返回
-> `NDIS_STATUS_FAILURE`；同时 `FilterSendNetBufferListsComplete` /
-> `FilterReturnNetBufferLists` 没有调用
-> `NdisFSendNetBufferListsComplete` / `NdisFReturnNetBufferLists`，收发完成链
-> 没有转发。电源 OID 完成链崩溃应先按驱动违规修复并复测。
-> 详见 `RESEARCH-MAC-20261116.md`。
+> **2026-11-16 状态：历史事故记录，已闭环。** 根因不是 WFP 框架缺陷，而是
+> 本驱动把原始 `NDIS_OID_REQUEST` 直接下发，破坏了 OID 完成链。修复提交
+> `de2d8d1` 改为 `NdisAllocateCloneOidRequest` + clone 完成回写，已通过
+> 5× `Restart-NetAdapter`、开机 `SYSTEM_START`、`ping 10/10` 实测。
+> 下方“NDIS/WFP 框架缺陷”的旧结论仅保留为历史记录，不再作为当前判断。
+> 当前状态见 `STATUS.md`，修复细节见 `LWF-FIX-TEST-20261116.md` 第 8-9 节。
 
 ## VM 对照实验矩阵（2026-11-15，原版 Win11 22631.7376 VM）
 

@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "generatedUtc": "2026-11-16T06:29:47.8154307Z",
+  "repository": "E:\\环境\\huanjing",
+  "head": "f1ef286fb8a98285ef2a4be9a7657e6aaf0bd50a",
+  "branch": "main",
+  "dirty": false,
+  "dirtyEntries": [],
+  "fixCommit": "de2d8d1abc42b927a754d6468f5e663e829d3fe9",
+  "fixCommitInHead": true,
+  "serviceQuery": "SERVICE_NAME: CacMacLwf \r\n        TYPE               : 1  KERNEL_DRIVER  \r\n        STATE              : 1  STOPPED \r\n        WIN32_EXIT_CODE    : 1077  (0x435)\r\n        SERVICE_EXIT_CODE  : 0  (0x0)\r\n        CHECKPOINT         : 0x0\r\n        WAIT_HINT          : 0x0",
+  "serviceConfig": "[SC] QueryServiceConfig SUCCESS\r\n\r\nSERVICE_NAME: CacMacLwf\r\n        TYPE               : 1  KERNEL_DRIVER \r\n        START_TYPE         : 4   DISABLED\r\n        ERROR_CONTROL      : 1   NORMAL\r\n        BINARY_PATH_NAME   : \\SystemRoot\\System32\\drivers\\CacMacLwf.sys\r\n        LOAD_ORDER_GROUP   : \r\n        TAG                : 0\r\n        DISPLAY_NAME       : CAC Profile MAC Lightweight Filter\r\n        DEPENDENCIES       : \r\n        SERVICE_START_NAME :",
+  "files": [
+    {
+      "path": "E:\\环境\\huanjing\\native\\macfilter\\bin\\CacMacLwf.sys",
+      "exists": true,
+      "length": 10128,
+      "createdUtc": "2026-11-16T01:18:57.0461822Z",
+      "modifiedUtc": "2026-11-16T01:18:57.1334807Z",
+      "sha256": "37012AD56953AE4B052862FEBC9F41FFCB02397A341AFC4BD16CDA395E9C80E0",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\macfilter\\CacMacLwf.sys",
+      "exists": true,
+      "length": 8080,
+      "createdUtc": "2026-11-14T21:13:27.2966873Z",
+      "modifiedUtc": "2026-11-14T21:13:27.2966873Z",
+      "sha256": "1251E2DC461590D9A768BB98827C4A253701A56716FCF7C929C6B771E4566D91",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    },
+    {
+      "path": "C:\\Windows\\System32\\drivers\\CacMacLwf.sys",
+      "exists": true,
+      "length": 8592,
+      "createdUtc": "2026-11-14T11:58:14.7422162Z",
+      "modifiedUtc": "2026-11-14T12:43:16.8394303Z",
+      "sha256": "E3A307C09687A7BC93DA81A734DF3392663000E7BAC1F4852308072EDA517921",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\macfilter\\evidence\\builds\\clone-20261116\\CacMacLwf.sys",
+      "exists": true,
+      "length": 10128,
+      "createdUtc": "2026-11-16T01:33:08.1683652Z",
+      "modifiedUtc": "2026-11-16T01:18:57.1334807Z",
+      "sha256": "37012AD56953AE4B052862FEBC9F41FFCB02397A341AFC4BD16CDA395E9C80E0",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\macfilter\\exp1-015747\\CacMacLwf.sys",
+      "exists": true,
+      "length": 8592,
+      "createdUtc": "2026-11-14T21:13:27.2966873Z",
+      "modifiedUtc": "2026-11-14T21:13:27.2966873Z",
+      "sha256": "4314AE94A84518BBC4EB7F43C9FEC37AC138B605FE8E0CBC282D9EF7642C6103",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\macfilter\\exp2-023620\\CacMacLwf.sys",
+      "exists": true,
+      "length": 8592,
+      "createdUtc": "2026-11-14T21:13:27.2966873Z",
+      "modifiedUtc": "2026-11-14T21:13:27.2966873Z",
+      "sha256": "896A8EE51D4FB95995BFE17622CA2012EDC716AC7E24896208C1962656A4E798",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\macfilter\\exp3-030607\\CacMacLwf.sys",
+      "exists": true,
+      "length": 8592,
+      "createdUtc": "2026-11-14T21:13:27.2966873Z",
+      "modifiedUtc": "2026-11-14T21:13:27.2966873Z",
+      "sha256": "CD4F9276673D4AA13E5A17CC3F75486ACB07AE71C156223B6E4DBE5F2A55CE9B",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\macfilter\\package-014204\\cacmaclwf.sys",
+      "exists": true,
+      "length": 8592,
+      "createdUtc": "2026-11-14T21:13:27.2966873Z",
+      "modifiedUtc": "2026-11-14T21:13:27.2966873Z",
+      "sha256": "BABB8B2A7CB4008C788219218714BC53AB232D3F404BD7B7EE103EF09510101E",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\macfilter\\pkg2-014333\\CacMacLwf.sys",
+      "exists": true,
+      "length": 8592,
+      "createdUtc": "2026-11-14T21:13:27.3095166Z",
+      "modifiedUtc": "2026-11-14T21:13:27.3095166Z",
+      "sha256": "BABB8B2A7CB4008C788219218714BC53AB232D3F404BD7B7EE103EF09510101E",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\macfilter\\pkg3-014349\\CacMacLwf.sys",
+      "exists": true,
+      "length": 8592,
+      "createdUtc": "2026-11-14T21:13:27.3105191Z",
+      "modifiedUtc": "2026-11-14T21:13:27.3105191Z",
+      "sha256": "BABB8B2A7CB4008C788219218714BC53AB232D3F404BD7B7EE103EF09510101E",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\macfilter\\vmtest\\CacMacLwf.sys",
+      "exists": true,
+      "length": 8592,
+      "createdUtc": "2026-11-14T21:13:27.3115177Z",
+      "modifiedUtc": "2026-11-14T21:13:27.3115177Z",
+      "sha256": "E3A307C09687A7BC93DA81A734DF3392663000E7BAC1F4852308072EDA517921",
+      "signature": "Valid",
+      "signer": "CN=CAC Kernel Test Signing"
+    }
+  ]
+}

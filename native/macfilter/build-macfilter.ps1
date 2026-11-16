@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $nativeRoot = Split-Path -Parent $root
+$repoRoot = Split-Path -Parent $nativeRoot
 $bin = Join-Path $root 'bin'
 $obj = Join-Path $root 'obj'
 
@@ -104,7 +105,7 @@ if ($LASTEXITCODE -ne 0) { throw "CacMacLwf compile failed ($LASTEXITCODE)" }
 Write-Host 'Linking CacMacLwf.sys ...' -ForegroundColor Cyan
 & $link /nologo /DRIVER /SUBSYSTEM:NATIVE /ENTRY:DriverEntry /NODEFAULTLIB `
     /MACHINE:X64 "/OUT:$sysPath" $objFile `
-    ntoskrnl.lib ndis.lib hal.lib BufferOverflowK.lib libcntpr.lib
+    ntoskrnl.lib ndis.lib hal.lib BufferOverflowK.lib libcntpr.lib wdmsec.lib
 if ($LASTEXITCODE -ne 0) { throw "CacMacLwf link failed ($LASTEXITCODE)" }
 
 if (-not $SkipSign) {
@@ -125,17 +126,49 @@ if (-not $SkipSign) {
     $inf2cat = Get-ChildItem 'D:\huanjing\wdk' -Recurse -Filter 'Inf2Cat.exe' -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if (-not $inf2cat) { throw 'Inf2Cat.exe not found in WDK.' }
-    & $inf2cat.FullName "/driver:$root" /os:10_X64 /uselocaltime
-    $catPath = Join-Path $root 'CacMacLwf.cat'
-    if (-not (Test-Path -LiteralPath $catPath -PathType Leaf)) {
+    $packageDir = Join-Path $obj 'package'
+    New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+    Copy-Item -LiteralPath $sysPath -Destination (Join-Path $packageDir 'CacMacLwf.sys') -Force
+    Copy-Item -LiteralPath (Join-Path $root 'CacMacLwf.inf') -Destination (Join-Path $packageDir 'CacMacLwf.inf') -Force
+    & $inf2cat.FullName "/driver:$packageDir" /os:10_X64 /uselocaltime
+    $catPath = Get-ChildItem -LiteralPath $packageDir -Filter '*.cat' -File -ErrorAction SilentlyContinue |
+        Select-Object -First 1 -ExpandProperty FullName
+    if (-not $catPath) {
         throw 'inf2cat did not produce CacMacLwf.cat'
     }
     & $signtool.FullName sign /fd SHA256 /sm /s My /sha1 $cert.Thumbprint $catPath
     if ($LASTEXITCODE -ne 0) { throw "catalog sign failed ($LASTEXITCODE)" }
+    Copy-Item -LiteralPath $catPath -Destination (Join-Path $root 'CacMacLwf.cat') -Force
 }
 
 $hash = Get-CacSha256 $sysPath
 Set-Content -LiteralPath (Join-Path $bin 'CacMacLwf.sha256') -Value $hash -Encoding ASCII
+
+$catSource = Join-Path $root 'CacMacLwf.cat'
+if (Test-Path -LiteralPath $catSource -PathType Leaf) {
+    Copy-Item -LiteralPath $catSource -Destination (Join-Path $bin 'CacMacLwf.cat') -Force
+}
+$catPath = Join-Path $bin 'CacMacLwf.cat'
+$catHash = if (Test-Path -LiteralPath $catPath -PathType Leaf) { Get-CacSha256 $catPath } else { $null }
+
+$gitCommit = (& git -C $repoRoot rev-parse HEAD 2>$null | Select-Object -First 1)
+$gitDirty = (@(& git -C $repoRoot status --porcelain 2>$null).Count -gt 0)
+$infText = Get-Content -LiteralPath (Join-Path $root 'CacMacLwf.inf') -Raw
+$infDriverVer = if ($infText -match '(?m)^DriverVer\s*=\s*(.+)$') { $Matches[1].Trim() } else { $null }
+$build = [ordered]@{
+    schema         = 1
+    builtUtc       = (Get-Date).ToUniversalTime().ToString('o')
+    repoCommit     = $gitCommit
+    repoDirty      = $gitDirty
+    codeCommit     = 'de2d8d1abc42b927a754d6468f5e663e829d3fe9'
+    wdkVersion     = $wdk.Version
+    msvcVersion    = $msvc.MsvcVersion
+    infDriverVer   = $infDriverVer
+    sysSha256      = $hash
+    catSha256      = $catHash
+}
+$build | ConvertTo-Json -Depth 5 |
+    Set-Content -LiteralPath (Join-Path $bin 'BUILD.json') -Encoding UTF8
 
 $env:INCLUDE = @(
     (Join-Path $msvc.MsvcVersion 'include'),

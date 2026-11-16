@@ -2,6 +2,7 @@
 #include <ndis.h>
 #include <ntddndis.h>
 #include <ntstrsafe.h>
+#include <wdmsec.h>
 #include "CacMacLwfIoctl.h"
 
 /*
@@ -58,6 +59,7 @@ static volatile LONG g_SendPaused = 0;
 static volatile LONG g_SendForwarded = 0;
 static volatile LONG g_ReceivePaused = 0;
 static volatile LONG g_ReceiveForwarded = 0;
+static volatile LONG g_FaultMode = 0;
 
 static NDIS_STATUS
 CacMacFilterAttach(
@@ -190,6 +192,11 @@ CacMacFilterOidRequest(
             (LONG)OidRequest->DATA.QUERY_INFORMATION.Oid);
     }
 
+    if (InterlockedCompareExchange(&g_FaultMode, 0, 0) == 1) {
+        CacMacFilterZeroOidBytes(OidRequest);
+        return NDIS_STATUS_RESOURCES;
+    }
+
     /*
      * Microsoft requires filters to forward a clone, never the original
      * NDIS_OID_REQUEST.  Forwarding the original corrupts the completion
@@ -232,6 +239,10 @@ CacMacFilterOidRequestComplete(
     if (originalRequest == NULL) {
         NdisFreeCloneOidRequest(context->NdisFilterHandle, OidRequest);
         return;
+    }
+
+    if (InterlockedCompareExchange(&g_FaultMode, 0, 0) == 2) {
+        Status = NDIS_STATUS_FAILURE;
     }
 
     if (Status == NDIS_STATUS_SUCCESS &&
@@ -444,7 +455,7 @@ CacMacDeviceControl(
 
     switch (code) {
     case CAC_MAC_IOCTL_SET:
-        if (inputLength < 6) {
+        if (inputLength != 6 || outputLength != 0 || buffer == NULL) {
             status = STATUS_BUFFER_TOO_SMALL;
             break;
         }
@@ -463,7 +474,7 @@ CacMacDeviceControl(
     case CAC_MAC_IOCTL_STATE: {
         CAC_MAC_STATE *state = (CAC_MAC_STATE *)buffer;
         KIRQL irql;
-        if (outputLength < sizeof(*state)) {
+        if (inputLength != 0 || outputLength < sizeof(*state) || state == NULL) {
             status = STATUS_BUFFER_TOO_SMALL;
             break;
         }
@@ -481,6 +492,7 @@ CacMacDeviceControl(
         state->SendForwarded = (ULONG)g_SendForwarded;
         state->ReceivePaused = (ULONG)g_ReceivePaused;
         state->ReceiveForwarded = (ULONG)g_ReceiveForwarded;
+        state->FaultMode = (ULONG)InterlockedCompareExchange(&g_FaultMode, 0, 0);
         KeAcquireSpinLock(&g_MacLock, &irql);
         NdisMoveMemory(state->Mac, g_Mac, sizeof(state->Mac));
         KeReleaseSpinLock(&g_MacLock, irql);
@@ -488,6 +500,22 @@ CacMacDeviceControl(
         status = STATUS_SUCCESS;
         break;
     }
+
+    case CAC_MAC_IOCTL_FAULT:
+        if (inputLength != sizeof(ULONG) || outputLength != 0 || buffer == NULL) {
+            status = STATUS_INVALID_PARAMETER;
+            break;
+        }
+        {
+            ULONG mode = *(ULONG *)buffer;
+            if (mode > 2) {
+                status = STATUS_INVALID_PARAMETER;
+                break;
+            }
+            InterlockedExchange(&g_FaultMode, (LONG)mode);
+        }
+        status = STATUS_SUCCESS;
+        break;
 
     default:
         break;
@@ -593,8 +621,9 @@ DriverEntry(
     RtlInitUnicodeString(&deviceName, CAC_MAC_DEVICE_NAME);
     RtlInitUnicodeString(&symlinkName, CAC_MAC_SYMLINK_NAME);
 
-    status = IoCreateDevice(
-        DriverObject, 0, &deviceName, FILE_DEVICE_UNKNOWN, 0, FALSE,
+    status = IoCreateDeviceSecure(
+        DriverObject, 0, &deviceName, FILE_DEVICE_UNKNOWN,
+        FILE_DEVICE_SECURE_OPEN, FALSE, &SDDL_DEVOBJ_SYS_ALL_ADM_ALL, NULL,
         &g_ControlDevice);
     if (!NT_SUCCESS(status)) {
         if (g_FilterDriverHandle != NULL) {

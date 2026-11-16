@@ -2,12 +2,16 @@
 param(
     [switch]$Uninstall,
     [switch]$NoBind,
-    [switch]$RebootNow
+    [switch]$RebootNow,
+    [switch]$DryRun,
+    [switch]$Enable
 )
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $sysPath = Join-Path $root 'bin\CacMacLwf.sys'
+$shaPath = Join-Path $root 'bin\CacMacLwf.sha256'
+$catPath = Join-Path $root 'bin\CacMacLwf.cat'
 $infPath = Join-Path $root 'CacMacLwf.inf'
 $driverTarget = Join-Path $env:SystemRoot 'System32\drivers\CacMacLwf.sys'
 $component = 'CacMacLwf'
@@ -27,9 +31,26 @@ function Assert-TestSigning {
     }
 }
 
+function Assert-FileHash {
+    param(
+        [string]$Path,
+        [string]$Expected,
+        [string]$Label
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "$Label missing: $Path"
+    }
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash
+    if ($actual -ne $Expected) {
+        throw "$Label hash mismatch. expected=$Expected actual=$actual path=$Path"
+    }
+}
+
 Assert-Administrator
 
 if ($Uninstall) {
+    sc.exe stop $component 2>$null | Out-Null
+    Start-Sleep -Seconds 2
     $unbind = & netcfg -u $component 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Host "Unbound $component" -ForegroundColor Green
@@ -38,6 +59,11 @@ if ($Uninstall) {
     }
     if (Test-Path -LiteralPath $driverTarget) {
         Remove-Item -LiteralPath $driverTarget -Force -ErrorAction SilentlyContinue
+    }
+    sc.exe delete $component 2>$null | Out-Null
+    $rootCat = Join-Path $root 'CacMacLwf.cat'
+    if (Test-Path -LiteralPath $rootCat) {
+        Remove-Item -LiteralPath $rootCat -Force -ErrorAction SilentlyContinue
     }
     Write-Host 'CAC MAC LWF removed.' -ForegroundColor Green
     return
@@ -49,9 +75,34 @@ if (-not (Test-Path -LiteralPath $sysPath -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $infPath -PathType Leaf)) {
     throw "INF not found: $infPath"
 }
+if (-not (Test-Path -LiteralPath $shaPath -PathType Leaf)) {
+    throw "Hash manifest not found: $shaPath. Run build-macfilter.ps1 first."
+}
+
+$expectedHash = (Get-Content -LiteralPath $shaPath -Raw).Trim()
+Assert-FileHash -Path $sysPath -Expected $expectedHash -Label 'bin driver'
+
+if ($DryRun) {
+    $dryRoot = Join-Path $env:TEMP ("cac-macfilter-dryrun-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $dryRoot -Force | Out-Null
+    try {
+        $dryCopy = Join-Path $dryRoot 'CacMacLwf.sys'
+        Copy-Item -LiteralPath $sysPath -Destination $dryCopy -Force
+        Assert-FileHash -Path $dryCopy -Expected $expectedHash -Label 'dry-run staged driver'
+        Write-Host "Dry run passed: $expectedHash" -ForegroundColor Green
+    } finally {
+        Remove-Item -LiteralPath $dryRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    return
+}
 
 # The INF's CopyFiles pulls the binary from next to the INF (SourceDisksFiles).
 Copy-Item -LiteralPath $sysPath -Destination (Join-Path $root 'CacMacLwf.sys') -Force
+Assert-FileHash -Path (Join-Path $root 'CacMacLwf.sys') -Expected $expectedHash -Label 'staged driver'
+
+if (Test-Path -LiteralPath $catPath -PathType Leaf) {
+    Copy-Item -LiteralPath $catPath -Destination (Join-Path $root 'CacMacLwf.cat') -Force
+}
 
 $signtool = Get-ChildItem 'D:\huanjing\WindowsKits' -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
@@ -62,7 +113,10 @@ if ($signtool) {
 }
 Assert-TestSigning
 
+sc.exe stop $component 2>$null | Out-Null
+Start-Sleep -Seconds 2
 Copy-Item -LiteralPath $sysPath -Destination $driverTarget -Force
+Assert-FileHash -Path $driverTarget -Expected $expectedHash -Label 'installed driver'
 
 $serviceState = sc.exe query $component 2>$null
 if ($LASTEXITCODE -ne 0) {
@@ -79,6 +133,14 @@ if (-not $NoBind) {
     Write-Host 'CAC MAC LWF installed and bound to ethernet adapters.' -ForegroundColor Green
 } else {
     Write-Host 'Driver copied; filter not bound.' -ForegroundColor Yellow
+}
+
+if ($Enable) {
+    sc.exe config $component start= demand | Out-Null
+    sc.exe start $component 2>$null | Out-Null
+} else {
+    sc.exe config $component start= disabled | Out-Null
+    Write-Host 'Service left DISABLED. Use -Enable on an isolated test machine.' -ForegroundColor Yellow
 }
 
 $ctl = Join-Path $root 'bin\cac-macctl.exe'

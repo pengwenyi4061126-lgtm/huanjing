@@ -55,6 +55,7 @@ static int PrintState(const CAC_MAC_STATE &state) {
            "\"registerStatus\":%lu,\"running\":%lu,\"lastOid\":%lu,"
            "\"lastRewriteOid\":%lu,\"sendPaused\":%lu,\"sendForwarded\":%lu,"
            "\"receivePaused\":%lu,\"receiveForwarded\":%lu,"
+           "\"faultMode\":%lu,"
            "\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\"}\n",
            (unsigned long)state.SetCount,
            (unsigned long)state.OidQueriesSeen,
@@ -69,6 +70,7 @@ static int PrintState(const CAC_MAC_STATE &state) {
            (unsigned long)state.SendForwarded,
            (unsigned long)state.ReceivePaused,
            (unsigned long)state.ReceiveForwarded,
+           (unsigned long)state.FaultMode,
            state.Mac[0], state.Mac[1], state.Mac[2],
            state.Mac[3], state.Mac[4], state.Mac[5]);
     return 0;
@@ -77,7 +79,8 @@ static int PrintState(const CAC_MAC_STATE &state) {
 int wmain(int argc, wchar_t **argv) {
     if (argc < 2) {
         printf("cac-macctl set --mac AA:BB:CC:DD:EE:FF\n"
-               "cac-macctl state\n");
+               "cac-macctl state\n"
+               "cac-macctl fault --mode off|clone|lower\n");
         return 2;
     }
 
@@ -121,6 +124,37 @@ int wmain(int argc, wchar_t **argv) {
             result = Fail("state", GetLastError());
         } else {
             result = PrintState(state);
+        }
+    } else if (wcscmp(argv[1], L"fault") == 0) {
+        const wchar_t *modeText = NULL;
+        for (int i = 2; i < argc; ++i) {
+            if (wcscmp(argv[i], L"--mode") == 0 && i + 1 < argc) {
+                modeText = argv[++i];
+            }
+        }
+        ULONG mode = 0;
+        if (modeText != NULL && wcscmp(modeText, L"off") == 0) {
+            mode = 0;
+        } else if (modeText != NULL && wcscmp(modeText, L"clone") == 0) {
+            mode = 1;
+        } else if (modeText != NULL && wcscmp(modeText, L"lower") == 0) {
+            mode = 2;
+        } else {
+            result = 2;
+        }
+        if (result == 0) {
+            if (!DeviceIoControl(device, CAC_MAC_IOCTL_FAULT,
+                                 &mode, sizeof(mode), NULL, 0, &returned, NULL)) {
+                result = Fail("fault", GetLastError());
+            } else {
+                CAC_MAC_STATE state = {};
+                if (!DeviceIoControl(device, CAC_MAC_IOCTL_STATE,
+                                     NULL, 0, &state, sizeof(state), &returned, NULL)) {
+                    result = Fail("state", GetLastError());
+                } else {
+                    result = PrintState(state);
+                }
+            }
         }
     } else {
         result = 2;

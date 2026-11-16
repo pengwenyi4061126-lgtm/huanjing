@@ -1,8 +1,9 @@
 # CAC Profile-MAC Lightweight Filter（NDIS 6 LWF）
 
-> 状态：实验代码保留，`CacMacLwf` 服务必须保持 `DISABLED`。Windows 11
-> 22631 的 OID 参与路径已有可复现蓝屏，本组件不属于当前稳定覆盖，也不得在
-> 物理机上执行安装、启动或热重载流程。
+> 状态（2026-11-16）：`0x1E` 已由 `de2d8d1` 的 clone OID 修复闭环；
+> 当前实测 5× `Restart-NetAdapter`、开机 `SYSTEM_START`、`ping 10/10`
+> 无蓝屏。服务仍默认 `DISABLED`，只作为可选的 Ring-0 OID 查询视图，
+> 不宣称真实 MAC / 缓存 MAC 隔离。构建、证据和边界见 `STATUS.md`。
 
 内核级 MAC 覆盖：在 NDIS 标准过滤层重写
 `OID_802_3_CURRENT_ADDRESS` / `OID_802_3_PERMANENT_ADDRESS` 与
@@ -29,10 +30,11 @@ LWF 由 NDIS 全权驱动请求，无手工 IRP 操作。
 ```powershell
 cd E:\环境\huanjing\native\macfilter
 powershell -NoProfile -ExecutionPolicy Bypass -File build-macfilter.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File install-macfilter.ps1 -RebootNow
+powershell -NoProfile -ExecutionPolicy Bypass -File install-macfilter.ps1 -Enable -RebootNow
 ```
 
 绑定激活需要重启一次（NDIS 在重启时处理 FilterList 并加载过滤服务）。
+不带 `-Enable` 时安装脚本会把服务设为 `DISABLED`，这是默认安全状态。
 重启后验证：
 
 ```powershell
@@ -42,7 +44,7 @@ E:\环境\huanjing\native\macfilter\bin\cac-macctl.exe set --mac 02:11:22:33:44:
 
 `attached` 应等于绑定网卡数；`oidQueriesSeen/oidRewrites` 随 MAC OID 查询递增。
 
-## 本机状态（2026-11-14）与事故记录
+## 历史事故记录（2026-11-14，已被 2026-11-16 clone 修复取代）
 
 - 组件已通过 `netcfg -l` 注册并写入 4 个网卡的 FilterList 绑定。
 - 注册失败根因（静态 + 反汇编证据）：`NDIS_FILTER_DRIVER_CHARACTERISTICS`
@@ -72,11 +74,38 @@ OID 重写计数、以及"绑定后不热卸载、只整机重启"的运维方�
 powershell -NoProfile -ExecutionPolicy Bypass -File install-macfilter.ps1 -Uninstall
 ```
 
+## 验证与 soak
+
+```powershell
+# 不触碰服务的哈希/路径校验
+powershell -NoProfile -ExecutionPolicy Bypass -File install-macfilter.ps1 -DryRun
+
+# 查看 soak 计划（服务仍可保持 DISABLED）
+powershell -NoProfile -ExecutionPolicy Bypass -File run-macfilter-soak.ps1 -DryRun
+
+# 隔离测试机：30x disable/enable、10x restart、3x sleep、2h 流量
+powershell -NoProfile -ExecutionPolicy Bypass -File run-macfilter-soak.ps1 `
+  -AdapterName Ethernet0 -TrafficSeconds 7200
+
+# 隔离测试机：clone/lower 故障注入 + 非法 IOCTL
+powershell -NoProfile -ExecutionPolicy Bypass -File run-macfilter-fault.ps1
+
+# 每次重启后记录 boot 事件（手动 5 次）
+powershell -NoProfile -ExecutionPolicy Bypass -File run-macfilter-soak.ps1 -RecordBoot
+```
+
+输出目录：
+
+```text
+evidence/soak-<timestamp>/soak.jsonl + summary.json
+evidence/fault-<timestamp>/fault.jsonl + summary.json
+```
+
 ## 边界
 
-- 设计目标只重写**查询结果**，不改变线上帧的源 MAC；当前稳定版本仅验证
-  NativeBridge 的 `GetAdaptersAddresses`/`GetIfTable*`/WMI 用户态覆盖，内核
-  OID 路径因服务禁用不计入覆盖矩阵。
+- 设计目标只重写**查询结果**，不改变线上帧的源 MAC；clone 模式已验证
+  OID 查询路径，但服务默认 `DISABLED`，只作为可选 Ring-0 视图。用户态
+  `GetAdaptersAddresses`/`GetIfTable*`/WMI 仍由 NativeBridge 承担主路径。
 - OID 请求无请求进程上下文，MAC 按“当前 Profile”全局生效：切 Profile 时
   wrapper 调 `cac-macctl set` 换一次。
 - 虚拟网卡（TAP/Wintun）同样被重写——查询结果统一为 Profile MAC。

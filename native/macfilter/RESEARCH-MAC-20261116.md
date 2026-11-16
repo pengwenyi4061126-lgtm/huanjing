@@ -394,9 +394,15 @@ Win11 真正改 MAC：Set-NetAdapter / 厂商 LAA / 注册表 NetworkAddress
 内核 HWID spoofer：有，但不是 LWF，且多为 Win10 或 patch ndis.sys
 ```
 
-我们自己的 22631 实测也一致：OID handler 参与即触发
+> 以下为 **clone 修复前**的结论。`de2d8d1` 改为下发
+> `NdisAllocateCloneOidRequest` 之后，OID handler 参与已通过
+> 5× `Restart-NetAdapter`、开机 `SYSTEM_START`、`ping 10/10`
+> 实测，无 `0x1E`。最终结论见第 8 节与
+> `LWF-FIX-TEST-20261116.md` 第 8-9 节。
+
+早期（pre-clone）实测：OID handler 参与曾触发
 `AV_ndis!ndisFOidRequestCompleteInternal`；OID handler 为 NULL 的
-pass-through 才稳定。详见 `LWF-FIX-TEST-20261116.md`。
+pass-through 才稳定。
 
 ## 8. IP 栈缓存与官方解决方式（2026-11-16）
 

@@ -1,0 +1,7 @@
+CacMacLwf ACL/IOCTL/fault build backup
+Build date: 2026-11-16
+Source code commit: de2d8d1 (clone OID fix)
+Build tree commit: f1ef286
+Driver SHA-256: DA5AC0634A92F36EB7FCFE303D5835A4647CA2E2D8C16DCEE6157DB96C22E670
+Runtime soak: PENDING (isolated test machine)
+Note: service remains DISABLED on host

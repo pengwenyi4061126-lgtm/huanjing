@@ -6,7 +6,7 @@ Signature   = "$Windows NT$"
 Class       = NetService
 ClassGUID   = {4D36E974-E325-11CE-BFC1-08002BE10318}
 Provider    = %CacProvider%
-DriverVer   = 11/14/2026,1.0.0.3
+DriverVer   = 11/16/2026,1.0.0.4
 CatalogFile = cacmaclwf.cat
 
 [Manufacturer]

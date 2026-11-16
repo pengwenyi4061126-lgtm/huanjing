@@ -1,0 +1,12 @@
+﻿{
+    "schema":  1,
+    "builtUtc":  "2026-11-16T06:36:51.1044202Z",
+    "repoCommit":  "f1ef286fb8a98285ef2a4be9a7657e6aaf0bd50a",
+    "repoDirty":  true,
+    "codeCommit":  "de2d8d1abc42b927a754d6468f5e663e829d3fe9",
+    "wdkVersion":  "10.0.26100.0",
+    "msvcVersion":  "D:\\huanjing\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207",
+    "infDriverVer":  "11/16/2026,1.0.0.4",
+    "sysSha256":  "DA5AC0634A92F36EB7FCFE303D5835A4647CA2E2D8C16DCEE6157DB96C22E670",
+    "catSha256":  "E28ECD7736217BB12C3868E8906913105B9000A3B6D60EF067F7468F9AF62142"
+}
