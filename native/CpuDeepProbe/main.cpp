@@ -14,14 +14,18 @@ static void PrintTopology() {
             RelationProcessorCore,
             reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(coreStorage.data()),
             &coreReturned)) {
+        std::printf("ex_core_returned=%lu\n", static_cast<unsigned long>(coreReturned));
+        const BYTE* raw = reinterpret_cast<const BYTE*>(coreStorage.data());
+        std::printf("ex_core_head=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+                    raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7]);
         DWORD offset = 0;
         DWORD count = 0;
         unsigned long long mask0 = 0;
         unsigned long long mask1 = 0;
-        while (offset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) <= coreReturned) {
+        while (offset + 2 * sizeof(DWORD) <= coreReturned) {
             auto* entry = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(
                 reinterpret_cast<BYTE*>(coreStorage.data()) + offset);
-            if (entry->Size < sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) ||
+            if (entry->Size < 2 * sizeof(DWORD) ||
                 offset + entry->Size > coreReturned) break;
             if (entry->Relationship == RelationProcessorCore &&
                 entry->Processor.GroupCount > 0) {
@@ -48,10 +52,10 @@ static void PrintTopology() {
             reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(packageStorage.data()),
             &packageReturned)) {
         DWORD offset = 0;
-        while (offset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) <= packageReturned) {
+        while (offset + 2 * sizeof(DWORD) <= packageReturned) {
             auto* entry = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(
                 reinterpret_cast<BYTE*>(packageStorage.data()) + offset);
-            if (entry->Size < sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) ||
+            if (entry->Size < 2 * sizeof(DWORD) ||
                 offset + entry->Size > packageReturned) break;
             if (entry->Relationship == RelationProcessorPackage &&
                 entry->Processor.GroupCount > 0) {

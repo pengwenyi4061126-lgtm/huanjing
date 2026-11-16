@@ -22,7 +22,7 @@ replacement process by name. Profile handoff uses
 | `GetActiveProcessorCount` / `GetMaximumProcessorCount` | inline + IAT/delay; profile logical CPU count | on |
 | `GetPerformanceInfo` | inline + IAT/delay; profile physical/available memory in pages | on |
 | `GetLogicalProcessorInformation` | inline + IAT/delay; core entries compacted to profile cores/masks | on |
-| `GetLogicalProcessorInformationEx` | inline + IAT/delay; core/package masks rewritten (probe parse still being stabilized) | on |
+| `GetLogicalProcessorInformationEx` | inline + IAT/delay; core entries compacted and package mask rewritten | on |
 | `GetSystemFirmwareTable('RSMB')` | inline-primary + IAT/delay patch + in-place SMBIOS rewrite | on |
 | `GetSystemFirmwareTable('ACPI'/'FIRM')` / `EnumSystemFirmwareTables` | inline-primary + IAT/delay patch; ACPI/FIRM hidden by `firmware_mode=hide-acpi` | service |
 | `NtQuerySystemInformation` class 76 | inline-primary + IAT/delay patch + SMBIOS rewrite | on |
@@ -206,7 +206,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 
   -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
 ```
 
-The 2026-11-16 baseline is `pass=43 fail=1 warn=0`; the only failure is
+The 2026-11-16 baseline is `pass=46 fail=1 warn=0`; the only failure is
 Clash process visibility, which belongs to the deferred TUN+clean work.
 SMBIOS Type 17 now rewrites only populated slots, so the sum of module
 sizes matches the profile memory total instead of filling empty slots.

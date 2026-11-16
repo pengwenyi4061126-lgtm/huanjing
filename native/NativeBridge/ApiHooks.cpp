@@ -1062,7 +1062,8 @@ BOOL WINAPI HookGetPerformanceInfo(PPERFORMANCE_INFORMATION info, DWORD size) {
 void RewriteProcessorTopologyEx(LOGICAL_PROCESSOR_RELATIONSHIP relationship,
                                 PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX buffer,
                                 PDWORD length) {
-    if (!buffer || !length || *length < sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)) return;
+    const DWORD minEntry = 2 * sizeof(DWORD);
+    if (!buffer || !length || *length < minEntry) return;
     const ProfileIdentity& identity = ProfileIdentity::Get();
     const DWORD cores = identity.cpuCores > 0 ? identity.cpuCores : 1;
     const DWORD logical = identity.cpuLogical > cores ? identity.cpuLogical : cores;
@@ -1071,9 +1072,9 @@ void RewriteProcessorTopologyEx(LOGICAL_PROCESSOR_RELATIONSHIP relationship,
 
     if (relationship == RelationProcessorPackage) {
         DWORD offset = 0;
-        while (offset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) <= *length) {
+        while (offset + minEntry <= *length) {
             auto* entry = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(base + offset);
-            if (entry->Size < sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) ||
+            if (entry->Size < minEntry ||
                 offset + entry->Size > *length) break;
             if (entry->Relationship == RelationProcessorPackage && entry->Processor.GroupCount > 0) {
                 entry->Processor.GroupCount = 1;
@@ -1091,9 +1092,9 @@ void RewriteProcessorTopologyEx(LOGICAL_PROCESSOR_RELATIONSHIP relationship,
     DWORD read = 0;
     DWORD write = 0;
     DWORD keptCores = 0;
-    while (read + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) <= *length) {
+    while (read + minEntry <= *length) {
         auto* entry = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(base + read);
-        if (entry->Size < sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) ||
+        if (entry->Size < minEntry ||
             read + entry->Size > *length) break;
         bool keep = true;
         if (entry->Relationship == RelationProcessorCore) {

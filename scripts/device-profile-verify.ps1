@@ -278,6 +278,15 @@ $expectedCores = Convert-ToInt64 $identity.cpu_cores
 if ($expectedCores -le 0) { $expectedCores = 4 }
 $legacyCores = Convert-ToInt64 $cpu['legacy_core_entries']
 Add-Check 'consistency.legacy_core_entries' 'fail' ($legacyCores -eq $expectedCores) "$expectedCores" "$legacyCores" 'GetLogicalProcessorInformation core entries'
+$exCores = Convert-ToInt64 $cpu['core_entries']
+Add-Check 'consistency.ex_core_entries' 'fail' ($exCores -eq $expectedCores) "$expectedCores" "$exCores" 'GetLogicalProcessorInformationEx core entries'
+$exPackage = [string]$cpu['package_mask']
+$expectedPackageMask = '0x' + (([int64]1 -shl [int]($expectedLogical)) - 1).ToString('x')
+Add-Check 'consistency.ex_package_mask' 'fail' ($exPackage -eq $expectedPackageMask) $expectedPackageMask $exPackage 'GetLogicalProcessorInformationEx package mask'
+$exCore0 = [string]$cpu['core0_mask']
+$perCore = [int]($expectedLogical / $expectedCores)
+$expectedCoreMask = '0x' + (([int64]1 -shl $perCore) - 1).ToString('x')
+Add-Check 'consistency.ex_core0_mask' 'fail' ($exCore0 -eq $expectedCoreMask) $expectedCoreMask $exCore0 'GetLogicalProcessorInformationEx first core mask'
 
 $expectedMemoryMb = Convert-ToInt64 $identity.memory_total_mb
 if ($expectedMemoryMb -le 0) { $expectedMemoryMb = $memoryMb }
