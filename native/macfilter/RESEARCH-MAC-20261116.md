@@ -369,7 +369,36 @@ ipconfig /all
 6. 若全部通过，再测试 `OID_802_3_CURRENT_ADDRESS` 查询改写；
    若仍复现 0x1E，停止 LWF 路线，改用方案 B/C。
 
-## 7. 来源清单
+## 7. Win11 成功案例核查（2026-11-16）
+
+公开可检索到的结果：
+
+| 对象 | 结论 |
+| --- | --- |
+| `CacMacLwf` | 没有公开项目/帖子；搜索结果只有无关的 CACWF、CAC For Mac 等 |
+| GitHub `ndis lwf` | 只有 4 个仓库：NDIS LWF demo、Intel AVB/TSN、Rust 防火墙、流量捕获；没有 MAC 改写项目 |
+| OSR / Microsoft | LWF 不能真正替换适配器 MAC；改 OID 不足以同步 NDIS/系统缓存 |
+| `Set-NetAdapter -MacAddress` | Win11 可用，但取决于网卡驱动，且是整机全局 |
+| Intel LAA | Win11 可用，12 位十六进制，不能是组播，整机全局 |
+| `SpoofMAC` / `spoof` | 写注册表 NetworkAddress；Win10/11 是否生效取决于驱动，部分网卡 `getmac` 仍显示原值 |
+| `btbd/hwid` | 开源内核 HWID spoofer，处理 NIC+ARP，但 README 明确只测到 Win10 1903，已归档，不是 Win11 LWF 案例 |
+| UnknownCheats Win11 25H2 `ndisGlobalFilterList` | 走的是 patch `ndis.sys` 过滤器链表，不是 LWF；脆弱且与 PatchGuard/检测冲突 |
+| DEV: WiFi MAC kernel driver | KMDF 驱动写 NetworkAddress，不是 NDIS LWF；依赖网卡驱动 |
+
+结论：
+
+```text
+CacMacLwf 本身：没有公开成功案例
+通用 NDIS LWF 改 MAC 查询：没有可引用的 Win11 开源成功项目
+Win11 真正改 MAC：Set-NetAdapter / 厂商 LAA / 注册表 NetworkAddress
+内核 HWID spoofer：有，但不是 LWF，且多为 Win10 或 patch ndis.sys
+```
+
+我们自己的 22631 实测也一致：OID handler 参与即触发
+`AV_ndis!ndisFOidRequestCompleteInternal`；OID handler 为 NULL 的
+pass-through 才稳定。详见 `LWF-FIX-TEST-20261116.md`。
+
+## 8. 来源清单
 
 - Microsoft FILTER_PAUSE:
   https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ndis/nc-ndis-filter_pause
