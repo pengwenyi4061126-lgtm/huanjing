@@ -30,6 +30,10 @@ struct ProfileIdentity {
     std::string  hidProduct = "USB Receiver";
     std::string  audioEndpointId =
         "{0.0.0.00000000}.{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}";
+    std::string  audioFriendlyName = "Speakers (Realtek(R) Audio)";
+    std::string  audioInterfaceName = "Realtek High Definition Audio";
+    std::string  audioEndpointGuid = "{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}";
+    uint32_t     audioFormFactor = 1;
     std::string  volumeSerialHex_;
     DWORD        volumeSerial = 0;
 

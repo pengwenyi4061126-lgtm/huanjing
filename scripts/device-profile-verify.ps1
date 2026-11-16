@@ -440,6 +440,28 @@ if (-not $expectedAudioId) {
 $audioIds = @($audio.Keys | Where-Object { $_ -match '^audio\d+_id$' } | ForEach-Object { [string]$audio[$_] })
 $audioAllMatch = ($audioIds.Count -gt 0) -and (@($audioIds | Where-Object { $_ -ne $expectedAudioId }).Count -eq 0)
 Add-Check 'hardware.audio_endpoint_ids' 'fail' $audioAllMatch $expectedAudioId ($audioIds -join '|') 'IMMDevice::GetId wrapper'
+$expectedAudioFriendly = [string]$identity.audio_friendly_name
+if (-not $expectedAudioFriendly) { $expectedAudioFriendly = 'Speakers (Realtek(R) Audio)' }
+$expectedAudioInterface = [string]$identity.audio_interface_name
+if (-not $expectedAudioInterface) { $expectedAudioInterface = 'Realtek High Definition Audio' }
+$expectedAudioGuid = [string]$identity.audio_endpoint_guid
+if (-not $expectedAudioGuid) { $expectedAudioGuid = '{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}' }
+$audioFriendly = @($audio.Keys | Where-Object { $_ -match '^audio\d+_friendly$' } | ForEach-Object { [string]$audio[$_] })
+$audioInterface = @($audio.Keys | Where-Object { $_ -match '^audio\d+_interface$' } | ForEach-Object { [string]$audio[$_] })
+$audioGuid = @($audio.Keys | Where-Object { $_ -match '^audio\d+_guid$' } | ForEach-Object { [string]$audio[$_] })
+$audioFormFactor = @($audio.Keys | Where-Object { $_ -match '^audio\d+_formfactor$' } | ForEach-Object { [string]$audio[$_] })
+Add-Check 'hardware.audio_friendly' 'fail' (
+    $audioFriendly.Count -gt 0 -and @($audioFriendly | Where-Object { $_ -ne $expectedAudioFriendly }).Count -eq 0
+) $expectedAudioFriendly ($audioFriendly -join '|') 'PKEY_Device_FriendlyName'
+Add-Check 'hardware.audio_interface' 'fail' (
+    $audioInterface.Count -gt 0 -and @($audioInterface | Where-Object { $_ -ne $expectedAudioInterface }).Count -eq 0
+) $expectedAudioInterface ($audioInterface -join '|') 'PKEY_DeviceInterface_FriendlyName'
+Add-Check 'hardware.audio_guid' 'fail' (
+    $audioGuid.Count -gt 0 -and @($audioGuid | Where-Object { $_ -ne $expectedAudioGuid }).Count -eq 0
+) $expectedAudioGuid ($audioGuid -join '|') 'PKEY_AudioEndpoint_GUID'
+Add-Check 'hardware.audio_formfactor' 'fail' (
+    $audioFormFactor.Count -gt 0 -and @($audioFormFactor | Where-Object { $_ -ne '1' }).Count -eq 0
+) '1' ($audioFormFactor -join '|') 'PKEY_AudioEndpoint_FormFactor'
 
 $processNames = @()
 if (Test-Path -LiteralPath $processLog) {

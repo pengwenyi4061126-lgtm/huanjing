@@ -1,8 +1,16 @@
 #include <windows.h>
 #include <mmdeviceapi.h>
+#include <propsys.h>
+#include <propvarutil.h>
+#include <functiondiscoverykeys_devpkey.h>
 #include "../AudioGuids.h"
 
 #include <cstdio>
+
+static const PROPERTYKEY kPkeyAudioEndpointFormFactor = {
+    {0x1DA5D803, 0xD492, 0x4EDD, {0x8C, 0x23, 0xE0, 0xC0, 0xFF, 0xEE, 0x7F, 0x0E}}, 0};
+static const PROPERTYKEY kPkeyAudioEndpointGuid = {
+    {0x1DA5D803, 0xD492, 0x4EDD, {0x8C, 0x23, 0xE0, 0xC0, 0xFF, 0xEE, 0x7F, 0x0E}}, 4};
 
 int wmain() {
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -41,6 +49,40 @@ int wmain() {
             std::printf("audio%lu_state=0x%08lx\n",
                         static_cast<unsigned long>(index),
                         static_cast<unsigned long>(state));
+        }
+        IPropertyStore* store = nullptr;
+        if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, &store)) && store) {
+            PROPVARIANT value;
+            PropVariantInit(&value);
+            if (SUCCEEDED(store->GetValue(PKEY_Device_FriendlyName, &value)) &&
+                value.vt == VT_LPWSTR) {
+                wprintf(L"audio%lu_friendly=%ls\n",
+                        static_cast<unsigned long>(index), value.pwszVal);
+            }
+            PropVariantClear(&value);
+            PropVariantInit(&value);
+            if (SUCCEEDED(store->GetValue(PKEY_DeviceInterface_FriendlyName, &value)) &&
+                value.vt == VT_LPWSTR) {
+                wprintf(L"audio%lu_interface=%ls\n",
+                        static_cast<unsigned long>(index), value.pwszVal);
+            }
+            PropVariantClear(&value);
+            PropVariantInit(&value);
+            if (SUCCEEDED(store->GetValue(kPkeyAudioEndpointGuid, &value)) &&
+                value.vt == VT_LPWSTR) {
+                wprintf(L"audio%lu_guid=%ls\n",
+                        static_cast<unsigned long>(index), value.pwszVal);
+            }
+            PropVariantClear(&value);
+            PropVariantInit(&value);
+            if (SUCCEEDED(store->GetValue(kPkeyAudioEndpointFormFactor, &value)) &&
+                value.vt == VT_UI4) {
+                std::printf("audio%lu_formfactor=%lu\n",
+                            static_cast<unsigned long>(index),
+                            static_cast<unsigned long>(value.ulVal));
+            }
+            PropVariantClear(&value);
+            store->Release();
         }
         device->Release();
     }

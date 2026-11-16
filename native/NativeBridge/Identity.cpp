@@ -164,6 +164,10 @@ bool ProfileIdentity::Load() {
     JsonString(document, "hid_manufacturer", hidManufacturer);
     JsonString(document, "hid_product", hidProduct);
     JsonString(document, "audio_endpoint_id", audioEndpointId);
+    JsonString(document, "audio_friendly_name", audioFriendlyName);
+    JsonString(document, "audio_interface_name", audioInterfaceName);
+    JsonString(document, "audio_endpoint_guid", audioEndpointGuid);
+    JsonU32(document, "audio_form_factor", audioFormFactor);
     JsonString(document, "volume_serial", volumeSerialHex_);
     JsonU64(document, "memory_total_mb", memoryTotalMb);
     JsonU64(document, "memory_available_mb", memoryAvailableMb);

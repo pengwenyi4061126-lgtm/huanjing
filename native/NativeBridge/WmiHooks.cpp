@@ -6,6 +6,9 @@
 #include <wbemidl.h>
 #include <oleauto.h>
 #include <mmdeviceapi.h>
+#include <propsys.h>
+#include <propvarutil.h>
+#include <functiondiscoverykeys_devpkey.h>
 #include "../AudioGuids.h"
 
 #include <cstdint>
@@ -1114,6 +1117,104 @@ HRESULT WrapLocatorResult(REFIID riid, void** ppv) {
     return S_OK;
 }
 
+bool SamePropertyKey(REFPROPERTYKEY left, REFPROPERTYKEY right) {
+    return IsEqualGUID(left.fmtid, right.fmtid) && left.pid == right.pid;
+}
+
+const PROPERTYKEY kPkeyAudioEndpointFormFactor = {
+    {0x1DA5D803, 0xD492, 0x4EDD, {0x8C, 0x23, 0xE0, 0xC0, 0xFF, 0xEE, 0x7F, 0x0E}}, 0};
+const PROPERTYKEY kPkeyAudioEndpointGuid = {
+    {0x1DA5D803, 0xD492, 0x4EDD, {0x8C, 0x23, 0xE0, 0xC0, 0xFF, 0xEE, 0x7F, 0x0E}}, 4};
+
+HRESULT ReturnPropString(const std::string& value, PROPVARIANT* result) {
+    if (!result) return E_POINTER;
+    PropVariantInit(result);
+    const std::wstring text = ToWide(value);
+    const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+    auto* copy = static_cast<LPWSTR>(CoTaskMemAlloc(bytes));
+    if (!copy) return E_OUTOFMEMORY;
+    std::memcpy(copy, text.c_str(), bytes);
+    result->vt = VT_LPWSTR;
+    result->pwszVal = copy;
+    return S_OK;
+}
+
+HRESULT ReturnPropUInt32(uint32_t value, PROPVARIANT* result) {
+    if (!result) return E_POINTER;
+    PropVariantInit(result);
+    result->vt = VT_UI4;
+    result->ulVal = value;
+    return S_OK;
+}
+
+class AudioPropertyStore : public IPropertyStore, public RefCounted {
+public:
+    explicit AudioPropertyStore(IPropertyStore* inner) : inner_(inner) {
+        if (inner_) inner_->AddRef();
+    }
+    ~AudioPropertyStore() override { if (inner_) inner_->Release(); }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_IPropertyStore) {
+            *ppv = static_cast<IPropertyStore*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return inner_->QueryInterface(riid, ppv);
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return RefCounted::AddRef(); }
+    ULONG STDMETHODCALLTYPE Release() override { return RefCounted::Release(); }
+    HRESULT STDMETHODCALLTYPE GetCount(DWORD* count) override {
+        return inner_->GetCount(count);
+    }
+    HRESULT STDMETHODCALLTYPE GetAt(DWORD index, PROPERTYKEY* key) override {
+        return inner_->GetAt(index, key);
+    }
+    HRESULT STDMETHODCALLTYPE GetValue(REFPROPERTYKEY key, PROPVARIANT* value) override {
+        if (!NativeHardwareHooksEnabled()) return inner_->GetValue(key, value);
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        if (SamePropertyKey(key, PKEY_Device_FriendlyName)) {
+            AuditEventRateLimited("api.audio.friendlyname", "patched");
+            return ReturnPropString(identity.audioFriendlyName, value);
+        }
+        if (SamePropertyKey(key, PKEY_DeviceInterface_FriendlyName)) {
+            AuditEventRateLimited("api.audio.interfacename", "patched");
+            return ReturnPropString(identity.audioInterfaceName, value);
+        }
+        if (SamePropertyKey(key, kPkeyAudioEndpointGuid)) {
+            AuditEventRateLimited("api.audio.endpointguid", "patched");
+            return ReturnPropString(identity.audioEndpointGuid, value);
+        }
+        if (SamePropertyKey(key, kPkeyAudioEndpointFormFactor)) {
+            AuditEventRateLimited("api.audio.formfactor", "patched");
+            return ReturnPropUInt32(identity.audioFormFactor, value);
+        }
+        return inner_->GetValue(key, value);
+    }
+    HRESULT STDMETHODCALLTYPE SetValue(REFPROPERTYKEY key, REFPROPVARIANT value) override {
+        return inner_->SetValue(key, value);
+    }
+    HRESULT STDMETHODCALLTYPE Commit() override { return inner_->Commit(); }
+
+private:
+    IPropertyStore* inner_;
+};
+
+HRESULT WrapAudioPropertyStore(IPropertyStore** store) {
+    if (!store || !*store) return E_POINTER;
+    auto* raw = *store;
+    auto* wrapper = new (std::nothrow) AudioPropertyStore(raw);
+    if (!wrapper) {
+        raw->Release();
+        *store = nullptr;
+        return E_OUTOFMEMORY;
+    }
+    raw->Release();
+    *store = wrapper;
+    return S_OK;
+}
+
 class AudioDevice : public IMMDevice, public RefCounted {
 public:
     explicit AudioDevice(IMMDevice* inner) : inner_(inner) {
@@ -1138,7 +1239,11 @@ public:
         return inner_->Activate(iid, clsCtx, activation, outInterface);
     }
     HRESULT STDMETHODCALLTYPE OpenPropertyStore(DWORD access, IPropertyStore** store) override {
-        return inner_->OpenPropertyStore(access, store);
+        HRESULT hr = inner_->OpenPropertyStore(access, store);
+        if (SUCCEEDED(hr) && store && *store) {
+            hr = WrapAudioPropertyStore(store);
+        }
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE GetId(LPWSTR* id) override {
         if (!NativeHardwareHooksEnabled()) return inner_->GetId(id);

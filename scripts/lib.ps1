@@ -517,6 +517,10 @@ function Ensure-ProfileLayout {
         hid_manufacturer = "Logitech"
         hid_product = "USB Receiver"
         audio_endpoint_id = "{0.0.0.00000000}.{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}"
+        audio_friendly_name = "Speakers (Realtek(R) Audio)"
+        audio_interface_name = "Realtek High Definition Audio"
+        audio_endpoint_guid = "{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}"
+        audio_form_factor = 1
     }
     $identityChanged = (-not $identityValid)
     foreach ($key in $derived.Keys) {
