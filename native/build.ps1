@@ -80,7 +80,7 @@ try {
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
         ($dllSources + $asmObject) `
         "/Fo$obj\" "/Fe:$dist\NativeBridge.dll" `
-        /link /DLL /guard:cf /Brepro iphlpapi.lib bcrypt.lib wbemuuid.lib ole32.lib oleaut32.lib fwpuclnt.lib ws2_32.lib
+        /link /DLL /guard:cf /Brepro iphlpapi.lib bcrypt.lib wbemuuid.lib ole32.lib oleaut32.lib fwpuclnt.lib ws2_32.lib uuid.lib mmdevapi.lib
     if ($LASTEXITCODE -ne 0) { throw "NativeBridge.dll build failed ($LASTEXITCODE)" }
 
     $dllPath = Join-Path $dist "NativeBridge.dll"
@@ -142,7 +142,7 @@ try {
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
         (Join-Path $root "GpuProbe\main.cpp") `
         "/Fo$obj\" "/Fe:$dist\cac-gpu-probe.exe" `
-        /link /guard:cf /Brepro ole32.lib
+        /link /guard:cf /Brepro ole32.lib mmdevapi.lib
     if ($LASTEXITCODE -ne 0) { throw "cac-gpu-probe.exe build failed ($LASTEXITCODE)" }
 
     $gpuProbePath = Join-Path $dist "cac-gpu-probe.exe"

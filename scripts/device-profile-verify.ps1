@@ -27,6 +27,7 @@ param(
     [string]$HidProbe,
     [string]$NvmlProbe,
     [string]$PnpProbe,
+    [string]$AudioProbe,
     [string]$WmiProbe,
     [switch]$SkipCim
 )
@@ -43,6 +44,7 @@ if (-not $DisplayProbe) { $DisplayProbe = Join-Path $repoRoot 'native\dist\cac-d
 if (-not $HidProbe) { $HidProbe = Join-Path $repoRoot 'native\dist\cac-hid-probe.exe' }
 if (-not $NvmlProbe) { $NvmlProbe = Join-Path $repoRoot 'native\dist\cac-nvml-probe.exe' }
 if (-not $PnpProbe) { $PnpProbe = Join-Path $repoRoot 'native\dist\cac-pnp-probe.exe' }
+if (-not $AudioProbe) { $AudioProbe = Join-Path $repoRoot 'native\dist\cac-audio-probe.exe' }
 if (-not $WmiProbe) { $WmiProbe = Join-Path $repoRoot 'artifacts\wmi_probe.exe' }
 $ProfilePath = (Resolve-Path -LiteralPath $ProfilePath).Path
 $Launcher = (Resolve-Path -LiteralPath $Launcher).Path
@@ -76,6 +78,10 @@ if (-not (Test-Path -LiteralPath $PnpProbe -PathType Leaf)) {
     throw "PNP probe not found: $PnpProbe"
 }
 $PnpProbe = (Resolve-Path -LiteralPath $PnpProbe).Path
+if (-not (Test-Path -LiteralPath $AudioProbe -PathType Leaf)) {
+    throw "Audio probe not found: $AudioProbe"
+}
+$AudioProbe = (Resolve-Path -LiteralPath $AudioProbe).Path
 if (-not (Test-Path -LiteralPath $WmiProbe -PathType Leaf)) {
     throw "WMI probe not found: $WmiProbe"
 }
@@ -232,6 +238,10 @@ $pnpLog = Join-Path $OutputDir 'pnp-probe.txt'
 $pnpCode = Invoke-Injected -Executable $PnpProbe -Arguments @() -LogPath $pnpLog
 $pnp = Read-KeyValues -Path $pnpLog
 
+$audioLog = Join-Path $OutputDir 'audio-probe.txt'
+$audioCode = Invoke-Injected -Executable $AudioProbe -Arguments @() -LogPath $audioLog
+$audio = Read-KeyValues -Path $audioLog
+
 $cimCode = $null
 $cimLog = Join-Path $OutputDir 'cim-probe.txt'
 if (-not $SkipCim) {
@@ -257,6 +267,7 @@ Add-Check 'probe.display' 'fail' ($displayCode -eq 0 -and $display['display_stat
 Add-Check 'probe.hid' 'fail' ($hidCode -eq 0 -and $hid['hid_state'] -eq 'ok') 'hid_state=ok' "exit=$hidCode state=$($hid['hid_state'])" 'HID probe'
 Add-Check 'probe.nvml' 'fail' ($nvmlCode -eq 0 -and $nvml['nvml_state'] -eq 'ok') 'nvml_state=ok' "exit=$nvmlCode state=$($nvml['nvml_state'])" 'NVML static-import probe'
 Add-Check 'probe.pnp' 'fail' ($pnpCode -eq 0 -and $pnp['pnp_state'] -eq 'ok') 'pnp_state=ok' "exit=$pnpCode state=$($pnp['pnp_state'])" 'SetupDi PnP probe'
+Add-Check 'probe.audio' 'fail' ($audioCode -eq 0 -and $audio['audio_state'] -eq 'ok') 'audio_state=ok' "exit=$audioCode state=$($audio['audio_state'])" 'IMMDevice audio probe'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -422,6 +433,14 @@ Add-Check 'hardware.pnp_virtual_hidden' 'fail' (
     $pnpAll -notmatch 'ROOT\\DISPLAY'
 ) 'no GameViewer virtual display' $pnpAll 'SetupDiGetDeviceInstanceIdW virtual-hidden'
 
+$expectedAudioId = [string]$identity.audio_endpoint_id
+if (-not $expectedAudioId) {
+    $expectedAudioId = '{0.0.0.00000000}.{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}'
+}
+$audioIds = @($audio.Keys | Where-Object { $_ -match '^audio\d+_id$' } | ForEach-Object { [string]$audio[$_] })
+$audioAllMatch = ($audioIds.Count -gt 0) -and (@($audioIds | Where-Object { $_ -ne $expectedAudioId }).Count -eq 0)
+Add-Check 'hardware.audio_endpoint_ids' 'fail' $audioAllMatch $expectedAudioId ($audioIds -join '|') 'IMMDevice::GetId wrapper'
+
 $processNames = @()
 if (Test-Path -LiteralPath $processLog) {
     $processNames = @(Get-Content -LiteralPath $processLog | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() } | Sort-Object -Unique)
@@ -454,6 +473,7 @@ $result = [ordered]@{
         hid = $hid
         nvml = $nvml
         pnp = $pnp
+        audio = $audio
         wmi = $wmi
         hardwareExit = $hardwareCode
         gpuExit = $gpuCode
@@ -463,6 +483,7 @@ $result = [ordered]@{
         hidExit = $hidCode
         nvmlExit = $nvmlCode
         pnpExit = $pnpCode
+        audioExit = $audioCode
         wmiExit = $wmiCode
         cimExit = $cimCode
         processExit = $processCode

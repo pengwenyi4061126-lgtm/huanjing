@@ -1,13 +1,15 @@
 #include <windows.h>
 #include <mmdeviceapi.h>
+#include "../AudioGuids.h"
 
 #include <cstdio>
 
 int wmain() {
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     IMMDeviceEnumerator* enumerator = nullptr;
-    HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                                  IID_PPV_ARGS(&enumerator));
+    HRESULT hr = CoCreateInstance(kClsidMMDeviceEnumerator, nullptr, CLSCTX_ALL,
+                                  kIidMMDeviceEnumerator,
+                                  reinterpret_cast<void**>(&enumerator));
     if (FAILED(hr) || !enumerator) {
         std::printf("audio_state=create-failed hr=0x%08lx\n",
                     static_cast<unsigned long>(hr));

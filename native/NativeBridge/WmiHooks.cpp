@@ -5,8 +5,11 @@
 #include <windows.h>
 #include <wbemidl.h>
 #include <oleauto.h>
+#include <mmdeviceapi.h>
+#include "../AudioGuids.h"
 
 #include <cstdint>
+#include <cstring>
 #include <cwchar>
 #include <new>
 #include <string>
@@ -1111,6 +1114,185 @@ HRESULT WrapLocatorResult(REFIID riid, void** ppv) {
     return S_OK;
 }
 
+class AudioDevice : public IMMDevice, public RefCounted {
+public:
+    explicit AudioDevice(IMMDevice* inner) : inner_(inner) {
+        if (inner_) inner_->AddRef();
+    }
+    ~AudioDevice() override { if (inner_) inner_->Release(); }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == kIidMMDevice) {
+            *ppv = static_cast<IMMDevice*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return inner_->QueryInterface(riid, ppv);
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return RefCounted::AddRef(); }
+    ULONG STDMETHODCALLTYPE Release() override { return RefCounted::Release(); }
+
+    HRESULT STDMETHODCALLTYPE Activate(REFIID iid, DWORD clsCtx, PROPVARIANT* activation,
+                                       void** outInterface) override {
+        return inner_->Activate(iid, clsCtx, activation, outInterface);
+    }
+    HRESULT STDMETHODCALLTYPE OpenPropertyStore(DWORD access, IPropertyStore** store) override {
+        return inner_->OpenPropertyStore(access, store);
+    }
+    HRESULT STDMETHODCALLTYPE GetId(LPWSTR* id) override {
+        if (!NativeHardwareHooksEnabled()) return inner_->GetId(id);
+        if (!id) return E_POINTER;
+        const std::wstring value = ToWide(ProfileIdentity::Get().audioEndpointId);
+        const size_t bytes = (value.size() + 1) * sizeof(wchar_t);
+        auto* copy = static_cast<LPWSTR>(CoTaskMemAlloc(bytes));
+        if (!copy) return E_OUTOFMEMORY;
+        std::memcpy(copy, value.c_str(), bytes);
+        *id = copy;
+        AuditEventRateLimited("api.audio.getid", "patched");
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetState(DWORD* state) override {
+        return inner_->GetState(state);
+    }
+
+private:
+    IMMDevice* inner_;
+};
+
+HRESULT WrapAudioDevice(REFIID riid, void** ppv) {
+    if (!ppv || !*ppv) return E_POINTER;
+    if (riid != kIidMMDevice && riid != IID_IUnknown) return S_OK;
+    auto* raw = static_cast<IMMDevice*>(*ppv);
+    auto* wrapper = new (std::nothrow) AudioDevice(raw);
+    if (!wrapper) {
+        raw->Release();
+        *ppv = nullptr;
+        return E_OUTOFMEMORY;
+    }
+    raw->Release();
+    *ppv = static_cast<IMMDevice*>(wrapper);
+    return S_OK;
+}
+
+class AudioCollection : public IMMDeviceCollection, public RefCounted {
+public:
+    explicit AudioCollection(IMMDeviceCollection* inner) : inner_(inner) {
+        if (inner_) inner_->AddRef();
+    }
+    ~AudioCollection() override { if (inner_) inner_->Release(); }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == kIidMMDeviceCollection) {
+            *ppv = static_cast<IMMDeviceCollection*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return inner_->QueryInterface(riid, ppv);
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return RefCounted::AddRef(); }
+    ULONG STDMETHODCALLTYPE Release() override { return RefCounted::Release(); }
+    HRESULT STDMETHODCALLTYPE GetCount(UINT* count) override {
+        return inner_->GetCount(count);
+    }
+    HRESULT STDMETHODCALLTYPE Item(UINT index, IMMDevice** device) override {
+        HRESULT hr = inner_->Item(index, device);
+        if (SUCCEEDED(hr) && device && *device) {
+            hr = WrapAudioDevice(kIidMMDevice, reinterpret_cast<void**>(device));
+        }
+        return hr;
+    }
+
+private:
+    IMMDeviceCollection* inner_;
+};
+
+HRESULT WrapAudioCollection(REFIID riid, void** ppv) {
+    if (!ppv || !*ppv) return E_POINTER;
+    if (riid != kIidMMDeviceCollection && riid != IID_IUnknown) return S_OK;
+    auto* raw = static_cast<IMMDeviceCollection*>(*ppv);
+    auto* wrapper = new (std::nothrow) AudioCollection(raw);
+    if (!wrapper) {
+        raw->Release();
+        *ppv = nullptr;
+        return E_OUTOFMEMORY;
+    }
+    raw->Release();
+    *ppv = static_cast<IMMDeviceCollection*>(wrapper);
+    return S_OK;
+}
+
+class AudioEnumerator : public IMMDeviceEnumerator, public RefCounted {
+public:
+    explicit AudioEnumerator(IMMDeviceEnumerator* inner) : inner_(inner) {
+        if (inner_) inner_->AddRef();
+    }
+    ~AudioEnumerator() override { if (inner_) inner_->Release(); }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == kIidMMDeviceEnumerator) {
+            *ppv = static_cast<IMMDeviceEnumerator*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return inner_->QueryInterface(riid, ppv);
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return RefCounted::AddRef(); }
+    ULONG STDMETHODCALLTYPE Release() override { return RefCounted::Release(); }
+    HRESULT STDMETHODCALLTYPE EnumAudioEndpoints(EDataFlow flow, DWORD state,
+                                                 IMMDeviceCollection** collection) override {
+        HRESULT hr = inner_->EnumAudioEndpoints(flow, state, collection);
+        if (SUCCEEDED(hr) && collection && *collection) {
+            hr = WrapAudioCollection(kIidMMDeviceCollection,
+                                     reinterpret_cast<void**>(collection));
+        }
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE GetDefaultAudioEndpoint(EDataFlow flow, ERole role,
+                                                      IMMDevice** device) override {
+        HRESULT hr = inner_->GetDefaultAudioEndpoint(flow, role, device);
+        if (SUCCEEDED(hr) && device && *device) {
+            hr = WrapAudioDevice(kIidMMDevice, reinterpret_cast<void**>(device));
+        }
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE GetDevice(LPCWSTR id, IMMDevice** device) override {
+        HRESULT hr = inner_->GetDevice(id, device);
+        if (SUCCEEDED(hr) && device && *device) {
+            hr = WrapAudioDevice(kIidMMDevice, reinterpret_cast<void**>(device));
+        }
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE RegisterEndpointNotificationCallback(
+        IMMNotificationClient* client) override {
+        return inner_->RegisterEndpointNotificationCallback(client);
+    }
+    HRESULT STDMETHODCALLTYPE UnregisterEndpointNotificationCallback(
+        IMMNotificationClient* client) override {
+        return inner_->UnregisterEndpointNotificationCallback(client);
+    }
+
+private:
+    IMMDeviceEnumerator* inner_;
+};
+
+HRESULT WrapAudioEnumerator(REFIID riid, void** ppv) {
+    if (!ppv || !*ppv) return E_POINTER;
+    if (riid != kIidMMDeviceEnumerator && riid != IID_IUnknown) return S_OK;
+    auto* raw = static_cast<IMMDeviceEnumerator*>(*ppv);
+    auto* wrapper = new (std::nothrow) AudioEnumerator(raw);
+    if (!wrapper) {
+        raw->Release();
+        *ppv = nullptr;
+        return E_OUTOFMEMORY;
+    }
+    raw->Release();
+    *ppv = static_cast<IMMDeviceEnumerator*>(wrapper);
+    return S_OK;
+}
+
 HRESULT WINAPI HookCoCreateInstance(REFCLSID clsid, LPUNKNOWN outer, DWORD context, REFIID riid,
                                     LPVOID* ppv) {
     HRESULT hr = g_origCoCreateInstance ? g_origCoCreateInstance(clsid, outer, context, riid, ppv)
@@ -1119,6 +1301,11 @@ HRESULT WINAPI HookCoCreateInstance(REFCLSID clsid, LPUNKNOWN outer, DWORD conte
         const HRESULT wrapHr = WrapLocatorResult(riid, ppv);
         if (FAILED(wrapHr)) return wrapHr;
         AuditEventRateLimited("wmi.install", "wrapped");
+    }
+    if (SUCCEEDED(hr) && ppv && IsEqualCLSID(clsid, kClsidMMDeviceEnumerator)) {
+        const HRESULT wrapHr = WrapAudioEnumerator(riid, ppv);
+        if (FAILED(wrapHr)) return wrapHr;
+        AuditEventRateLimited("audio.enumerator", "wrapped");
     }
     return hr;
 }
@@ -1190,3 +1377,4 @@ void InstallWmiHooks() {
     InstallHookInlinePrimary("ole32.dll", "CoGetClassObject", reinterpret_cast<void*>(&HookCoGetClassObject),
                              reinterpret_cast<void**>(&g_origCoGetClassObject));
 }
+

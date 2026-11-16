@@ -20,6 +20,7 @@
 #include <psapi.h>
 #include <tbs.h>
 #include <mmdeviceapi.h>
+#include "../AudioGuids.h"
 
 #include <cstdint>
 #include <atomic>
@@ -3624,8 +3625,9 @@ void InstallAudioHooks() {
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     const bool comInitialized = SUCCEEDED(comResult);
     IMMDeviceEnumerator* enumerator = nullptr;
-    HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                                  IID_PPV_ARGS(&enumerator));
+    HRESULT hr = CoCreateInstance(kClsidMMDeviceEnumerator, nullptr, CLSCTX_ALL,
+                                  kIidMMDeviceEnumerator,
+                                  reinterpret_cast<void**>(&enumerator));
     if (FAILED(hr) || !enumerator) {
         AuditEvent("audio.hook", "skipped", "enumerator-failed");
         if (comInitialized) CoUninitialize();

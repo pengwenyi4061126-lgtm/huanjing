@@ -37,6 +37,7 @@ replacement process by name. Profile handoff uses
 | `HidD_GetSerialNumberString` | inline-primary + IAT/delay patch | on |
 | `HidD_GetAttributes` / `GetManufacturerString` / `GetProductString` | profile VID/PID/version and strings | on |
 | NVML `nvmlDeviceGetName` / `GetSerial` / `GetUUID` / `GetMemoryInfo` | IAT/inline for statically imported nvml.dll | on (static) |
+| IMMDevice `GetId` | CoCreateInstance(MMDeviceEnumerator) wrapper + device/collection wrappers | on |
 | `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | inline-primary with IAT/delay fallback; profile mode hides virtual device IDs/properties, empty policy clears output | profile |
 | `SetupDiGetDeviceInstanceIdW` profile rewrite | GPU `DEV_1C82`→`DEV_1F82`, monitor `PHLC031`→`DEL41A9` | profile |
 | SetupDi `SPDRP_HARDWAREID` / `DEVICEDESC` / `FRIENDLYNAME` | GPU/monitor ID and string rewrite | profile |
@@ -210,7 +211,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 
   -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
 ```
 
-The 2026-11-16 baseline is `pass=55 fail=1 warn=0`; the only failure is
+The 2026-11-16 baseline is `pass=57 fail=1 warn=0`; the only failure is
 Clash process visibility, which belongs to the deferred TUN+clean work.
 SMBIOS Type 17 now rewrites only populated slots, so the sum of module
 sizes matches the profile memory total instead of filling empty slots.
@@ -238,9 +239,9 @@ NVML: statically imported `nvml.dll` is covered (IAT/inline), verified by
 main-module `GetProcAddress` IAT hook crashed with `0xC0000409` and was
 removed.
 
-Audio: `cac-audio-probe.exe` and an `IMMDevice::GetId` vtable hook exist,
-but the probe's out-of-process devices use a different proxy vtable, so
-`GetId` is not intercepted yet. Audio endpoint identity is WIP.
+Audio: `cac-audio-probe.exe` verifies the `IMMDeviceEnumerator` wrapper;
+endpoint IDs now come from the Profile. Friendly names/property-store
+values are still passed through.
 
 PNP: instance IDs, hardware IDs, device description and friendly names for
 the GPU/monitor are rewritten, and GameViewer is hidden. A full synthetic
