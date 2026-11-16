@@ -60,6 +60,19 @@ $pw = Read-Host 'Guest password' -AsSecureString
   Windows 之前**给新 VM 设好静态 MAC，或每个 Profile 重建 VM；新装后
   PnP 序列号、DUID、NDIS、WMI 才会从第一刻起一致。
 
+### 原生 API 回读
+
+`probe-api.ps1` 在 Guest 内用 `GetAdaptersInfo`、`SetupAPI`、`getmac`、WMI、
+`Get-NetAdapter` 回读，结果写入 `C:\Windows\Temp\cac-api-probe.json`。本次结果在
+`evidence\2026-11-16-06-api-probe.json`：
+
+- `GetAdaptersInfo` / `getmac` / `Get-NetAdapter` / WMI：`02:44:08:1A:18:33`
+- SetupAPI 实例 ID：`...\000C29FFFFF2A9EA00`（旧 PCI 序列号残留）
+- DUID：`...-02-44-08-1A-18-33`
+
+`GetAdaptersAddresses` 的 C# 结构体在当前 Guest 触发访问冲突，已从探针移除；
+`getmac` 走同一 IP Helper 层，作为替代证据。
+
 执行：
 
 ```powershell

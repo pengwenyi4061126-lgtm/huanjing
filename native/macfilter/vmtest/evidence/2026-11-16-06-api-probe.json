@@ -1,0 +1,182 @@
+﻿{
+    "cacMacLwf":  {
+                      "Name":  "CacMacLwf",
+                      "State":  "Stopped",
+                      "StartMode":  "Manual"
+                  },
+    "autoLogin":  {
+                      "ForceAutoLogon":  "1",
+                      "AutoAdminLogon":  "1",
+                      "DefaultUserName":  "Administrator"
+                  },
+    "duid":  "00-01-00-01-32-8B-B9-1E-02-44-08-1A-18-33",
+    "build":  "22631",
+    "ubr":  7376,
+    "time":  "2026-11-16T08:12:38.9400116+08:00",
+    "computer":  "DESKTOP-614945G",
+    "rows":  [
+                 {
+                     "Source":  "GetAdaptersInfo",
+                     "Name":  "Intel(R) 82574L Gigabit Network Connection",
+                     "Mac":  "02:44:08:1A:18:33",
+                     "Detail":  "{0E0E273E-99E6-4F47-85F3-6C33EF8FB717}"
+                 },
+                 {
+                     "Source":  "SetupAPI",
+                     "Name":  "",
+                     "Mac":  "",
+                     "Detail":  "SWD\\MSRRAS\\MS_PPPOEMINIPORT"
+                 },
+                 {
+                     "Source":  "SetupAPI",
+                     "Name":  "",
+                     "Mac":  "",
+                     "Detail":  "PCI\\VEN_8086\u0026DEV_10D3\u0026SUBSYS_07D015AD\u0026REV_00\\000C29FFFFF2A9EA00"
+                 },
+                 {
+                     "Source":  "SetupAPI",
+                     "Name":  "",
+                     "Mac":  "",
+                     "Detail":  "SWD\\MSRRAS\\MS_PPTPMINIPORT"
+                 },
+                 {
+                     "Source":  "SetupAPI",
+                     "Name":  "",
+                     "Mac":  "",
+                     "Detail":  "SWD\\MSRRAS\\MS_AGILEVPNMINIPORT"
+                 },
+                 {
+                     "Source":  "SetupAPI",
+                     "Name":  "",
+                     "Mac":  "",
+                     "Detail":  "SWD\\MSRRAS\\MS_NDISWANBH"
+                 },
+                 {
+                     "Source":  "SetupAPI",
+                     "Name":  "",
+                     "Mac":  "",
+                     "Detail":  "SWD\\MSRRAS\\MS_NDISWANIP"
+                 },
+                 {
+                     "Source":  "SetupAPI",
+                     "Name":  "",
+                     "Mac":  "",
+                     "Detail":  "SWD\\MSRRAS\\MS_SSTPMINIPORT"
+                 },
+                 {
+                     "Source":  "SetupAPI",
+                     "Name":  "",
+                     "Mac":  "",
+                     "Detail":  "SWD\\MSRRAS\\MS_NDISWANIPV6"
+                 },
+                 {
+                     "Source":  "SetupAPI",
+                     "Name":  "",
+                     "Mac":  "",
+                     "Detail":  "SWD\\MSRRAS\\MS_L2TPMINIPORT"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "本地连接* 8",
+                     "Mac":  "",
+                     "Detail":  "WAN Miniport (Network Monitor) status=Up index=13"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "本地连接* 7",
+                     "Mac":  "",
+                     "Detail":  "WAN Miniport (IPv6) status=Up index=12"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "本地连接* 2",
+                     "Mac":  "",
+                     "Detail":  "WAN Miniport (IKEv2) status=Disconnected index=11"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "Teredo Tunneling Pseudo-Interface",
+                     "Mac":  "",
+                     "Detail":  " status=Not Present index=10"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "本地连接* 1",
+                     "Mac":  "",
+                     "Detail":  "WAN Miniport (SSTP) status=Disconnected index=9"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "本地连接* 4",
+                     "Mac":  "",
+                     "Detail":  "WAN Miniport (PPTP) status=Disconnected index=8"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "本地连接* 5",
+                     "Mac":  "",
+                     "Detail":  "WAN Miniport (PPPOE) status=Disconnected index=7"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "本地连接* 6",
+                     "Mac":  "",
+                     "Detail":  "WAN Miniport (IP) status=Up index=6"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "Microsoft IP-HTTPS Platform Interface",
+                     "Mac":  "",
+                     "Detail":  " status=Not Present index=5"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "本地连接* 3",
+                     "Mac":  "",
+                     "Detail":  "WAN Miniport (L2TP) status=Disconnected index=4"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "Ethernet0",
+                     "Mac":  "02-44-08-1A-18-33",
+                     "Detail":  "Intel(R) 82574L Gigabit Network Connection status=Up index=3"
+                 },
+                 {
+                     "Source":  "Get-NetAdapter",
+                     "Name":  "6to4 Adapter",
+                     "Mac":  "",
+                     "Detail":  " status=Not Present index=2"
+                 },
+                 {
+                     "Source":  "getmac",
+                     "Name":  "Ethernet0",
+                     "Mac":  "02-44-08-1A-18-33",
+                     "Detail":  "Intel(R) 82574L Gigabit Network Connection"
+                 },
+                 {
+                     "Source":  "WMI",
+                     "Name":  "Intel(R) 82574L Gigabit Network Connection",
+                     "Mac":  "02:44:08:1A:18:33",
+                     "Detail":  "PCI\\VEN_8086\u0026DEV_10D3\u0026SUBSYS_07D015AD\u0026REV_00\\000C29FFFFF2A9EA00"
+                 },
+                 {
+                     "Source":  "WMI",
+                     "Name":  "WAN Miniport (IP)",
+                     "Mac":  "C2:66:20:52:41:53",
+                     "Detail":  "SWD\\MSRRAS\\MS_NDISWANIP"
+                 },
+                 {
+                     "Source":  "WMI",
+                     "Name":  "WAN Miniport (IPv6)",
+                     "Mac":  "C6:A3:20:52:41:53",
+                     "Detail":  "SWD\\MSRRAS\\MS_NDISWANIPV6"
+                 },
+                 {
+                     "Source":  "WMI",
+                     "Name":  "WAN Miniport (Network Monitor)",
+                     "Mac":  "C6:A3:20:52:41:53",
+                     "Detail":  "SWD\\MSRRAS\\MS_NDISWANBH"
+                 }
+             ],
+    "user":  "DESKTOP-614945G\\Administrator"
+}
