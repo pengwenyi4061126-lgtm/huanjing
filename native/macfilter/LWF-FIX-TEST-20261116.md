@@ -187,7 +187,49 @@ ping 10/10，0% 丢失
 下一步：让过滤器在开机时先于 IP 栈查询加载，再验证缓存是否采用
 改写后的 MAC。
 
-## 9. 来源
+## 9. 开机即加载实验
+
+把服务设为 `SYSTEM_START`，重启 VM：
+
+```text
+服务状态 = RUNNING
+StartMode = System
+attached = 1
+running = 1
+oidQueriesSeen = 138
+oidRewrites = 2
+lastRewriteOid = 0x01010102 (OID_802_3_CURRENT_ADDRESS)
+```
+
+但重启后仍然是：
+
+```text
+getmac        = 02-44-08-1A-18-33
+Get-NetAdapter = 02-44-08-1A-18-33
+WMI           = 02:44:08:1A:18:33
+ipconfig      = 02-44-08-1A-18-33
+```
+
+结论：
+
+```text
+LWF 能改写内核 OID 查询结果；
+但改不了 IP 栈在 miniport 注册时缓存的 MAC；
+所以用户态 GetAdaptersAddresses / WMI / getmac / ipconfig 仍是硬件 MAC。
+```
+
+这不是 clone 修复的问题，而是 LWF OID 改写的能力边界。Microsoft 在
+OSR 也明确说过：只改一个 OID 不足以更新 NDIS 和系统的各种缓存。
+
+最终状态：
+
+```text
+CacMacLwf: Stopped / Manual
+Ethernet0 MAC: 02-44-08-1A-18-33
+ping 192.168.174.2: 4/4
+```
+
+## 10. 来源
 
 - FILTER_PAUSE:
   https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ndis/nc-ndis-filter_pause
