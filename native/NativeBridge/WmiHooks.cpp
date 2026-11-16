@@ -266,13 +266,13 @@ WmiSpoof ValueForKind(int kind) {
         case 32: spoof.type = WmiValueType::UInt32; spoof.number = 1; break;
         case 33: spoof.text = L"SCSI"; break;
         case 34: spoof.text = L"Fixed hard disk media"; break;
-        case 35: spoof.text = L"Generic Disk"; break;
+        case 35: spoof.text = ToWide(identity.diskModel); break;
         case 36: spoof.text = L"1.0"; break;
         case 37: spoof.text = L"DIMM 0"; break;
         case 38: spoof.text = L"BANK 0"; break;
         case 39: spoof.text = ToWide(identity.gpuName); break;
         case 40: spoof.text = ToWide(identity.gpuDriverVersion); break;
-        case 41: spoof.text = L"PCI\\VEN_8086&DEV_0000"; break;
+        case 41: spoof.text = ToWide(identity.gpuPciId); break;
         case 42: spoof.text = ToWide(identity.gpuVendor); break;
         case 43: spoof.text = ToWide(identity.monitorName); break;
         case 44: spoof.text = ToWide(identity.biosVendor); break;
@@ -283,13 +283,13 @@ WmiSpoof ValueForKind(int kind) {
         case 49: spoof.text = ToWide(identity.systemVersion); break;
         case 50: spoof.text = ToWide(identity.chassisAssetTag); break;
         case 51: spoof.text = ToWide(identity.processorName); break;
-        case 52: spoof.text = L"GenuineIntel"; break;
-        case 53: spoof.text = L"x86 Family 6 Model 0 Stepping 0"; break;
+        case 52: spoof.text = ToWide(identity.cpuVendor); break;
+        case 53: spoof.text = ToWide(identity.cpuIdentifier); break;
         case 54: spoof.text = ToWide(identity.tpmVendor); break;
         case 55: spoof.text = ToWide(identity.tpmVersion); break;
-        case 56: spoof.text = L"Generic Ethernet Adapter"; break;
+        case 56: spoof.text = ToWide(identity.nicName); break;
         case 57: spoof.text = L"Ethernet 802.3"; break;
-        case 58: spoof.text = L"Generic Device"; break;
+        case 58: spoof.text = ToWide(identity.systemProduct); break;
         default: break;
     }
     return spoof;

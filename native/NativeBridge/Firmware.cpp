@@ -141,8 +141,8 @@ bool PatchSmbiosBuffer(BYTE* buffer, DWORD length, const ProfileIdentity& identi
         if (!stringsEnd) break;
 
         if (type == 0) {  // BIOS information
-            if (structLength > 0x05) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x05, cursor[0x05], "F.20", &patched);
-            if (structLength > 0x08) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x08, cursor[0x08], "01/01/2024", &patched);
+            if (structLength > 0x05) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x05, cursor[0x05], identity.biosVersion, &patched);
+            if (structLength > 0x08) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x08, cursor[0x08], identity.biosReleaseDate, &patched);
         } else if (type == 1) {  // System information
             if (structLength > 0x04) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x04, cursor[0x04], identity.systemManufacturer, &patched);
             if (structLength > 0x05) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x05, cursor[0x05], identity.systemProduct, &patched);
@@ -180,7 +180,7 @@ bool PatchSmbiosBuffer(BYTE* buffer, DWORD length, const ProfileIdentity& identi
             if (structLength > 0x10) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x10, cursor[0x10], identity.processorName, &patched);
             if (structLength > 0x20) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x20, cursor[0x20], identity.processorId, &patched);
             if (structLength > 0x21) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x21, cursor[0x21], identity.chassisAssetTag, &patched);
-            if (structLength > 0x22) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x22, cursor[0x22], "Generic CPU", &patched);
+            if (structLength > 0x22) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x22, cursor[0x22], identity.processorName, &patched);
             if (structLength > 0x23) PatchByte(cursor, structLength, 0x23, static_cast<uint8_t>(identity.cpuCores), &patched);
             if (structLength > 0x24) PatchByte(cursor, structLength, 0x24, static_cast<uint8_t>(identity.cpuCores), &patched);
             if (structLength > 0x25) PatchByte(cursor, structLength, 0x25, static_cast<uint8_t>(identity.cpuLogical), &patched);
@@ -200,19 +200,26 @@ bool PatchSmbiosBuffer(BYTE* buffer, DWORD length, const ProfileIdentity& identi
             PatchQword(cursor, structLength, 0x0F,
                        identity.memoryTotalMb * 1024ULL * 1024ULL, &patched);
         } else if (type == 17) {  // Memory device
-            const uint32_t moduleMb = static_cast<uint32_t>(identity.memoryModuleMb);
-            if (moduleMb > 0x7FFF) {
-                PatchWord(cursor, structLength, 0x0C, 0x7FFF, &patched);
-                PatchDword(cursor, structLength, 0x1C, moduleMb, &patched);
-            } else {
-                PatchWord(cursor, structLength, 0x0C, static_cast<uint16_t>(moduleMb), &patched);
+            uint16_t originalSize = 0;
+            if (structLength >= 0x0E) {
+                std::memcpy(&originalSize, cursor + 0x0C, sizeof(originalSize));
             }
-            PatchWord(cursor, structLength, 0x15, static_cast<uint16_t>(identity.memorySpeedMhz), &patched);
-            if (structLength > 0x17) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x17, cursor[0x17], "Generic", &patched);
-            if (structLength > 0x18) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x18, cursor[0x18], identity.systemSerial, &patched);
-            if (structLength > 0x19) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x19, cursor[0x19], identity.boardAssetTag, &patched);
-            if (structLength > 0x1A) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x1A, cursor[0x1A], "Generic DDR", &patched);
-            PatchWord(cursor, structLength, 0x20, static_cast<uint16_t>(identity.memorySpeedMhz), &patched);
+            const bool populated = originalSize != 0 && originalSize != 0xFFFF;
+            if (populated) {
+                const uint32_t moduleMb = static_cast<uint32_t>(identity.memoryModuleMb);
+                if (moduleMb > 0x7FFF) {
+                    PatchWord(cursor, structLength, 0x0C, 0x7FFF, &patched);
+                    PatchDword(cursor, structLength, 0x1C, moduleMb, &patched);
+                } else {
+                    PatchWord(cursor, structLength, 0x0C, static_cast<uint16_t>(moduleMb), &patched);
+                }
+                PatchWord(cursor, structLength, 0x15, static_cast<uint16_t>(identity.memorySpeedMhz), &patched);
+                if (structLength > 0x17) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x17, cursor[0x17], identity.memoryVendor, &patched);
+                if (structLength > 0x18) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x18, cursor[0x18], identity.systemSerial, &patched);
+                if (structLength > 0x19) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x19, cursor[0x19], identity.boardAssetTag, &patched);
+                if (structLength > 0x1A) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x1A, cursor[0x1A], identity.memoryPart, &patched);
+                PatchWord(cursor, structLength, 0x20, static_cast<uint16_t>(identity.memorySpeedMhz), &patched);
+            }
         } else if (type == 39) {  // Power supply
             if (structLength > 0x05) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x05, cursor[0x05], "Internal", &patched);
             if (structLength > 0x06) PatchStringByIndex(cursor, stringsBegin, stringsEnd, 0x06, cursor[0x06], "Power Supply", &patched);

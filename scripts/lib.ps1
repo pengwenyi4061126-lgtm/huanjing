@@ -58,10 +58,15 @@ function New-Uuid    { return [guid]::NewGuid().ToString().ToUpper() }
 function New-Sid     { return [guid]::NewGuid().ToString().ToLower() }
 function New-UserId  { return -join ((1..32) | ForEach-Object { "{0:x2}" -f (Get-Random -Maximum 256) }) }
 function New-MachineId { return [guid]::NewGuid().ToString().Replace("-","").ToLower() }
-function New-FakeHostname { return "host-$([guid]::NewGuid().ToString().Split('-')[0].ToLower())" }
+function New-FakeHostname {
+    $suffix = ([guid]::NewGuid().ToString('N').Substring(0, 7)).ToUpperInvariant()
+    return "DESKTOP-$suffix"
+}
 function New-FakeMac {
-    $bytes = @(0x02) + (1..5 | ForEach-Object { Get-Random -Maximum 256 })
-    return ($bytes | ForEach-Object { "{0:x2}" -f $_ }) -join ":"
+    # Realtek OUI; keep the locally-administered bit clear so the MAC looks
+    # like a physical NIC instead of a generated 02:xx address.
+    $bytes = 1..3 | ForEach-Object { Get-Random -Maximum 256 }
+    return ('00:E0:4C:' + (($bytes | ForEach-Object { "{0:x2}" -f $_ }) -join ':'))
 }
 
 function Get-DerivedHex {
@@ -451,14 +456,56 @@ function Ensure-ProfileLayout {
     $uuidValue = [string]$identity.uuid
     $machineValue = [string]$identity.machine_id
     $derived = [ordered]@{
+        hostname = if ([string]::IsNullOrWhiteSpace([string]$identity.hostname)) { New-FakeHostname } else { [string]$identity.hostname }
+        mac_address = if ([string]::IsNullOrWhiteSpace([string]$identity.mac_address)) { New-FakeMac } else { [string]$identity.mac_address }
         system_uuid   = ($uuidValue -replace '-', '').ToUpperInvariant()
-        disk_serial   = "WD-" + (Get-DerivedHex "$machineValue|disk" 12)
-        bios_serial   = "PF" + (Get-DerivedHex "$machineValue|bios" 10)
-        board_serial  = "MB" + (Get-DerivedHex "$machineValue|board" 10)
-        system_serial = "SYS" + (Get-DerivedHex "$machineValue|system" 10)
+        disk_serial   = ("WD-" + (Get-DerivedHex "$machineValue|disk" 12)).ToUpperInvariant()
+        bios_serial   = ("PF" + (Get-DerivedHex "$machineValue|bios" 10)).ToUpperInvariant()
+        board_serial  = ("MB" + (Get-DerivedHex "$machineValue|board" 10)).ToUpperInvariant()
+        system_serial = ("SYS" + (Get-DerivedHex "$machineValue|system" 10)).ToUpperInvariant()
         processor_id  = (Get-DerivedHex "$machineValue|cpu" 16).ToUpperInvariant()
         hid_serial    = "HID" + (Get-DerivedHex "$machineValue|hid" 10).ToUpperInvariant()
         volume_serial = (Get-DerivedHex "$machineValue|volume" 8).ToUpperInvariant()
+        system_manufacturer = "ASUSTeK COMPUTER INC."
+        system_product = "PRIME B550M-K"
+        system_version = "System Version"
+        board_manufacturer = "ASUSTeK COMPUTER INC."
+        board_product = "PRIME B550M-K"
+        board_version = "Rev X.0x"
+        bios_vendor = "American Megatrends Inc."
+        bios_version = "5.17"
+        bios_release_date = "01/01/2024"
+        processor_name = "AMD Ryzen 3 3100 4-Core Processor"
+        cpu_vendor = "AuthenticAMD"
+        cpu_identifier = "AMD64 Family 23 Model 113 Stepping 0"
+        gpu_name = "NVIDIA GeForce GTX 1650"
+        gpu_vendor = "NVIDIA"
+        gpu_pci_id = "PCI\VEN_10DE&DEV_1F82&SUBSYS_1F8210DE&REV_A1"
+        gpu_memory_mb = 4096
+        gpu_driver_version = "31.0.15.3699"
+        memory_vendor = "Samsung"
+        memory_part = "M378A1K43CB2-CRC"
+        memory_total_mb = 16384
+        memory_available_mb = 12288
+        memory_module_mb = 8192
+        memory_speed_mhz = 3200
+        disk_total_gb = 512
+        disk_free_gb = 256
+        disk_model = "WDC WDS500G2B0A-00SM50"
+        nic_name = "Realtek PCIe GbE Family Controller"
+        cpu_cores = 4
+        cpu_logical = 8
+        cpu_max_mhz = 3600
+        l2_cache_kb = 2048
+        l3_cache_kb = 16384
+        display_width = 1920
+        display_height = 1080
+        display_refresh = 60
+        hypervisor_present = $false
+        tpm_present = $false
+        volume_label = "System"
+        filesystem = "NTFS"
+        monitor_name = "Philips PHL 243V7"
     }
     $identityChanged = (-not $identityValid)
     foreach ($key in $derived.Keys) {

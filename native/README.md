@@ -178,6 +178,24 @@ cpu.cpuid             filtered leaf
 cpu.xgetbv            observed index
 ```
 
+## Device profile verifier
+
+`scripts\device-profile-verify.ps1` runs `cac-hardware-probe.exe` and
+`wmi_probe.exe` through `cac-native-launch.exe` for one Profile, then
+compares `identity.json` with the observed BIOS/UUID/disk/MAC/volume/
+processor/memory/disk/CPU/SMBIOS surfaces. It also checks CIM availability
+and VPN process visibility:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 `
+  -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
+```
+
+The 2026-11-16 baseline is `pass=21 fail=1 warn=0`; the only failure is
+Clash process visibility, which belongs to the deferred TUN+clean work.
+SMBIOS Type 17 now rewrites only populated slots, so the sum of module
+sizes matches the profile memory total instead of filling empty slots.
+
 ## Boundaries
 
 - NativeBridge remains a userland return-value layer. CacKernel is a separate SCM-loaded storage filter and control plane for per-process registration/lifecycle evidence; `network_mode=enforce` adds a dynamic user-mode WFP session for the Claude image.

@@ -181,6 +181,7 @@ bool ProfileIdentity::Load() {
     JsonString(document, "gpu_name", gpuName);
     JsonString(document, "gpu_vendor", gpuVendor);
     JsonString(document, "gpu_driver_version", gpuDriverVersion);
+    JsonString(document, "gpu_pci_id", gpuPciId);
     JsonString(document, "monitor_name", monitorName);
     JsonString(document, "monitor_serial", monitorSerial);
     JsonString(document, "monitor_edid_hex", monitorEdidHex);
@@ -196,6 +197,12 @@ bool ProfileIdentity::Load() {
     JsonString(document, "bios_version", biosVersion);
     JsonString(document, "bios_release_date", biosReleaseDate);
     JsonString(document, "processor_name", processorName);
+    JsonString(document, "cpu_vendor", cpuVendor);
+    JsonString(document, "cpu_identifier", cpuIdentifier);
+    JsonString(document, "memory_vendor", memoryVendor);
+    JsonString(document, "memory_part", memoryPart);
+    JsonString(document, "nic_name", nicName);
+    JsonString(document, "disk_model", diskModel);
     JsonString(document, "chassis_asset_tag", chassisAssetTag);
     JsonString(document, "board_asset_tag", boardAssetTag);
 

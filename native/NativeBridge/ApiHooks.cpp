@@ -403,17 +403,17 @@ bool GetRegistrySpoofValue(const wchar_t* name, std::wstring& value) {
     if (_wcsicmp(name, L"SystemManufacturer") == 0 || _wcsicmp(name, L"BaseBoardManufacturer") == 0) {
         value = L"Default string"; return true;
     }
-    if (_wcsicmp(name, L"SystemProductName") == 0) { value = L"System Product Name"; return true; }
-    if (_wcsicmp(name, L"BaseBoardProduct") == 0) { value = L"Base Board"; return true; }
+    if (_wcsicmp(name, L"SystemProductName") == 0) { value = Utf8ToWide(identity.systemProduct); return true; }
+    if (_wcsicmp(name, L"BaseBoardProduct") == 0) { value = Utf8ToWide(identity.boardProduct); return true; }
     if (_wcsicmp(name, L"SystemVersion") == 0 || _wcsicmp(name, L"BaseBoardVersion") == 0) {
-        value = L"1.0"; return true;
+        value = Utf8ToWide(identity.systemVersion); return true;
     }
     if (_wcsicmp(name, L"SystemSKU") == 0 || _wcsicmp(name, L"SystemFamily") == 0) {
         value = L"Default string"; return true;
     }
-    if (_wcsicmp(name, L"ProcessorNameString") == 0) { value = L"Generic x64 Processor"; return true; }
-    if (_wcsicmp(name, L"VendorIdentifier") == 0) { value = L"GenuineIntel"; return true; }
-    if (_wcsicmp(name, L"Identifier") == 0) { value = L"x86 Family 6 Model 0 Stepping 0"; return true; }
+    if (_wcsicmp(name, L"ProcessorNameString") == 0) { value = Utf8ToWide(identity.processorName); return true; }
+    if (_wcsicmp(name, L"VendorIdentifier") == 0) { value = Utf8ToWide(identity.cpuVendor); return true; }
+    if (_wcsicmp(name, L"Identifier") == 0) { value = Utf8ToWide(identity.cpuIdentifier); return true; }
     if (_wcsicmp(name, L"DriverVersion") == 0) { value = Utf8ToWide(identity.gpuDriverVersion); return true; }
     if (_wcsicmp(name, L"VideoProcessor") == 0 ||
         _wcsicmp(name, L"HardwareInformation.AdapterString") == 0 ||
@@ -964,9 +964,10 @@ BOOL WINAPI HookEnumDisplayDevicesW(LPCWSTR device, DWORD deviceIndex,
         SetWideBuffer(displayDevice->DeviceName, _countof(displayDevice->DeviceName),
                       L"\\\\.\\DISPLAY1");
         SetWideBuffer(displayDevice->DeviceString, _countof(displayDevice->DeviceString), name);
-        SetWideBuffer(displayDevice->DeviceID, _countof(displayDevice->DeviceID),
-                      deviceIndex == 0 ? L"PCI\\VEN_8086&DEV_0000"
-                                       : L"MONITOR\\GEN0000");
+        const std::wstring deviceId = deviceIndex == 0
+            ? Utf8ToWide(identity.gpuPciId)
+            : std::wstring(L"MONITOR\\PHL243V7");
+        SetWideBuffer(displayDevice->DeviceID, _countof(displayDevice->DeviceID), deviceId);
         SetWideBuffer(displayDevice->DeviceKey, _countof(displayDevice->DeviceKey),
                       L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Video\\{00000000-0000-0000-0000-000000000000}\\0000");
         AuditEventRateLimited("api.enumdisplaydevices", "patched");
@@ -981,7 +982,7 @@ BOOL WINAPI HookEnumDisplaySettingsW(LPCWSTR deviceName, DWORD modeNumber,
         : FALSE;
     if (result && devMode) {
         const ProfileIdentity& identity = ProfileIdentity::Get();
-        SetWideBuffer(devMode->dmDeviceName, CCHDEVICENAME, L"Generic Display");
+        SetWideBuffer(devMode->dmDeviceName, CCHDEVICENAME, Utf8ToWide(identity.gpuName));
         devMode->dmBitsPerPel = 32;
         devMode->dmPelsWidth = identity.displayWidth;
         devMode->dmPelsHeight = identity.displayHeight;
