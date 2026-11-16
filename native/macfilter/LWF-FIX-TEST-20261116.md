@@ -137,7 +137,57 @@ ping 192.168.174.2 = 4/4
 - 不再尝试用 LWF 做按进程 MAC；Microsoft 在 OSR 也明确说 LWF
   不能真正替换 MAC。
 
-## 8. 来源
+## 8. Clone 修复成功（2026-11-16）
+
+根因确认：**不能把原始 `NDIS_OID_REQUEST` 直接传给 `NdisFOidRequest`**。
+Microsoft 文档明确要求：
+
+```text
+A filter driver ... should not forward the original NDIS_OID_REQUEST
+structure to underlying drivers.
+```
+
+修正后的流程：
+
+```text
+NdisAllocateCloneOidRequest(original) -> clone
+clone->SourceReserved[0] = original
+NdisFOidRequest(clone)
+完成时：
+  改写 clone 的 MAC 查询结果
+  把 BytesWritten/BytesNeeded 和查询数据拷回 original
+  NdisFreeCloneOidRequest(clone)
+  NdisFOidRequestComplete(original)
+```
+
+实测结果：
+
+```text
+服务 RUNNING
+attached = 1
+oidQueriesSeen = 45
+oidRewrites = 2
+lastOid = 0x01010102 (OID_802_3_CURRENT_ADDRESS)
+lastRewriteOid = 0x01010102
+sendPaused = 0
+sendForwarded = 40
+receivePaused = 0
+receiveForwarded = 10
+ping 10/10，0% 丢失
+连续 5 次 Restart-NetAdapter 无蓝屏
+```
+
+这说明：
+
+- 0x1E 的根因是原始 OID 请求被直接下发，完成链损坏；
+- clone 模式后，OID 参与、网卡重启、数据路径都正常；
+- MAC OID 确实被改写，但 `getmac`/WMI/`ipconfig` 仍显示硬件 MAC，
+  原因是 IP 栈缓存，不是过滤器没命中。
+
+下一步：让过滤器在开机时先于 IP 栈查询加载，再验证缓存是否采用
+改写后的 MAC。
+
+## 9. 来源
 
 - FILTER_PAUSE:
   https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ndis/nc-ndis-filter_pause

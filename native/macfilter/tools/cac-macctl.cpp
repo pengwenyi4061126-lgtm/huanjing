@@ -52,7 +52,9 @@ static bool ParseMac(const wchar_t *text, unsigned char *out) {
 static int PrintState(const CAC_MAC_STATE &state) {
     printf("{\"ok\":true,\"setCount\":%lu,\"oidQueriesSeen\":%lu,"
            "\"oidRewrites\":%lu,\"attached\":%lu,\"detached\":%lu,"
-           "\"registerStatus\":%lu,"
+           "\"registerStatus\":%lu,\"running\":%lu,\"lastOid\":%lu,"
+           "\"lastRewriteOid\":%lu,\"sendPaused\":%lu,\"sendForwarded\":%lu,"
+           "\"receivePaused\":%lu,\"receiveForwarded\":%lu,"
            "\"mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\"}\n",
            (unsigned long)state.SetCount,
            (unsigned long)state.OidQueriesSeen,
@@ -60,6 +62,13 @@ static int PrintState(const CAC_MAC_STATE &state) {
            (unsigned long)state.AttachedModules,
            (unsigned long)state.DetachedModules,
            (unsigned long)state.RegisterStatus,
+           (unsigned long)state.Running,
+           (unsigned long)state.LastOid,
+           (unsigned long)state.LastRewriteOid,
+           (unsigned long)state.SendPaused,
+           (unsigned long)state.SendForwarded,
+           (unsigned long)state.ReceivePaused,
+           (unsigned long)state.ReceiveForwarded,
            state.Mac[0], state.Mac[1], state.Mac[2],
            state.Mac[3], state.Mac[4], state.Mac[5]);
     return 0;

@@ -24,6 +24,13 @@ typedef struct _CAC_MAC_STATE {
     ULONG RegisterStatus;
     UCHAR Mac[6];
     UCHAR Padding[2];
+    ULONG Running;
+    ULONG LastOid;
+    ULONG LastRewriteOid;
+    ULONG SendPaused;
+    ULONG SendForwarded;
+    ULONG ReceivePaused;
+    ULONG ReceiveForwarded;
 } CAC_MAC_STATE;
 
 #define CAC_MAC_IOCTL_SET \

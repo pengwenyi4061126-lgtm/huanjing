@@ -51,6 +51,13 @@ static ULONG g_OidRewrites = 0;
 static ULONG g_Attached = 0;
 static ULONG g_Detached = 0;
 static ULONG g_RegisterStatus = 0xFFFFFFFFu;
+static volatile LONG g_Running = 0;
+static volatile LONG g_LastOid = 0;
+static volatile LONG g_LastRewriteOid = 0;
+static volatile LONG g_SendPaused = 0;
+static volatile LONG g_SendForwarded = 0;
+static volatile LONG g_ReceivePaused = 0;
+static volatile LONG g_ReceiveForwarded = 0;
 
 static NDIS_STATUS
 CacMacFilterAttach(
@@ -111,6 +118,7 @@ CacMacFilterRestart(
 
     UNREFERENCED_PARAMETER(RestartParameters);
     context->Running = TRUE;
+    InterlockedExchange(&g_Running, 1);
     return NDIS_STATUS_SUCCESS;
 }
 
@@ -124,6 +132,7 @@ CacMacFilterPause(
 
     UNREFERENCED_PARAMETER(PauseParameters);
     context->Running = FALSE;
+    InterlockedExchange(&g_Running, 0);
 
     /*
      * FILTER_PAUSE must never fail.  This filter does not queue, originate
@@ -133,6 +142,37 @@ CacMacFilterPause(
     return NDIS_STATUS_SUCCESS;
 }
 
+static VOID
+CacMacFilterZeroOidBytes(
+    _Inout_ PNDIS_OID_REQUEST Request
+    )
+{
+    switch (Request->RequestType) {
+    case NdisRequestMethod:
+        Request->DATA.METHOD_INFORMATION.BytesRead = 0;
+        Request->DATA.METHOD_INFORMATION.BytesNeeded = 0;
+        Request->DATA.METHOD_INFORMATION.BytesWritten = 0;
+        break;
+    case NdisRequestSetInformation:
+        Request->DATA.SET_INFORMATION.BytesRead = 0;
+        Request->DATA.SET_INFORMATION.BytesNeeded = 0;
+        break;
+    case NdisRequestQueryInformation:
+    case NdisRequestQueryStatistics:
+    default:
+        Request->DATA.QUERY_INFORMATION.BytesWritten = 0;
+        Request->DATA.QUERY_INFORMATION.BytesNeeded = 0;
+        break;
+    }
+}
+
+static VOID
+CacMacFilterOidRequestComplete(
+    _In_ NDIS_HANDLE FilterModuleContext,
+    _In_ PNDIS_OID_REQUEST OidRequest,
+    _In_ NDIS_STATUS Status
+    );
+
 static NDIS_STATUS
 CacMacFilterOidRequest(
     _In_ NDIS_HANDLE FilterModuleContext,
@@ -140,38 +180,41 @@ CacMacFilterOidRequest(
     )
 {
     CAC_MAC_FILTER_CTX *context = (CAC_MAC_FILTER_CTX *)FilterModuleContext;
-    NDIS_OID oid;
-
-    if (OidRequest->RequestType == NdisRequestQueryInformation) {
-        oid = OidRequest->DATA.QUERY_INFORMATION.Oid;
-        if (oid == OID_802_3_CURRENT_ADDRESS ||
-            oid == OID_802_11_MAC_ADDRESS ||
-            oid == OID_802_11_PERMANENT_ADDRESS) {
-            if (OidRequest->DATA.QUERY_INFORMATION.InformationBuffer != NULL &&
-                OidRequest->DATA.QUERY_INFORMATION.InformationBufferLength >= 6) {
-                KIRQL irql;
-
-                NdisInterlockedIncrement((PLONG)&g_OidSeen);
-                KeAcquireSpinLock(&g_MacLock, &irql);
-                NdisMoveMemory(
-                    OidRequest->DATA.QUERY_INFORMATION.InformationBuffer,
-                    g_Mac,
-                    6);
-                KeReleaseSpinLock(&g_MacLock, irql);
-                OidRequest->DATA.QUERY_INFORMATION.BytesWritten = 6;
-                OidRequest->DATA.QUERY_INFORMATION.BytesNeeded = 6;
-                NdisInterlockedIncrement((PLONG)&g_OidRewrites);
-                return NDIS_STATUS_SUCCESS;
-            }
-
-            OidRequest->DATA.QUERY_INFORMATION.BytesWritten = 0;
-            OidRequest->DATA.QUERY_INFORMATION.BytesNeeded = 6;
-            return NDIS_STATUS_INVALID_LENGTH;
-        }
-    }
+    PNDIS_OID_REQUEST clonedRequest = NULL;
+    NDIS_STATUS status;
 
     NdisInterlockedIncrement((PLONG)&g_OidSeen);
-    return NdisFOidRequest(context->NdisFilterHandle, OidRequest);
+    if (OidRequest->RequestType == NdisRequestQueryInformation) {
+        InterlockedExchange(
+            &g_LastOid,
+            (LONG)OidRequest->DATA.QUERY_INFORMATION.Oid);
+    }
+
+    /*
+     * Microsoft requires filters to forward a clone, never the original
+     * NDIS_OID_REQUEST.  Forwarding the original corrupts the completion
+     * chain (0x1E in ndisFOidRequestCompleteInternal).
+     */
+    status = NdisAllocateCloneOidRequest(
+        context->NdisFilterHandle,
+        OidRequest,
+        CAC_MAC_POOL_TAG,
+        &clonedRequest);
+    if (status != NDIS_STATUS_SUCCESS) {
+        CacMacFilterZeroOidBytes(OidRequest);
+        return status;
+    }
+
+    *(PNDIS_OID_REQUEST *)&clonedRequest->SourceReserved[0] = OidRequest;
+    clonedRequest->RequestId = OidRequest->RequestId;
+
+    status = NdisFOidRequest(context->NdisFilterHandle, clonedRequest);
+    if (status != NDIS_STATUS_PENDING) {
+        CacMacFilterOidRequestComplete(context, clonedRequest, status);
+        status = NDIS_STATUS_PENDING;
+    }
+
+    return status;
 }
 
 static VOID
@@ -182,9 +225,88 @@ CacMacFilterOidRequestComplete(
     )
 {
     CAC_MAC_FILTER_CTX *context = (CAC_MAC_FILTER_CTX *)FilterModuleContext;
+    PNDIS_OID_REQUEST originalRequest;
+    NDIS_OID oid;
 
+    originalRequest = *(PNDIS_OID_REQUEST *)&OidRequest->SourceReserved[0];
+    if (originalRequest == NULL) {
+        NdisFreeCloneOidRequest(context->NdisFilterHandle, OidRequest);
+        return;
+    }
+
+    if (Status == NDIS_STATUS_SUCCESS &&
+        OidRequest->RequestType == NdisRequestQueryInformation) {
+        oid = OidRequest->DATA.QUERY_INFORMATION.Oid;
+        if ((oid == OID_802_3_CURRENT_ADDRESS ||
+             oid == OID_802_11_MAC_ADDRESS ||
+             oid == OID_802_11_PERMANENT_ADDRESS) &&
+            OidRequest->DATA.QUERY_INFORMATION.InformationBuffer != NULL &&
+            OidRequest->DATA.QUERY_INFORMATION.InformationBufferLength >= 6) {
+            KIRQL irql;
+
+            KeAcquireSpinLock(&g_MacLock, &irql);
+            NdisMoveMemory(
+                OidRequest->DATA.QUERY_INFORMATION.InformationBuffer,
+                g_Mac,
+                6);
+            KeReleaseSpinLock(&g_MacLock, irql);
+            OidRequest->DATA.QUERY_INFORMATION.BytesWritten = 6;
+            OidRequest->DATA.QUERY_INFORMATION.BytesNeeded = 6;
+            NdisInterlockedIncrement((PLONG)&g_OidRewrites);
+            InterlockedExchange(&g_LastRewriteOid, (LONG)oid);
+        }
+    }
+
+    switch (OidRequest->RequestType) {
+    case NdisRequestMethod:
+        originalRequest->DATA.METHOD_INFORMATION.OutputBufferLength =
+            OidRequest->DATA.METHOD_INFORMATION.OutputBufferLength;
+        originalRequest->DATA.METHOD_INFORMATION.BytesRead =
+            OidRequest->DATA.METHOD_INFORMATION.BytesRead;
+        originalRequest->DATA.METHOD_INFORMATION.BytesNeeded =
+            OidRequest->DATA.METHOD_INFORMATION.BytesNeeded;
+        originalRequest->DATA.METHOD_INFORMATION.BytesWritten =
+            OidRequest->DATA.METHOD_INFORMATION.BytesWritten;
+        break;
+
+    case NdisRequestSetInformation:
+        originalRequest->DATA.SET_INFORMATION.BytesRead =
+            OidRequest->DATA.SET_INFORMATION.BytesRead;
+        originalRequest->DATA.SET_INFORMATION.BytesNeeded =
+            OidRequest->DATA.SET_INFORMATION.BytesNeeded;
+        break;
+
+    case NdisRequestQueryInformation:
+    case NdisRequestQueryStatistics:
+    default:
+        {
+            ULONG copyLength = OidRequest->DATA.QUERY_INFORMATION.BytesWritten;
+            ULONG originalLength =
+                originalRequest->DATA.QUERY_INFORMATION.InformationBufferLength;
+
+            if (copyLength > originalLength) {
+                copyLength = originalLength;
+            }
+            if (copyLength > 0 &&
+                OidRequest->DATA.QUERY_INFORMATION.InformationBuffer != NULL &&
+                originalRequest->DATA.QUERY_INFORMATION.InformationBuffer != NULL) {
+                NdisMoveMemory(
+                    originalRequest->DATA.QUERY_INFORMATION.InformationBuffer,
+                    OidRequest->DATA.QUERY_INFORMATION.InformationBuffer,
+                    copyLength);
+            }
+            originalRequest->DATA.QUERY_INFORMATION.BytesWritten =
+                OidRequest->DATA.QUERY_INFORMATION.BytesWritten;
+            originalRequest->DATA.QUERY_INFORMATION.BytesNeeded =
+                OidRequest->DATA.QUERY_INFORMATION.BytesNeeded;
+        }
+        break;
+    }
+
+    *(PNDIS_OID_REQUEST *)&OidRequest->SourceReserved[0] = NULL;
+    NdisFreeCloneOidRequest(context->NdisFilterHandle, OidRequest);
     NdisFOidRequestComplete(
-        context->NdisFilterHandle, OidRequest, Status);
+        context->NdisFilterHandle, originalRequest, Status);
 }
 
 static VOID
@@ -209,9 +331,11 @@ CacMacFilterSendNetBufferLists(
         }
         NdisFSendNetBufferListsComplete(
             context->NdisFilterHandle, NetBufferLists, completeFlags);
+        InterlockedIncrement(&g_SendPaused);
         return;
     }
 
+    InterlockedIncrement(&g_SendForwarded);
     NdisFSendNetBufferLists(
         context->NdisFilterHandle, NetBufferLists, PortNumber, SendFlags);
 }
@@ -251,9 +375,11 @@ CacMacFilterReceiveNetBufferLists(
             NdisFReturnNetBufferLists(
                 context->NdisFilterHandle, NetBufferLists, returnFlags);
         }
+        InterlockedIncrement(&g_ReceivePaused);
         return;
     }
 
+    InterlockedIncrement(&g_ReceiveForwarded);
     NdisFIndicateReceiveNetBufferLists(
         context->NdisFilterHandle, NetBufferLists, PortNumber,
         NumberOfNetBufferLists, ReceiveFlags);
@@ -348,6 +474,13 @@ CacMacDeviceControl(
         state->AttachedModules = g_Attached;
         state->DetachedModules = g_Detached;
         state->RegisterStatus = g_RegisterStatus;
+        state->Running = (ULONG)g_Running;
+        state->LastOid = (ULONG)g_LastOid;
+        state->LastRewriteOid = (ULONG)g_LastRewriteOid;
+        state->SendPaused = (ULONG)g_SendPaused;
+        state->SendForwarded = (ULONG)g_SendForwarded;
+        state->ReceivePaused = (ULONG)g_ReceivePaused;
+        state->ReceiveForwarded = (ULONG)g_ReceiveForwarded;
         KeAcquireSpinLock(&g_MacLock, &irql);
         NdisMoveMemory(state->Mac, g_Mac, sizeof(state->Mac));
         KeReleaseSpinLock(&g_MacLock, irql);
@@ -430,14 +563,12 @@ DriverEntry(
     characteristics.RestartHandler = CacMacFilterRestart;
     characteristics.PauseHandler = CacMacFilterPause;
     /*
-     * 2026-11-16: on 22631.7376 + wfplwfs, any OID participation
-     * reproduces 0x1E in ndisFOidRequestCompleteInternal even after the
-     * FILTER_PAUSE and completion fixes.  Keep the OID path disabled on
-     * this stack; see LWF-FIX-TEST-20261116.md.  The MAC view is covered
-     * above NDIS by NativeBridge.
+     * 2026-11-16 experiment 2: forward every OID and rewrite MAC query
+     * results only in the completion path.  Do not complete MAC queries
+     * synchronously (see OSR #40896).
      */
-    characteristics.OidRequestHandler = NULL;
-    characteristics.OidRequestCompleteHandler = NULL;
+    characteristics.OidRequestHandler = CacMacFilterOidRequest;
+    characteristics.OidRequestCompleteHandler = CacMacFilterOidRequestComplete;
     characteristics.SendNetBufferListsHandler =
         CacMacFilterSendNetBufferLists;
     characteristics.SendNetBufferListsCompleteHandler =
