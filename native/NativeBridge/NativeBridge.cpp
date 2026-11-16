@@ -13,6 +13,7 @@
 #include "NetworkHooks.h"
 #include "WfpPolicy.h"
 #include "WmiHooks.h"
+#include "GpuHooks.h"
 
 namespace {
 
@@ -235,6 +236,7 @@ DWORD WINAPI InitializeThread(LPVOID) {
     NeutralizeGoCpuFlags();
 
     const bool apiReady = InstallApiHooks();
+    InstallGpuHooks();
     InstallChildInjection();
     if (WmiHooksDisabledByEnvironment()) {
         AuditEvent("wmi.hooks", "skipped", "CAC_NATIVE_DISABLE_WMI");

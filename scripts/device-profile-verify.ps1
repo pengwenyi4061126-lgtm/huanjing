@@ -20,6 +20,7 @@ param(
     [string]$Launcher,
     [string]$DllPath,
     [string]$HardwareProbe,
+    [string]$GpuProbe,
     [string]$WmiProbe,
     [switch]$SkipCim
 )
@@ -29,11 +30,16 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $Launcher) { $Launcher = Join-Path $repoRoot 'native\dist\cac-native-launch.exe' }
 if (-not $DllPath) { $DllPath = Join-Path $repoRoot 'native\dist\NativeBridge.dll' }
 if (-not $HardwareProbe) { $HardwareProbe = Join-Path $repoRoot 'native\dist\cac-hardware-probe.exe' }
+if (-not $GpuProbe) { $GpuProbe = Join-Path $repoRoot 'native\dist\cac-gpu-probe.exe' }
 if (-not $WmiProbe) { $WmiProbe = Join-Path $repoRoot 'artifacts\wmi_probe.exe' }
 $ProfilePath = (Resolve-Path -LiteralPath $ProfilePath).Path
 $Launcher = (Resolve-Path -LiteralPath $Launcher).Path
 $DllPath = (Resolve-Path -LiteralPath $DllPath).Path
 $HardwareProbe = (Resolve-Path -LiteralPath $HardwareProbe).Path
+if (-not (Test-Path -LiteralPath $GpuProbe -PathType Leaf)) {
+    throw "GPU probe not found: $GpuProbe"
+}
+$GpuProbe = (Resolve-Path -LiteralPath $GpuProbe).Path
 if (-not (Test-Path -LiteralPath $WmiProbe -PathType Leaf)) {
     throw "WMI probe not found: $WmiProbe"
 }
@@ -162,6 +168,10 @@ $wmiLog = Join-Path $OutputDir 'wmi-probe.txt'
 $wmiCode = Invoke-Injected -Executable $WmiProbe -Arguments @() -LogPath $wmiLog
 $wmi = Read-KeyValues -Path $wmiLog
 
+$gpuLog = Join-Path $OutputDir 'gpu-probe.txt'
+$gpuCode = Invoke-Injected -Executable $GpuProbe -Arguments @() -LogPath $gpuLog
+$gpu = Read-KeyValues -Path $gpuLog
+
 $cimCode = $null
 $cimLog = Join-Path $OutputDir 'cim-probe.txt'
 if (-not $SkipCim) {
@@ -180,6 +190,7 @@ $processCode = Invoke-Injected -Executable 'C:\Windows\System32\WindowsPowerShel
 $networkModeActual = $env:CAC_NETWORK_MODE
 Add-Check 'probe.hardware' 'fail' ($hardwareCode -eq 0 -and $hardware.Count -gt 0) 'exit 0 + key=value' "exit=$hardwareCode lines=$($hardware.Count)" 'native hardware probe'
 Add-Check 'probe.wmi' 'fail' ($wmiCode -eq 0 -and $wmi['wmi_state'] -eq 'ok') 'wmi_state=ok' "exit=$wmiCode state=$($wmi['wmi_state'])" 'IWbemLocator probe'
+Add-Check 'probe.gpu' 'fail' ($gpuCode -eq 0 -and $gpu['gpu_state'] -eq 'ok') 'gpu_state=ok' "exit=$gpuCode state=$($gpu['gpu_state'])" 'DXGI probe'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -233,6 +244,17 @@ Add-Check 'network.virtual_adapter' 'fail' (-not $virtualAdapterMatch) 'no virtu
 
 $gpuName = [string]$wmi['wmi_gpu_name']
 Add-Check 'hardware.gpu_realism' 'warn' (-not ($gpuName -match 'Generic|Microsoft Basic|Display Adapter')) 'plausible physical GPU model' $gpuName 'Generic GPU is an obvious synthetic value'
+$expectedGpuName = [string]$identity.gpu_name
+if (-not $expectedGpuName) { $expectedGpuName = 'NVIDIA GeForce GTX 1650' }
+$dxgiName = [string]$gpu['gpu0_name']
+Add-Check 'hardware.dxgi_name' 'fail' ($dxgiName -eq $expectedGpuName) $expectedGpuName $dxgiName 'IDXGIAdapter::GetDesc1'
+$dxgiVendor = [string]$gpu['gpu0_vendor']
+$dxgiDevice = [string]$gpu['gpu0_device']
+$expectedVendor = '0x10de'
+$expectedDevice = '0x1f82'
+Add-Check 'hardware.dxgi_pci' 'fail' ($dxgiVendor -eq $expectedVendor -and $dxgiDevice -eq $expectedDevice) "$expectedVendor/$expectedDevice" "$dxgiVendor/$dxgiDevice" 'DXGI vendor/device'
+$dxgiVram = Convert-ToInt64 $gpu['gpu0_vram_mb']
+Add-Check 'hardware.dxgi_vram' 'fail' ($dxgiVram -eq 4096) '4096 MB' "$dxgiVram MB" 'DXGI DedicatedVideoMemory'
 $displayId = Get-ProbeLine -Path $hardwareLog -Key 'display0_name'
 Add-Check 'hardware.pci_realism' 'warn' (-not ((Get-Content -LiteralPath $hardwareLog -Raw) -match 'VEN_8086&DEV_0000')) 'plausible PCI id' $displayId 'fake VEN_8086&DEV_0000 is an obvious synthetic value'
 $smbiosCpu = (Get-ProbeLine -Path $hardwareLog -Key 'smbios_type4_version').Trim()
@@ -268,8 +290,10 @@ $result = [ordered]@{
     checks = $checks
     raw = [ordered]@{
         hardware = $hardware
+        gpu = $gpu
         wmi = $wmi
         hardwareExit = $hardwareCode
+        gpuExit = $gpuCode
         wmiExit = $wmiCode
         cimExit = $cimCode
         processExit = $processCode

@@ -46,6 +46,7 @@ replacement process by name. Profile handoff uses
 | WMI COM (`CLSID_WbemLocator`) | in-process `IWbemLocator`/`IWbemServices`/`IWbemClassObject` wrappers; async sink and callback evidence | on |
 | WMI hardware fields (memory/disk/CPU/GPU/display/TPM/hypervisor/network) | numeric/boolean/string VARIANT rewrite | on |
 | `EnumDisplayDevicesW` / `EnumDisplaySettingsW` / `GetMonitorInfoW` | optional inline/IAT; profile GPU/monitor/resolution | on |
+| `IDXGIAdapter::GetDesc` / `GetDesc1` | per-process DXGI vtable patch; profile GPU name/PCI/VRAM | on |
 | `RegQueryValueExW` / `RegGetValueW` (`EDID`) | profile-generated 128-byte EDID | on |
 | SMBIOS Type 1/2/3/4/9/10/11/12/13/16/17/39/41/42/43 | in-place string/field rewrite | on |
 | TBS `Tbsi_Context_Create` / `Tbsip_Submit_Command` / `Tbsi_Get_TCG_Log` | optional inline/IAT; hidden when `tpm_present=false` | optional |
@@ -198,10 +199,18 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 
   -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
 ```
 
-The 2026-11-16 baseline is `pass=21 fail=1 warn=0`; the only failure is
+The 2026-11-16 baseline is `pass=25 fail=1 warn=0`; the only failure is
 Clash process visibility, which belongs to the deferred TUN+clean work.
 SMBIOS Type 17 now rewrites only populated slots, so the sum of module
 sizes matches the profile memory total instead of filling empty slots.
+
+`cac-gpu-probe.exe` prints `gpuN_name/vendor/device/subsys/revision/vram_mb`
+for each DXGI adapter. Run it outside and inside `cac-native-launch.exe` to
+see the real GPU vs the profile GPU:
+
+```powershell
+native\dist\cac-gpu-probe.exe
+```
 
 ## Boundaries
 

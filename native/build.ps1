@@ -59,6 +59,7 @@ $dllSources = @(
     "NativeBridge\ChildInject.cpp",
     "NativeBridge\WmiHooks.cpp",
     "NativeBridge\NetworkHooks.cpp",
+    "NativeBridge\GpuHooks.cpp",
     "NativeBridge\KernelPolicy.cpp",
     "NativeBridge\WfpPolicy.cpp",
     "NativeBridge\NativeBridge.cpp"
@@ -135,6 +136,18 @@ try {
     $hardwareProbePath = Join-Path $dist "cac-hardware-probe.exe"
     $hardwareProbeHash = Get-CacSha256 $hardwareProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-hardware-probe.sha256") -Value $hardwareProbeHash -Encoding ASCII
+
+    Write-Host "Building cac-gpu-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "GpuProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-gpu-probe.exe" `
+        /link /guard:cf /Brepro ole32.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-gpu-probe.exe build failed ($LASTEXITCODE)" }
+
+    $gpuProbePath = Join-Path $dist "cac-gpu-probe.exe"
+    $gpuProbeHash = Get-CacSha256 $gpuProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-gpu-probe.sha256") -Value $gpuProbeHash -Encoding ASCII
 } finally {
     Pop-Location
 }
