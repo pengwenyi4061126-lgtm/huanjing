@@ -1,0 +1,5 @@
+CacMacLwf clone build backup
+Build date: 2026-11-16
+Source commit: 7598d87
+Driver SHA-256: 37012AD56953AE4B052862FEBC9F41FFCB02397A341AFC4BD16CDA395E9C80E0
+Tested: 5x Restart-NetAdapter, boot SYSTEM_START, ping 10/10, no 0x1E
