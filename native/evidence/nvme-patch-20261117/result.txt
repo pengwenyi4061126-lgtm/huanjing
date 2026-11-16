@@ -1,0 +1,4 @@
+nvme_patch_test=pass
+nvme_patch_serial=TESTSERIAL123       
+nvme_patch_model=TESTMODEL                               
+nvme_patch_firmware=1.2.3

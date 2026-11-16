@@ -31,6 +31,7 @@ param(
     [string]$MonitorWmiProbe,
     [string]$UsbProbe,
     [string]$CacheProbe,
+    [string]$NvmePatchTest,
     [string]$PnpProbe,
     [string]$PnpWmiProbe,
     [string]$AudioProbe,
@@ -55,6 +56,7 @@ if (-not $SmartProbe) { $SmartProbe = Join-Path $repoRoot 'native\dist\cac-smart
 if (-not $MonitorWmiProbe) { $MonitorWmiProbe = Join-Path $repoRoot 'native\dist\cac-monitor-wmi-probe.exe' }
 if (-not $UsbProbe) { $UsbProbe = Join-Path $repoRoot 'native\dist\cac-usb-probe.exe' }
 if (-not $CacheProbe) { $CacheProbe = Join-Path $repoRoot 'native\dist\cac-cache-probe.exe' }
+if (-not $NvmePatchTest) { $NvmePatchTest = Join-Path $repoRoot 'native\dist\cac-nvme-patch-test.exe' }
 if (-not $PnpProbe) { $PnpProbe = Join-Path $repoRoot 'native\dist\cac-pnp-probe.exe' }
 if (-not $PnpWmiProbe) { $PnpWmiProbe = Join-Path $repoRoot 'native\dist\cac-pnp-wmi-probe.exe' }
 if (-not $AudioProbe) { $AudioProbe = Join-Path $repoRoot 'native\dist\cac-audio-probe.exe' }
@@ -108,6 +110,10 @@ if (-not (Test-Path -LiteralPath $CacheProbe -PathType Leaf)) {
     throw "Cache probe not found: $CacheProbe"
 }
 $CacheProbe = (Resolve-Path -LiteralPath $CacheProbe).Path
+if (-not (Test-Path -LiteralPath $NvmePatchTest -PathType Leaf)) {
+    throw "NVMe patch test not found: $NvmePatchTest"
+}
+$NvmePatchTest = (Resolve-Path -LiteralPath $NvmePatchTest).Path
 if (-not (Test-Path -LiteralPath $PnpProbe -PathType Leaf)) {
     throw "PNP probe not found: $PnpProbe"
 }
@@ -296,6 +302,11 @@ $usbText = if (Test-Path -LiteralPath $usbLog) { Get-Content -LiteralPath $usbLo
 $cacheLog = Join-Path $OutputDir 'cache-probe.txt'
 $cacheCode = Invoke-Injected -Executable $CacheProbe -Arguments @() -LogPath $cacheLog
 $cache = Read-KeyValues -Path $cacheLog
+
+$nvmeTestLog = Join-Path $OutputDir 'nvme-patch-test.txt'
+& $NvmePatchTest 2>&1 | Out-File -LiteralPath $nvmeTestLog -Encoding UTF8
+$nvmeTestCode = $LASTEXITCODE
+$nvmeTest = Read-KeyValues -Path $nvmeTestLog
 
 $pnpLog = Join-Path $OutputDir 'pnp-probe.txt'
 $pnpCode = Invoke-Injected -Executable $PnpProbe -Arguments @() -LogPath $pnpLog
@@ -609,6 +620,9 @@ Add-Check 'probe.cache' 'fail' ($cacheCode -eq 0 -and $cache['cache_state'] -eq 
 Add-Check 'hardware.cache_l1_entries' 'fail' ($cacheL1Entries -eq 8) '8 (2 per core)' "$cacheL1Entries" 'GetLogicalProcessorInformationEx(RelationCache)'
 Add-Check 'hardware.cache_l2' 'fail' ($cacheL2Entries -eq 4 -and $cacheL2Kb -eq 2048) '4 entries / 2048 KB' "$cacheL2Entries / $cacheL2Kb KB" 'L2 per-core 512 KB'
 Add-Check 'hardware.cache_l3' 'fail' ($cacheL3Entries -eq 1 -and $cacheL3Kb -eq 16384) '1 entry / 16384 KB' "$cacheL3Entries / $cacheL3Kb KB" 'shared 16 MB L3'
+Add-Check 'probe.nvme_patch' 'fail' (
+    $nvmeTestCode -eq 0 -and $nvmeTest['nvme_patch_test'] -eq 'pass'
+) 'nvme_patch_test=pass' "exit=$nvmeTestCode result=$($nvmeTest['nvme_patch_test'])" 'NVMe identify buffer transformation'
 
 $pnpInstances = @($pnp.Keys | Where-Object { $_ -match '^pnp\d+_instance$' } | ForEach-Object { [string]$pnp[$_] })
 $pnpText = $pnpInstances -join '|'
@@ -724,6 +738,7 @@ $result = [ordered]@{
         monitorWmi = $monitorWmi
         usb = $usb
         cache = $cache
+        nvmeTest = $nvmeTest
         pnp = $pnp
         pnpWmi = $pnpWmi
         pnpWmiOutside = $pnpWmiOutside
@@ -742,6 +757,7 @@ $result = [ordered]@{
         monitorWmiExit = $monitorWmiCode
         usbExit = $usbCode
         cacheExit = $cacheCode
+        nvmeTestExit = $nvmeTestCode
         pnpExit = $pnpCode
         pnpWmiExit = $pnpWmiCode
         audioExit = $audioCode

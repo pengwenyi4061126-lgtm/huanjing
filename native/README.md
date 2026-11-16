@@ -269,6 +269,9 @@ rewrites the active slot revision; NVMe identify SN/MN/FR are rewritten when
 the driver returns a protocol-specific identify payload. `cac-smart-probe.exe`
 shows the real `CJ325060BC / F4DJ13000878 / 1.00` outside and the profile
 `WDC WDS500G2B0A-00SM50 / WD-W2H6F8RBV79H / X61190WD` inside.
+NVMe identify SN/MN/FR share one inline transformation with
+`cac-nvme-patch-test.exe`; the host is SATA, so only the unit-level
+regression is available.
 
 Monitor WMI: `WmiMonitorID` (`ROOT\WMI`) arrays are projected from the
 Profile: ManufacturerName/ProductCodeID from `monitor_pnp_id`,

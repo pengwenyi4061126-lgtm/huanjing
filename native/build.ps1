@@ -329,6 +329,18 @@ try {
     $cacheProbeHash = Get-CacSha256 $cacheProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-cache-probe.sha256") -Value $cacheProbeHash -Encoding ASCII
 
+    Write-Host "Building cac-nvme-patch-test.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "tests\nvme_patch_test.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-nvme-patch-test.exe" `
+        /link /guard:cf /Brepro
+    if ($LASTEXITCODE -ne 0) { throw "cac-nvme-patch-test.exe build failed ($LASTEXITCODE)" }
+
+    $nvmeTestPath = Join-Path $dist "cac-nvme-patch-test.exe"
+    $nvmeTestHash = Get-CacSha256 $nvmeTestPath
+    Set-Content -LiteralPath (Join-Path $dist "cac-nvme-patch-test.sha256") -Value $nvmeTestHash -Encoding ASCII
+
     Write-Host "Verifying dist artifact hashes ..." -ForegroundColor Cyan
     $manifest = New-Object System.Collections.Generic.List[string]
     $mismatches = New-Object System.Collections.Generic.List[string]

@@ -26,6 +26,7 @@
 #include <tbs.h>
 #include <mmdeviceapi.h>
 #include "../AudioGuids.h"
+#include "StorageIdentity.h"
 
 #include <cstdint>
 #include <atomic>
@@ -2202,27 +2203,11 @@ void PatchStorageDescriptor(void* output, DWORD available) {
 }
 
 void PatchNvmeIdentify(void* output, DWORD available) {
-    if (available < sizeof(STORAGE_PROTOCOL_DATA_DESCRIPTOR)) return;
-    auto* descriptor = static_cast<STORAGE_PROTOCOL_DATA_DESCRIPTOR*>(output);
-    STORAGE_PROTOCOL_SPECIFIC_DATA& specific = descriptor->ProtocolSpecificData;
-    if (specific.ProtocolType != ProtocolTypeNvme) return;
-    if (specific.DataType != 1) return;  // NVMeDataTypeIdentify
-    const DWORD relative = specific.ProtocolDataOffset;
-    const DWORD length = specific.ProtocolDataLength;
-    if (relative < sizeof(STORAGE_PROTOCOL_SPECIFIC_DATA) || length < 72) return;
-    BYTE* payload = reinterpret_cast<BYTE*>(&specific) + relative;
-    const BYTE* end = static_cast<const BYTE*>(output) + available;
-    if (payload + 72 > end) return;
     const ProfileIdentity& identity = ProfileIdentity::Get();
-    std::memset(payload + 4, ' ', 20);
-    std::memcpy(payload + 4, identity.diskSerial.data(),
-                identity.diskSerial.size() < 20 ? identity.diskSerial.size() : 20);
-    std::memset(payload + 24, ' ', 40);
-    std::memcpy(payload + 24, identity.diskModel.data(),
-                identity.diskModel.size() < 40 ? identity.diskModel.size() : 40);
-    std::memset(payload + 64, ' ', 8);
-    std::memcpy(payload + 64, "X61190WD", 8);
-    AuditEventRateLimited("api.storage.nvme", "patched", nullptr, length, true);
+    if (cac::PatchNvmeIdentifyBuffer(output, available, identity.diskSerial,
+                                      identity.diskModel, "X61190WD")) {
+        AuditEventRateLimited("api.storage.nvme", "patched", nullptr, available, true);
+    }
 }
 
 void PatchStorageFirmware(void* output, DWORD available) {
