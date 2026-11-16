@@ -274,6 +274,10 @@ $activeProcessors = Convert-ToInt64 $cpu['active_processors']
 $maximumProcessors = Convert-ToInt64 $cpu['maximum_processors']
 Add-Check 'consistency.active_processors' 'fail' ($activeProcessors -eq $expectedLogical) "$expectedLogical" "$activeProcessors" 'GetActiveProcessorCount'
 Add-Check 'consistency.maximum_processors' 'fail' ($maximumProcessors -eq $expectedLogical) "$expectedLogical" "$maximumProcessors" 'GetMaximumProcessorCount'
+$expectedCores = Convert-ToInt64 $identity.cpu_cores
+if ($expectedCores -le 0) { $expectedCores = 4 }
+$legacyCores = Convert-ToInt64 $cpu['legacy_core_entries']
+Add-Check 'consistency.legacy_core_entries' 'fail' ($legacyCores -eq $expectedCores) "$expectedCores" "$legacyCores" 'GetLogicalProcessorInformation core entries'
 
 $expectedMemoryMb = Convert-ToInt64 $identity.memory_total_mb
 if ($expectedMemoryMb -le 0) { $expectedMemoryMb = $memoryMb }

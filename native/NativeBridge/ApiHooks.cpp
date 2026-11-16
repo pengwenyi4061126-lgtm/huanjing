@@ -224,6 +224,10 @@ typedef DWORD (WINAPI* PFN_GetActiveProcessorCount)(WORD);
 typedef DWORD (WINAPI* PFN_GetMaximumProcessorCount)(WORD);
 typedef BOOL (WINAPI* PFN_GetPerformanceInfo)(PPERFORMANCE_INFORMATION, DWORD);
 typedef LONG (WINAPI* PFN_DisplayConfigGetDeviceInfo)(DISPLAYCONFIG_DEVICE_INFO_HEADER*);
+typedef BOOL (WINAPI* PFN_GetLogicalProcessorInformationEx)(
+    LOGICAL_PROCESSOR_RELATIONSHIP, PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, PDWORD);
+typedef BOOL (WINAPI* PFN_GetLogicalProcessorInformation)(
+    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION, PDWORD);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExW)(LPCWSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExA)(LPCSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef void (WINAPI* PFN_GetSystemInfo)(LPSYSTEM_INFO);
@@ -283,6 +287,8 @@ PFN_GetActiveProcessorCount g_origGetActiveProcessorCount = nullptr;
 PFN_GetMaximumProcessorCount g_origGetMaximumProcessorCount = nullptr;
 PFN_GetPerformanceInfo g_origGetPerformanceInfo = nullptr;
 PFN_DisplayConfigGetDeviceInfo g_origDisplayConfigGetDeviceInfo = nullptr;
+PFN_GetLogicalProcessorInformationEx g_origGetLogicalProcessorInformationEx = nullptr;
+PFN_GetLogicalProcessorInformation g_origGetLogicalProcessorInformation = nullptr;
 PFN_GetDiskFreeSpaceExW g_origGetDiskFreeSpaceExW = nullptr;
 PFN_GetDiskFreeSpaceExA g_origGetDiskFreeSpaceExA = nullptr;
 PFN_GetSystemInfo g_origGetSystemInfo = nullptr;
@@ -1050,6 +1056,133 @@ BOOL WINAPI HookGetPerformanceInfo(PPERFORMANCE_INFORMATION info, DWORD size) {
     info->CommitLimit = info->PhysicalTotal + info->PhysicalTotal / 2;
     info->CommitTotal = info->CommitLimit / 4;
     AuditEventRateLimited("api.getperformanceinfo", "patched");
+    return result;
+}
+
+void RewriteProcessorTopologyEx(LOGICAL_PROCESSOR_RELATIONSHIP relationship,
+                                PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX buffer,
+                                PDWORD length) {
+    if (!buffer || !length || *length < sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)) return;
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    const DWORD cores = identity.cpuCores > 0 ? identity.cpuCores : 1;
+    const DWORD logical = identity.cpuLogical > cores ? identity.cpuLogical : cores;
+    const DWORD perCore = (logical / cores) > 0 ? (logical / cores) : 1;
+    BYTE* base = reinterpret_cast<BYTE*>(buffer);
+
+    if (relationship == RelationProcessorPackage) {
+        DWORD offset = 0;
+        while (offset + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) <= *length) {
+            auto* entry = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(base + offset);
+            if (entry->Size < sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) ||
+                offset + entry->Size > *length) break;
+            if (entry->Relationship == RelationProcessorPackage && entry->Processor.GroupCount > 0) {
+                entry->Processor.GroupCount = 1;
+                entry->Processor.GroupMask[0].Mask =
+                    logical >= 64 ? ~static_cast<KAFFINITY>(0)
+                                  : ((static_cast<KAFFINITY>(1) << logical) - 1);
+                entry->Processor.GroupMask[0].Group = 0;
+            }
+            offset += entry->Size;
+        }
+        AuditEventRateLimited("api.getlogicalprocessorinformationex", "package-mask");
+        return;
+    }
+
+    DWORD read = 0;
+    DWORD write = 0;
+    DWORD keptCores = 0;
+    while (read + sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) <= *length) {
+        auto* entry = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(base + read);
+        if (entry->Size < sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) ||
+            read + entry->Size > *length) break;
+        bool keep = true;
+        if (entry->Relationship == RelationProcessorCore) {
+            if (keptCores >= cores) {
+                keep = false;
+            } else if (entry->Processor.GroupCount > 0) {
+                entry->Processor.GroupCount = 1;
+                const DWORD shift = keptCores * perCore;
+                entry->Processor.GroupMask[0].Mask = shift >= 64
+                    ? 0
+                    : (((static_cast<KAFFINITY>(1) << perCore) - 1) << shift);
+                entry->Processor.GroupMask[0].Group = 0;
+                ++keptCores;
+            }
+        } else if (entry->Relationship == RelationProcessorPackage &&
+                   entry->Processor.GroupCount > 0) {
+            entry->Processor.GroupCount = 1;
+            entry->Processor.GroupMask[0].Mask =
+                logical >= 64 ? ~static_cast<KAFFINITY>(0)
+                              : ((static_cast<KAFFINITY>(1) << logical) - 1);
+            entry->Processor.GroupMask[0].Group = 0;
+        }
+        if (keep) {
+            if (write != read) std::memmove(base + write, base + read, entry->Size);
+            write += entry->Size;
+        }
+        read += entry->Size;
+    }
+    *length = write;
+    AuditEventRateLimited("api.getlogicalprocessorinformationex", "compacted");
+}
+
+void RewriteProcessorTopologyLegacy(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buffer,
+                                    PDWORD length) {
+    if (!buffer || !length) return;
+    const DWORD entrySize = sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION);
+    const DWORD count = *length / entrySize;
+    if (count == 0) return;
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    const DWORD cores = identity.cpuCores > 0 ? identity.cpuCores : 1;
+    const DWORD logical = identity.cpuLogical > cores ? identity.cpuLogical : cores;
+    const DWORD perCore = (logical / cores) > 0 ? (logical / cores) : 1;
+    DWORD write = 0;
+    DWORD keptCores = 0;
+    for (DWORD index = 0; index < count; ++index) {
+        SYSTEM_LOGICAL_PROCESSOR_INFORMATION entry = buffer[index];
+        bool keep = true;
+        if (entry.Relationship == RelationProcessorCore) {
+            if (keptCores >= cores) {
+                keep = false;
+            } else {
+                const DWORD shift = keptCores * perCore;
+                entry.ProcessorMask = shift >= 64
+                    ? 0
+                    : (((static_cast<KAFFINITY>(1) << perCore) - 1) << shift);
+                ++keptCores;
+            }
+        } else if (entry.Relationship == RelationProcessorPackage) {
+            entry.ProcessorMask =
+                logical >= 64 ? ~static_cast<KAFFINITY>(0)
+                              : ((static_cast<KAFFINITY>(1) << logical) - 1);
+        }
+        if (keep) buffer[write++] = entry;
+    }
+    *length = write * entrySize;
+    AuditEventRateLimited("api.getlogicalprocessorinformation", "compacted");
+}
+
+BOOL WINAPI HookGetLogicalProcessorInformationEx(
+    LOGICAL_PROCESSOR_RELATIONSHIP relationship,
+    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX buffer,
+    PDWORD returnedLength) {
+    const BOOL result = g_origGetLogicalProcessorInformationEx
+        ? g_origGetLogicalProcessorInformationEx(relationship, buffer, returnedLength)
+        : FALSE;
+    if (result && buffer && returnedLength && NativeHardwareHooksEnabled()) {
+        RewriteProcessorTopologyEx(relationship, buffer, returnedLength);
+    }
+    return result;
+}
+
+BOOL WINAPI HookGetLogicalProcessorInformation(
+    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION buffer, PDWORD returnedLength) {
+    const BOOL result = g_origGetLogicalProcessorInformation
+        ? g_origGetLogicalProcessorInformation(buffer, returnedLength)
+        : FALSE;
+    if (result && buffer && returnedLength && NativeHardwareHooksEnabled()) {
+        RewriteProcessorTopologyLegacy(buffer, returnedLength);
+    }
     return result;
 }
 
@@ -3049,6 +3182,12 @@ bool InstallApiHooks() {
     InstallInlineThenIat("psapi.dll", "GetPerformanceInfo",
                          reinterpret_cast<void*>(&HookGetPerformanceInfo),
                          reinterpret_cast<void**>(&g_origGetPerformanceInfo));
+    InstallInlineThenIat("kernel32.dll", "GetLogicalProcessorInformationEx",
+                         reinterpret_cast<void*>(&HookGetLogicalProcessorInformationEx),
+                         reinterpret_cast<void**>(&g_origGetLogicalProcessorInformationEx));
+    InstallInlineThenIat("kernel32.dll", "GetLogicalProcessorInformation",
+                         reinterpret_cast<void*>(&HookGetLogicalProcessorInformation),
+                         reinterpret_cast<void**>(&g_origGetLogicalProcessorInformation));
     if (NativeHardwareHooksEnabled()) {
         InstallOptionalInlineThenIat("user32.dll", "EnumDisplayDevicesW",
                              reinterpret_cast<void*>(&HookEnumDisplayDevicesW),
