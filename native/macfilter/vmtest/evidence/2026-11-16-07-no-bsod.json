@@ -1,0 +1,23 @@
+﻿{
+    "time":  "2026-11-16T08:16:27.1224816+08:00",
+    "lastBoot":  "\/Date(1794769440500)\/",
+    "uptimeMinutes":  312.4,
+    "adapter":  {
+                    "Name":  "Ethernet0",
+                    "Status":  "Up",
+                    "MacAddress":  "02-44-08-1A-18-33",
+                    "InterfaceDescription":  "Intel(R) 82574L Gigabit Network Connection"
+                },
+    "cacMacLwf":  {
+                      "Name":  "CacMacLwf",
+                      "State":  "Stopped",
+                      "StartMode":  "Manual"
+                  },
+    "bugcheckCount":  0,
+    "bugchecks":  [
+
+                  ],
+    "minidumps":  [
+
+                  ]
+}
