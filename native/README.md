@@ -38,7 +38,11 @@ replacement process by name. Profile handoff uses
 | `CreateFileW` / `CreateFileA` / `CreateFile2` raw device paths | inline-primary + IAT/delay patch; empty policy denies `\\.\PhysicalDrive*` and related native paths | on |
 | `NtCreateFile` raw native paths | inline + IAT; empty policy denies physical-disk, volume and firmware device paths | on |
 | `GetOverlappedResult*` / `GetQueuedCompletionStatus*` | completion evidence and tracked storage-buffer sanitization | on |
-| `CreateProcessW` / `CreateProcessInternalW` / `NtCreateUserProcess` | inline + IAT; inject same-image children at creation | on |
+| `CreateProcessW` / `CreateProcessInternalW` / `CreateProcessAsUserW` / `CreateProcessWithTokenW` / `NtCreateUserProcess` | inline + IAT; inject same-image, tool, Claude helper and MCP-host children at creation | on |
+| `claude-ssh-broker.exe` / `claude-ssh-proxy.exe` / `claude-ssh-askpass.exe` | Claude-owned Go helper allowlist; API hooks + per-image CPU manifest (helper flag RVA still pending) | on |
+| `github-mcp-server.exe` | Claude-owned Go helper allowlist; 6 CPU hooks + per-image manifest (helper flag RVA still pending) | on |
+| `cmd/powershell/wmic/systeminfo/reg/sc/...` tools | injected when clean network or hardware profile is enabled | on |
+| `cac-service-injector` descendant watcher | `cowork-svc` descendant allowlist polling + ready-gated injection | on |
 | WMI COM (`CLSID_WbemLocator`) | in-process `IWbemLocator`/`IWbemServices`/`IWbemClassObject` wrappers; async sink and callback evidence | on |
 | WMI hardware fields (memory/disk/CPU/GPU/display/TPM/hypervisor/network) | numeric/boolean/string VARIANT rewrite | on |
 | `EnumDisplayDevicesW` / `EnumDisplaySettingsW` / `GetMonitorInfoW` | optional inline/IAT; profile GPU/monitor/resolution | on |
@@ -177,7 +181,7 @@ cpu.xgetbv            observed index
 - A process that resolves APIs dynamically and bypasses the IAT is covered by inline-primary only for the listed critical APIs; unsupported ANSI variants, unknown exports and unrecognized prologues remain outside the userland coverage matrix.
 - CPU hooks are opt-in and hash-bound; no unsigned heuristic patch is applied by default.
 - SetupDi calls use the inline path first and the IAT/delay path as fallback. The empty policy clears the supported output buffers, but it does not create a coherent synthetic PnP device graph or change kernel PnP state. Any refused or missing install is recorded as FAIL/PARTIAL by the audit scripts.
-- Same-image renderer/utility injection is a process-lifecycle feature. Each intercepted child must report `native.bridge=ready`; failed or timed-out child injection is terminated. This still is not proof that every external COM server, broker or native helper was intercepted. Missing child evidence remains NOT_OBSERVED/PARTIAL.
+- Child injection covers same-image, hardware/network tools, Claude-owned Go helpers and common MCP hosts. Each intercepted child must report `native.bridge=ready`; failed or timed-out child injection is terminated. System/PPL helpers (`vmcompute`, `vmwp`, `vmms`, `wslservice`), COM/WMI brokers (`dllhost`, `wmiprvse`, `RuntimeBroker`) and short-lived processes remain explicit boundaries; missing child evidence stays NOT_OBSERVED/PARTIAL.
 - CacKernel rewrites supported storage identity queries for registered PIDs; its SMBIOS physical module is opt-in and disabled by default. The bridge and driver do not virtualize host CPUID, physical NIC/NDIS, DPAPI or arbitrary driver-object/hardware reads that bypass the covered paths. The audit never treats a Node/Native hook or dynamic WFP rule as full hardware isolation.
 
 ## Claude Desktop 5.1231.2

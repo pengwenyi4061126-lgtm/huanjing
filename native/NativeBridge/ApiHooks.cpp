@@ -2396,6 +2396,15 @@ bool InstallManifestEntry(const std::string& line) {
     const std::string kind = fields[3];
     const std::vector<BYTE> prologue = ParseHexBytes(fields[4]);
 
+    wchar_t mainPath[32768] = {};
+    const DWORD mainLength =
+        GetModuleFileNameW(nullptr, mainPath, static_cast<DWORD>(_countof(mainPath)));
+    if (mainLength > 0 && mainLength < _countof(mainPath) &&
+        _wcsicmp(mainPath, modulePath.c_str()) != 0) {
+        AuditEvent("cpu.manifest", "not-applicable", fields[0].c_str());
+        return true;
+    }
+
     if (!g_cpuHashTrusted) {
         std::string actualHash;
         if (!GetCachedFileSha256(modulePath, actualHash)) {
@@ -2528,22 +2537,28 @@ extern "C" void __cdecl CacGoXgetbvFilter(unsigned int out[2]) {
     AuditEventRateLimited("cpu.goxgetbv", "observed", detail);
 }
 
-bool NeutralizeGoCpuFlags() {
-    // Go 1.25 on Windows does not pass GODEBUG to internal/cpu during
-    // runtime startup (getGodebugEarly returns false for GOOS=windows).
-    // internal/cpu has therefore already cached the real feature bits by
-    // the time NativeBridge is injected.  The layout below is specific to
-    // the hash-checked cowork-svc.exe build; vendor/x-sys cpu is handled
-    // below as well so both copies stay consistent.
-    static const char* kCoworkSvcHash =
-        "88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646";
-    static const uint64_t kInternalFlagsRva = 0x123B9C0;
-    static const size_t kInternalFlagCount = 21;
-    static const size_t kInternalOsxsaveIndex = 12;
-    static const uint64_t kVendorFlagsRva = 0x123BB00;
-    static const size_t kVendorFlagCount = 45;
-    static const size_t kVendorSse2Index = 37;
+struct CpuFlagLayout {
+    const char* name;
+    const char* hash;
+    uint64_t internalRva;
+    size_t internalCount;
+    size_t internalPreserve;
+    uint64_t vendorRva;
+    size_t vendorCount;
+    size_t vendorPreserve;
+};
 
+static const CpuFlagLayout kCpuFlagLayouts[] = {
+    { "cowork-svc", "88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646",
+      0x123B9C0, 21, 12, 0x123BB00, 45, 37 },
+};
+
+bool NeutralizeGoCpuFlags() {
+    // Go 1.25/1.26 on Windows does not pass GODEBUG to internal/cpu during
+    // runtime startup (getGodebugEarly returns false for GOOS=windows).
+    // The feature bits are therefore already cached when NativeBridge is
+    // injected.  Patch the known, hash-bound layouts of the main Claude
+    // Go images.
     if (GetCpuidReadMode() != CpuidReadMode::Neutral) {
         AuditEvent("cpu.flags", "skipped", "cpuid-mode-not-neutral");
         return false;
@@ -2557,12 +2572,26 @@ bool NeutralizeGoCpuFlags() {
         return false;
     }
 
+    std::string hash;
+    if (g_cpuHashTrusted) {
+        hash = kCpuFlagLayouts[0].hash;  // injector verified cowork-svc
+    }
     if (!g_cpuHashTrusted) {
-        std::string hash;
-        if (!GetCachedFileSha256(modulePath, hash) || _stricmp(hash.c_str(), kCoworkSvcHash) != 0) {
-            AuditEvent("cpu.flags", "skipped", "module-hash-mismatch");
+        if (!GetCachedFileSha256(modulePath, hash)) {
+            AuditEvent("cpu.flags", "skipped", "module-hash-unreadable");
             return false;
         }
+    }
+    const CpuFlagLayout* layout = nullptr;
+    for (const CpuFlagLayout& candidate : kCpuFlagLayouts) {
+        if (_stricmp(hash.c_str(), candidate.hash) == 0) {
+            layout = &candidate;
+            break;
+        }
+    }
+    if (!layout) {
+        AuditEvent("cpu.flags", "skipped", "no-flag-layout");
+        return false;
     }
 
     BYTE* base = reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
@@ -2570,16 +2599,20 @@ bool NeutralizeGoCpuFlags() {
         AuditEvent("cpu.flags", "skipped", "module-base-unavailable");
         return false;
     }
-    BYTE* internalFlags = base + kInternalFlagsRva;
-    BYTE* vendorFlags = base + kVendorFlagsRva;
+    BYTE* internalFlags = base + layout->internalRva;
+    BYTE* vendorFlags = layout->vendorCount ? base + layout->vendorRva : nullptr;
 
     SYSTEM_INFO systemInfo = {};
     GetSystemInfo(&systemInfo);
     const uintptr_t pageSize = systemInfo.dwPageSize ? systemInfo.dwPageSize : 0x1000;
     const uintptr_t firstPage =
         reinterpret_cast<uintptr_t>(internalFlags) & ~(pageSize - 1);
-    const uintptr_t lastByte =
-        reinterpret_cast<uintptr_t>(vendorFlags) + kVendorFlagCount - 1;
+    uintptr_t lastByte = reinterpret_cast<uintptr_t>(internalFlags) + layout->internalCount - 1;
+    if (vendorFlags) {
+        const uintptr_t vendorLast =
+            reinterpret_cast<uintptr_t>(vendorFlags) + layout->vendorCount - 1;
+        if (vendorLast > lastByte) lastByte = vendorLast;
+    }
     const uintptr_t lastPage = (lastByte + pageSize - 1) & ~(pageSize - 1);
     const SIZE_T protectSize = static_cast<SIZE_T>(lastPage - firstPage + pageSize);
 
@@ -2590,16 +2623,18 @@ bool NeutralizeGoCpuFlags() {
         return false;
     }
 
-    BYTE internalBefore[kInternalFlagCount] = {};
-    BYTE vendorBefore[kVendorFlagCount] = {};
-    std::memcpy(internalBefore, internalFlags, sizeof(internalBefore));
-    std::memcpy(vendorBefore, vendorFlags, sizeof(vendorBefore));
+    BYTE internalBefore[45] = {};
+    BYTE vendorBefore[45] = {};
+    std::memcpy(internalBefore, internalFlags, layout->internalCount);
+    if (vendorFlags) std::memcpy(vendorBefore, vendorFlags, layout->vendorCount);
 
-    for (size_t i = 0; i < kInternalFlagCount; ++i) {
-        if (i != kInternalOsxsaveIndex) internalFlags[i] = 0;
+    for (size_t i = 0; i < layout->internalCount; ++i) {
+        if (i != layout->internalPreserve) internalFlags[i] = 0;
     }
-    for (size_t i = 0; i < kVendorFlagCount; ++i) {
-        if (i != kVendorSse2Index) vendorFlags[i] = 0;
+    if (vendorFlags) {
+        for (size_t i = 0; i < layout->vendorCount; ++i) {
+            if (i != layout->vendorPreserve) vendorFlags[i] = 0;
+        }
     }
 
     DWORD ignored = 0;
@@ -2607,18 +2642,22 @@ bool NeutralizeGoCpuFlags() {
 
     unsigned int internalChanged = 0;
     unsigned int vendorChanged = 0;
-    for (size_t i = 0; i < kInternalFlagCount; ++i) {
+    for (size_t i = 0; i < layout->internalCount; ++i) {
         if (internalBefore[i] != internalFlags[i]) ++internalChanged;
     }
-    for (size_t i = 0; i < kVendorFlagCount; ++i) {
-        if (vendorBefore[i] != vendorFlags[i]) ++vendorChanged;
+    if (vendorFlags) {
+        for (size_t i = 0; i < layout->vendorCount; ++i) {
+            if (vendorBefore[i] != vendorFlags[i]) ++vendorChanged;
+        }
     }
 
-    char detail[160] = {};
+    char detail[192] = {};
     std::snprintf(detail, sizeof(detail),
-                  "internal=%u/%u vendor=%u/%u osxsave-kept sse2-kept",
-                  internalChanged, static_cast<unsigned int>(kInternalFlagCount),
-                  vendorChanged, static_cast<unsigned int>(kVendorFlagCount));
+                  "layout=%s internal=%u/%u vendor=%u/%u preserve=%zu/%zu",
+                  layout->name, internalChanged,
+                  static_cast<unsigned int>(layout->internalCount), vendorChanged,
+                  static_cast<unsigned int>(layout->vendorCount),
+                  layout->internalPreserve, layout->vendorPreserve);
     AuditEvent("cpu.flags", "neutralized", detail);
     return true;
 }

@@ -18,6 +18,7 @@ void InstallHookInlinePrimary(const char* dllName, const char* functionName, voi
 
 // True when the current Profile uses the strict empty-read policy.
 bool NativeEmptyReadsEnabled();
+bool NativeHardwareHooksEnabled();
 
 // True when virtual adapters and proxy configuration must be hidden.
 bool NativeCleanNetworkEnabled();

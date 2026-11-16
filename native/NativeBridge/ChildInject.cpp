@@ -7,6 +7,7 @@
 #include <sddl.h>
 
 #include <cwchar>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -83,6 +84,18 @@ std::wstring EnvironmentValue(const wchar_t* name) {
     const DWORD length = GetEnvironmentVariableW(name, buffer, static_cast<DWORD>(_countof(buffer)));
     if (length == 0 || length >= _countof(buffer)) return std::wstring();
     return std::wstring(buffer, length);
+}
+
+std::string WideToUtf8(const std::wstring& value) {
+    if (value.empty()) return std::string();
+    const int length = WideCharToMultiByte(CP_UTF8, 0, value.c_str(),
+                                           static_cast<int>(value.size()), nullptr, 0,
+                                           nullptr, nullptr);
+    if (length <= 0) return std::string();
+    std::string result(static_cast<size_t>(length), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()),
+                        result.data(), length, nullptr, nullptr);
+    return result;
 }
 
 // Electron passes the image as the first token of lpCommandLine when
@@ -209,14 +222,50 @@ bool CloseFailedChild(LPPROCESS_INFORMATION processInformation) {
     return stopped;
 }
 
-bool IsNetworkToolImage(const std::wstring& baseName) {
+bool IsToolImage(const std::wstring& baseName) {
     static const wchar_t* const tools[] = {
         L"powershell.exe", L"pwsh.exe", L"cmd.exe", L"ipconfig.exe", L"netsh.exe",
         L"wmic.exe", L"getmac.exe", L"route.exe", L"arp.exe", L"systeminfo.exe",
-        L"nbtstat.exe",
+        L"nbtstat.exe", L"reg.exe", L"sc.exe", L"tasklist.exe", L"driverquery.exe",
+        L"msinfo32.exe", L"dxdiag.exe", L"pnputil.exe", L"devcon.exe", L"certutil.exe",
+        L"cscript.exe", L"wscript.exe", L"rundll32.exe", L"regsvr32.exe",
+        L"whoami.exe", L"hostname.exe", L"wsl.exe", L"wslhost.exe", L"wt.exe",
+        L"openconsole.exe", L"windowsterminal.exe", L"powershell_ise.exe",
     };
     for (const wchar_t* tool : tools) {
         if (_wcsicmp(baseName.c_str(), tool) == 0) return true;
+    }
+    return false;
+}
+
+bool IsClaudeHelperImage(const std::wstring& normalizedPath, const std::wstring& baseName) {
+    static const wchar_t* const helpers[] = {
+        L"claude-ssh-broker.exe",
+        L"claude-ssh-proxy.exe",
+        L"claude-ssh-askpass.exe",
+    };
+    for (const wchar_t* helper : helpers) {
+        if (_wcsicmp(baseName.c_str(), helper) == 0 &&
+            normalizedPath.find(L"\\WindowsApps\\Claude_") != std::wstring::npos &&
+            normalizedPath.find(L"\\app\\resources\\") != std::wstring::npos) {
+            return true;
+        }
+    }
+    if (_wcsicmp(baseName.c_str(), L"github-mcp-server.exe") == 0 &&
+        normalizedPath.find(L"\\app.asar.unpacked\\resources\\github-mcp\\") !=
+            std::wstring::npos) {
+        return true;
+    }
+    return false;
+}
+
+bool IsMcpHostImage(const std::wstring& baseName) {
+    static const wchar_t* const hosts[] = {
+        L"node.exe", L"bun.exe", L"deno.exe", L"python.exe", L"pythonw.exe",
+        L"uvx.exe", L"npx.exe", L"pnpm.exe", L"yarn.exe",
+    };
+    for (const wchar_t* host : hosts) {
+        if (_wcsicmp(baseName.c_str(), host) == 0) return true;
     }
     return false;
 }
@@ -229,12 +278,22 @@ bool PrepareInjection(const wchar_t* application, const wchar_t* commandLine, st
     const std::wstring normalizedHost = NormalizeImagePath(HostImagePath());
     const bool sameImage = !normalizedImage.empty() && !normalizedHost.empty() &&
                            _wcsicmp(normalizedImage.c_str(), normalizedHost.c_str()) == 0;
-    const bool toolImage = haveImage && NativeCleanNetworkEnabled() && IsNetworkToolImage(baseName);
-    const bool candidate = sameImage || toolImage;
+    const bool toolImage = haveImage &&
+                           (NativeCleanNetworkEnabled() || NativeHardwareHooksEnabled()) &&
+                           IsToolImage(baseName);
+    const bool claudeHelper = haveImage &&
+                              IsClaudeHelperImage(normalizedImage, baseName);
+    const bool mcpHost = haveImage && NativeHardwareHooksEnabled() && IsMcpHostImage(baseName);
+    const bool candidate = sameImage || toolImage || claudeHelper || mcpHost;
     dllPath.clear();
     if (candidate) {
         dllPath = EnvironmentValue(L"CAC_NATIVE_DLL");
         if (dllPath.empty()) dllPath = DirectoryName(BridgeModulePath()) + L"\\NativeBridge.dll";
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "image=%s same=%d tool=%d helper=%d mcp=%d",
+                      WideToUtf8(baseName).c_str(), sameImage ? 1 : 0, toolImage ? 1 : 0,
+                      claudeHelper ? 1 : 0, mcpHost ? 1 : 0);
+        AuditEventRateLimited("native.child", "candidate", detail);
     }
     return candidate && !dllPath.empty() &&
            GetFileAttributesW(dllPath.c_str()) != INVALID_FILE_ATTRIBUTES;

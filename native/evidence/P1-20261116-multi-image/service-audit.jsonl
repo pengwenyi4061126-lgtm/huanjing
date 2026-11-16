@@ -1,0 +1,6 @@
+{"utc":"2026-11-16T05:47:40.204Z","pid":5272,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:47:40.204Z","pid":5272,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:47:40.204Z","pid":5272,"surface":"cpu.manifest","action":"complete","detail":"entries=16 installed=16"}
+{"utc":"2026-11-16T05:47:40.204Z","pid":5272,"surface":"cpu.flags","action":"neutralized","detail":"layout=cowork-svc internal=0/21 vendor=0/45 preserve=12/37"}
+{"utc":"2026-11-16T05:47:40.244Z","pid":5272,"surface":"api.install","action":"complete","detail":"failures=0","value":"0"}
+{"utc":"2026-11-16T05:47:40.273Z","pid":5272,"surface":"native.bridge","action":"ready"}

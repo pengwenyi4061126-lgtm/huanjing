@@ -1,5 +1,9 @@
 # 硬件画像扩展证据（2026-11-16）
 
+> 本目录是硬件画像层阶段快照。不同镜像子进程、多镜像 CPU manifest
+> 和最终服务 PID 的证据见
+> `native/evidence/P1-20261116-multi-image/README.md`。
+
 ## 范围
 
 在 `cowork-svc` 注入和 CPU flags/hooks 的基础上，补齐：

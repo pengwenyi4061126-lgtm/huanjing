@@ -99,11 +99,24 @@ C:\ProgramData\CAC\active-profile.ini
      虚拟化驱动/模块过滤；
    - `Win32_NetworkAdapter.Name/Description/AdapterType` 泛化。
 
+9. 不同镜像子进程
+   - `NativeBridge` child allowlist：同镜像、硬件/网络工具、
+     `claude-ssh-broker/proxy/askpass`、`github-mcp-server`、
+     node/bun/python/uvx/npx 等 MCP host；
+   - 多镜像 CPU manifest：cowork-svc 4 条 + SSH helper 各 2 条 +
+     github-mcp-server 6 条，共 16 条；非当前主模块条目记录
+     `not-applicable`，不增加 required failure；
+   - SSH/GitHub helper 的 CPUID/XGETBV 入口按多镜像 manifest 安装；
+     helper 的 internal/cpu flag 表尚未验证，当前审计为
+     `cpu.flags skipped no-flag-layout`；
+   - `cac-service-injector` 增加 `cowork-svc` 后代轮询和 allowlist
+     注入，服务子进程不再只靠 CreateProcess hook。
+
 ## 实测结果
 
 ```text
 注入器服务: CacServiceInjector RUNNING
-目标进程:   cowork-svc.exe PID 25236
+目标进程:   cowork-svc.exe PID 5272
 模块:       NativeBridge.dll
 审计:       native.bridge ready
 身份:       mac=02:2a:09:f6:66:f2

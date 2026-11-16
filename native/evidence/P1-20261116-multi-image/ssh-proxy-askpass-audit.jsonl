@@ -1,0 +1,42 @@
+{"utc":"2026-11-16T05:48:16.602Z","pid":20844,"surface":"native.bridge","action":"attach","detail":"process=main"}
+{"utc":"2026-11-16T05:48:16.602Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\cowork-svc.exe"}
+{"utc":"2026-11-16T05:48:16.602Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\cowork-svc.exe"}
+{"utc":"2026-11-16T05:48:16.602Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\cowork-svc.exe"}
+{"utc":"2026-11-16T05:48:16.602Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\cowork-svc.exe"}
+{"utc":"2026-11-16T05:48:16.602Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\claude-ssh-broker.exe"}
+{"utc":"2026-11-16T05:48:16.603Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\claude-ssh-broker.exe"}
+{"utc":"2026-11-16T05:48:16.613Z","pid":20844,"surface":"cpu.install","action":"installed","detail":"gocpuid","value":"10368"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.install","action":"installed","detail":"goxgetbv","value":"10400"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\claude-ssh-askpass.exe"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\claude-ssh-askpass.exe"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.manifest","action":"complete","detail":"entries=16 installed=16"}
+{"utc":"2026-11-16T05:48:16.614Z","pid":20844,"surface":"cpu.flags","action":"skipped","detail":"no-flag-layout"}
+{"utc":"2026-11-16T05:48:16.642Z","pid":20844,"surface":"api.install","action":"complete","detail":"failures=0","value":"0"}
+{"utc":"2026-11-16T05:48:16.654Z","pid":20844,"surface":"native.bridge","action":"ready"}
+{"utc":"2026-11-16T05:48:16.716Z","pid":19492,"surface":"native.bridge","action":"attach","detail":"process=main"}
+{"utc":"2026-11-16T05:48:16.716Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\cowork-svc.exe"}
+{"utc":"2026-11-16T05:48:16.716Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\cowork-svc.exe"}
+{"utc":"2026-11-16T05:48:16.716Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\cowork-svc.exe"}
+{"utc":"2026-11-16T05:48:16.716Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\cowork-svc.exe"}
+{"utc":"2026-11-16T05:48:16.716Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\claude-ssh-broker.exe"}
+{"utc":"2026-11-16T05:48:16.716Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\claude-ssh-broker.exe"}
+{"utc":"2026-11-16T05:48:16.716Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\claude-ssh-proxy.exe"}
+{"utc":"2026-11-16T05:48:16.716Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\claude-ssh-proxy.exe"}
+{"utc":"2026-11-16T05:48:16.737Z","pid":19492,"surface":"cpu.install","action":"installed","detail":"gocpuid","value":"10688"}
+{"utc":"2026-11-16T05:48:16.737Z","pid":19492,"surface":"cpu.install","action":"installed","detail":"goxgetbv","value":"10720"}
+{"utc":"2026-11-16T05:48:16.737Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.737Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.737Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.737Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.737Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.737Z","pid":19492,"surface":"cpu.manifest","action":"not-applicable","detail":"C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\resources\\github-mcp\\github-mcp-server.exe"}
+{"utc":"2026-11-16T05:48:16.737Z","pid":19492,"surface":"cpu.manifest","action":"complete","detail":"entries=16 installed=16"}
+{"utc":"2026-11-16T05:48:16.737Z","pid":19492,"surface":"cpu.flags","action":"skipped","detail":"no-flag-layout"}
+{"utc":"2026-11-16T05:48:16.767Z","pid":19492,"surface":"api.install","action":"complete","detail":"failures=0","value":"0"}
+{"utc":"2026-11-16T05:48:16.769Z","pid":19492,"surface":"native.bridge","action":"ready"}

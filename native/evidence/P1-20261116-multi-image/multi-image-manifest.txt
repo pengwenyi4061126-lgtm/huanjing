@@ -1,0 +1,18 @@
+# cac native CPU hook manifest (multi-image Go ABI)
+# module|sha256|rva|kind|prologue_hex
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\cowork-svc.exe|88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646|0x2BA0|gocpuid|8b4424088b4c240c
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\cowork-svc.exe|88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646|0x2BC0|goxgetbv|b900000000
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\cowork-svc.exe|88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646|0x212A60|gocpuid|8b4424088b4c240c
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\cowork-svc.exe|88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646|0x212A80|goxgetbv|b900000000
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\claude-ssh-broker.exe|D39C8D2A3B73BC55D9B0DE99AA4D9F1745974BA34830179533AB90DA85B5A4F8|0x29C0|gocpuid|8b4424088b4c240c
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\claude-ssh-broker.exe|D39C8D2A3B73BC55D9B0DE99AA4D9F1745974BA34830179533AB90DA85B5A4F8|0x29E0|goxgetbv|b900000000
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\claude-ssh-proxy.exe|CAA821BA1D56401F792397E93BD265B1EC8D8EDEB72E5FDD452675CFE5C29616|0x2880|gocpuid|8b4424088b4c240c
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\claude-ssh-proxy.exe|CAA821BA1D56401F792397E93BD265B1EC8D8EDEB72E5FDD452675CFE5C29616|0x28A0|goxgetbv|b900000000
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\claude-ssh-askpass.exe|FAFECBE3BDCD13CB6C91D8025F591F00D33796D918E294BFCAE30717D82396C7|0x29C0|gocpuid|8b4424088b4c240c
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\claude-ssh-askpass.exe|FAFECBE3BDCD13CB6C91D8025F591F00D33796D918E294BFCAE30717D82396C7|0x29E0|goxgetbv|b900000000
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\app.asar.unpacked\resources\github-mcp\github-mcp-server.exe|D84250D73D6B443288252E805B33FA63F019227B57B93A91ED0E37024DF44753|0x4DA0|gocpuid|8b4424088b4c240c
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\app.asar.unpacked\resources\github-mcp\github-mcp-server.exe|D84250D73D6B443288252E805B33FA63F019227B57B93A91ED0E37024DF44753|0x4DC0|goxgetbv|b900000000
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\app.asar.unpacked\resources\github-mcp\github-mcp-server.exe|D84250D73D6B443288252E805B33FA63F019227B57B93A91ED0E37024DF44753|0x237B80|gocpuid|8b4424088b4c240c
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\app.asar.unpacked\resources\github-mcp\github-mcp-server.exe|D84250D73D6B443288252E805B33FA63F019227B57B93A91ED0E37024DF44753|0x237BA0|goxgetbv|b900000000
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\app.asar.unpacked\resources\github-mcp\github-mcp-server.exe|D84250D73D6B443288252E805B33FA63F019227B57B93A91ED0E37024DF44753|0x3B7F60|gocpuid|8b4424088b4c240c
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\app.asar.unpacked\resources\github-mcp\github-mcp-server.exe|D84250D73D6B443288252E805B33FA63F019227B57B93A91ED0E37024DF44753|0x3B7F80|goxgetbv|b900000000

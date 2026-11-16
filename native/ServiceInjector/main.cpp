@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <cstring>
 #include <cwchar>
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -564,12 +566,93 @@ int InjectOnce(const std::wstring& target, const std::wstring& dllPath,
     return 0;
 }
 
+std::wstring BaseName(const std::wstring& path) {
+    const size_t slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? path : path.substr(slash + 1);
+}
+
+std::string Narrow(const std::wstring& value) {
+    if (value.empty()) return std::string();
+    const int length = WideCharToMultiByte(CP_UTF8, 0, value.c_str(),
+                                           static_cast<int>(value.size()), nullptr, 0,
+                                           nullptr, nullptr);
+    if (length <= 0) return std::string();
+    std::string result(static_cast<size_t>(length), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()),
+                        result.data(), length, nullptr, nullptr);
+    return result;
+}
+
+bool QueryProcessImage(DWORD processId, std::wstring& image) {
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    if (!process) return false;
+    wchar_t buffer[32768] = {};
+    DWORD length = static_cast<DWORD>(_countof(buffer));
+    const BOOL ok = QueryFullProcessImageNameW(process, 0, buffer, &length);
+    CloseHandle(process);
+    if (!ok || length == 0) return false;
+    image.assign(buffer, length);
+    return true;
+}
+
+bool IsAllowedDescendantImage(const std::wstring& image) {
+    const std::wstring baseName = BaseName(image);
+    static const wchar_t* const allowed[] = {
+        L"powershell.exe", L"pwsh.exe", L"cmd.exe", L"ipconfig.exe", L"netsh.exe",
+        L"wmic.exe", L"getmac.exe", L"route.exe", L"arp.exe", L"systeminfo.exe",
+        L"nbtstat.exe", L"reg.exe", L"sc.exe", L"tasklist.exe", L"driverquery.exe",
+        L"msinfo32.exe", L"dxdiag.exe", L"pnputil.exe", L"devcon.exe", L"certutil.exe",
+        L"cscript.exe", L"wscript.exe", L"rundll32.exe", L"regsvr32.exe",
+        L"whoami.exe", L"hostname.exe", L"wsl.exe", L"wslhost.exe", L"wt.exe",
+        L"openconsole.exe", L"windowsterminal.exe", L"powershell_ise.exe",
+        L"claude-ssh-broker.exe", L"claude-ssh-proxy.exe", L"claude-ssh-askpass.exe",
+        L"github-mcp-server.exe", L"chrome-native-host.exe",
+        L"node.exe", L"bun.exe", L"deno.exe", L"python.exe", L"pythonw.exe",
+        L"uvx.exe", L"npx.exe", L"pnpm.exe", L"yarn.exe",
+        L"ssh.exe", L"git.exe", L"gh.exe",
+    };
+    for (const wchar_t* name : allowed) {
+        if (_wcsicmp(baseName.c_str(), name) == 0) return true;
+    }
+    return false;
+}
+
+std::set<DWORD> DescendantsOf(DWORD root) {
+    std::map<DWORD, std::vector<DWORD>> children;
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return {};
+    PROCESSENTRY32W entry = {};
+    entry.dwSize = sizeof(entry);
+    if (Process32FirstW(snapshot, &entry)) {
+        do {
+            children[entry.th32ParentProcessID].push_back(entry.th32ProcessID);
+        } while (Process32NextW(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+
+    std::set<DWORD> result;
+    std::vector<DWORD> queue{root};
+    while (!queue.empty()) {
+        const DWORD parent = queue.back();
+        queue.pop_back();
+        const auto it = children.find(parent);
+        if (it == children.end()) continue;
+        for (DWORD child : it->second) {
+            if (child == root || result.count(child)) continue;
+            result.insert(child);
+            queue.push_back(child);
+        }
+    }
+    return result;
+}
+
 int Watch(const std::wstring& target, const std::wstring& dllPath,
           const std::wstring& auditPath) {
     DWORD lastPid = 0;
     DWORD lastFailure = 0;
     DWORD flagsPatchedPid = 0;
     DWORD flagsSkippedPid = 0;
+    std::set<DWORD> descendantAttempts;
     AppendAudit(auditPath, "watch-start", 0, "");
     while (!g_stopEvent || WaitForSingleObject(g_stopEvent, 0) == WAIT_TIMEOUT) {
         const DWORD processId = FindProcessId(target.c_str());
@@ -619,6 +702,23 @@ int Watch(const std::wstring& target, const std::wstring& dllPath,
         } else if (!processId && lastPid != 0) {
             AppendAudit(auditPath, "target-exited", lastPid, "");
             lastPid = 0;
+        }
+        if (processId && IsModuleLoaded(processId, L"NativeBridge.dll")) {
+            for (DWORD child : DescendantsOf(processId)) {
+                if (descendantAttempts.count(child)) continue;
+                std::wstring image;
+                if (!QueryProcessImage(child, image)) continue;
+                if (!IsAllowedDescendantImage(image)) continue;
+                descendantAttempts.insert(child);
+                if (IsModuleLoaded(child, L"NativeBridge.dll")) continue;
+                std::string error;
+                const std::string name = Narrow(BaseName(image));
+                if (InjectAndWait(child, dllPath, &error)) {
+                    AppendAudit(auditPath, "descendant-injected", child, name.c_str());
+                } else {
+                    AppendAudit(auditPath, "descendant-failed", child, error.c_str());
+                }
+            }
         }
         Sleep(50);
     }

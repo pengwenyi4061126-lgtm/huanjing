@@ -38,6 +38,7 @@ native/tests/*.txt
 native/dist/*.exp
 native/dist/*.lib
 native/dist/*.pdb
+native/native-hook-manifest.txt
 native/macfilter/bin/
 native/macfilter/obj/
 native/macfilter/*.sys

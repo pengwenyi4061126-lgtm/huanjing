@@ -12,35 +12,46 @@ if (-not $claudeDir) {
     throw 'Claude WindowsApps directory not found.'
 }
 
-$exe = Join-Path $claudeDir.FullName 'app\resources\cowork-svc.exe'
-if (-not (Test-Path -LiteralPath $exe)) {
-    throw "cowork-svc.exe not found: $exe"
+$resources = Join-Path $claudeDir.FullName 'app\resources'
+$targets = @(
+    (Join-Path $resources 'cowork-svc.exe'),
+    (Join-Path $resources 'claude-ssh-broker.exe'),
+    (Join-Path $resources 'claude-ssh-proxy.exe'),
+    (Join-Path $resources 'claude-ssh-askpass.exe'),
+    (Join-Path $resources 'app.asar.unpacked\resources\github-mcp\github-mcp-server.exe')
+) | Where-Object { Test-Path -LiteralPath $_ }
+
+if (-not ($targets | Where-Object { [IO.Path]::GetFileName($_) -eq 'cowork-svc.exe' })) {
+    throw "cowork-svc.exe not found under $resources"
 }
 
 $scanner = Join-Path (Split-Path -Parent $PSScriptRoot) 'native\scan-native-target.ps1'
-$temp = Join-Path $env:TEMP ("cac-cowork-cpu-" + [Guid]::NewGuid().ToString('N') + '.txt')
+$temp = Join-Path $env:TEMP ("cac-cpu-manifest-" + [Guid]::NewGuid().ToString('N') + '.txt')
 try {
-    & $scanner -Target $exe -Output $temp -MaxCandidatesPerModule 32 | Out-Null
-
     $result = New-Object System.Collections.Generic.List[string]
-    $result.Add('# cac native CPU hook manifest (Go ABI)')
+    $result.Add('# cac native CPU hook manifest (multi-image Go ABI)')
     $result.Add('# module|sha256|rva|kind|prologue_hex')
 
-    foreach ($line in Get-Content -LiteralPath $temp) {
-        if ($line -notmatch '^[A-Za-z]:\\' -or $line -notmatch '\|') { continue }
-        $fields = $line.Split('|')
-        if ($fields.Count -lt 5) { continue }
-        $kind = $fields[3]
-        $prologue = $fields[4]
-        $goKind = $null
-        if ($kind -eq 'cpuid' -and $prologue -eq '8b4424088b4c240c') {
-            $goKind = 'gocpuid'
-        } elseif ($kind -eq 'xgetbv' -and $prologue -eq 'b900000000') {
-            $goKind = 'goxgetbv'
+    foreach ($target in $targets) {
+        & $scanner -Target $target -Output $temp -MaxCandidatesPerModule 64 | Out-Null
+        $countBefore = $result.Count
+        foreach ($line in Get-Content -LiteralPath $temp) {
+            if ($line -notmatch '^[A-Za-z]:\\' -or $line -notmatch '\|') { continue }
+            $fields = $line.Split('|')
+            if ($fields.Count -lt 5) { continue }
+            $kind = $fields[3]
+            $prologue = $fields[4]
+            $goKind = $null
+            if ($kind -eq 'cpuid' -and $prologue -eq '8b4424088b4c240c') {
+                $goKind = 'gocpuid'
+            } elseif ($kind -eq 'xgetbv' -and $prologue -eq 'b900000000') {
+                $goKind = 'goxgetbv'
+            }
+            if (-not $goKind) { continue }
+            $fields[3] = $goKind
+            $result.Add(($fields -join '|'))
         }
-        if (-not $goKind) { continue }
-        $fields[3] = $goKind
-        $result.Add(($fields -join '|'))
+        Write-Host ("CPU manifest: {0} -> {1} entries" -f [IO.Path]::GetFileName($target), ($result.Count - $countBefore))
     }
 
     if ($result.Count -le 2) {
