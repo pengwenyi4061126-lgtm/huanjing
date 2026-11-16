@@ -218,6 +218,9 @@ typedef DWORD (WINAPI* PFN_GetAdaptersInfo)(PIP_ADAPTER_INFO, PULONG);
 typedef BOOL (WINAPI* PFN_GetVolumeInformationW)(LPCWSTR, LPWSTR, DWORD, LPDWORD, LPDWORD, LPDWORD, LPWSTR, DWORD);
 typedef BOOL (WINAPI* PFN_GlobalMemoryStatusEx)(LPMEMORYSTATUSEX);
 typedef BOOL (WINAPI* PFN_GetPhysicallyInstalledSystemMemory)(PULONGLONG);
+typedef DWORD (WINAPI* PFN_GetActiveProcessorCount)(WORD);
+typedef DWORD (WINAPI* PFN_GetMaximumProcessorCount)(WORD);
+typedef BOOL (WINAPI* PFN_GetPerformanceInfo)(PPERFORMANCE_INFORMATION, DWORD);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExW)(LPCWSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExA)(LPCSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef void (WINAPI* PFN_GetSystemInfo)(LPSYSTEM_INFO);
@@ -270,6 +273,9 @@ PFN_GetAdaptersInfo g_origGetAdaptersInfo = nullptr;
 PFN_GetVolumeInformationW g_origGetVolumeInformation = nullptr;
 PFN_GlobalMemoryStatusEx g_origGlobalMemoryStatusEx = nullptr;
 PFN_GetPhysicallyInstalledSystemMemory g_origGetPhysicallyInstalledSystemMemory = nullptr;
+PFN_GetActiveProcessorCount g_origGetActiveProcessorCount = nullptr;
+PFN_GetMaximumProcessorCount g_origGetMaximumProcessorCount = nullptr;
+PFN_GetPerformanceInfo g_origGetPerformanceInfo = nullptr;
 PFN_GetDiskFreeSpaceExW g_origGetDiskFreeSpaceExW = nullptr;
 PFN_GetDiskFreeSpaceExA g_origGetDiskFreeSpaceExA = nullptr;
 PFN_GetSystemInfo g_origGetSystemInfo = nullptr;
@@ -944,6 +950,46 @@ void WINAPI HookGetNativeSystemInfo(LPSYSTEM_INFO info) {
             : ((1u << info->dwNumberOfProcessors) - 1u);
         AuditEventRateLimited("api.getnativesysteminfo", "patched");
     }
+}
+
+DWORD WINAPI HookGetActiveProcessorCount(WORD groupNumber) {
+    if (NativeHardwareHooksEnabled() &&
+        (groupNumber == ALL_PROCESSOR_GROUPS || groupNumber == 0)) {
+        AuditEventRateLimited("api.getactiveprocessorcount", "patched");
+        return ProfileIdentity::Get().cpuLogical;
+    }
+    return g_origGetActiveProcessorCount ? g_origGetActiveProcessorCount(groupNumber) : 0;
+}
+
+DWORD WINAPI HookGetMaximumProcessorCount(WORD groupNumber) {
+    if (NativeHardwareHooksEnabled() &&
+        (groupNumber == ALL_PROCESSOR_GROUPS || groupNumber == 0)) {
+        AuditEventRateLimited("api.getmaximumprocessorcount", "patched");
+        return ProfileIdentity::Get().cpuLogical;
+    }
+    return g_origGetMaximumProcessorCount ? g_origGetMaximumProcessorCount(groupNumber) : 0;
+}
+
+BOOL WINAPI HookGetPerformanceInfo(PPERFORMANCE_INFORMATION info, DWORD size) {
+    const BOOL result = g_origGetPerformanceInfo
+        ? g_origGetPerformanceInfo(info, size)
+        : FALSE;
+    if (!result || !info || size < sizeof(PERFORMANCE_INFORMATION) ||
+        !NativeHardwareHooksEnabled()) {
+        return result;
+    }
+    SYSTEM_INFO systemInfo = {};
+    if (g_origGetSystemInfo) g_origGetSystemInfo(&systemInfo);
+    const SIZE_T pageSize = systemInfo.dwPageSize ? systemInfo.dwPageSize : 4096;
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    info->PhysicalTotal = static_cast<SIZE_T>(
+        identity.memoryTotalMb * 1024ULL * 1024ULL / pageSize);
+    info->PhysicalAvailable = static_cast<SIZE_T>(
+        identity.memoryAvailableMb * 1024ULL * 1024ULL / pageSize);
+    info->CommitLimit = info->PhysicalTotal + info->PhysicalTotal / 2;
+    info->CommitTotal = info->CommitLimit / 4;
+    AuditEventRateLimited("api.getperformanceinfo", "patched");
+    return result;
 }
 
 BOOL WINAPI HookEnumDisplayDevicesW(LPCWSTR device, DWORD deviceIndex,
@@ -2825,6 +2871,15 @@ bool InstallApiHooks() {
     InstallInlineThenIat("kernel32.dll", "GetNativeSystemInfo",
                          reinterpret_cast<void*>(&HookGetNativeSystemInfo),
                          reinterpret_cast<void**>(&g_origGetNativeSystemInfo));
+    InstallInlineThenIat("kernel32.dll", "GetActiveProcessorCount",
+                         reinterpret_cast<void*>(&HookGetActiveProcessorCount),
+                         reinterpret_cast<void**>(&g_origGetActiveProcessorCount));
+    InstallInlineThenIat("kernel32.dll", "GetMaximumProcessorCount",
+                         reinterpret_cast<void*>(&HookGetMaximumProcessorCount),
+                         reinterpret_cast<void**>(&g_origGetMaximumProcessorCount));
+    InstallInlineThenIat("psapi.dll", "GetPerformanceInfo",
+                         reinterpret_cast<void*>(&HookGetPerformanceInfo),
+                         reinterpret_cast<void**>(&g_origGetPerformanceInfo));
     if (NativeHardwareHooksEnabled()) {
         InstallOptionalInlineThenIat("user32.dll", "EnumDisplayDevicesW",
                              reinterpret_cast<void*>(&HookEnumDisplayDevicesW),

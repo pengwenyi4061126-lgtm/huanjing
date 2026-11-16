@@ -148,6 +148,18 @@ try {
     $gpuProbePath = Join-Path $dist "cac-gpu-probe.exe"
     $gpuProbeHash = Get-CacSha256 $gpuProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-gpu-probe.sha256") -Value $gpuProbeHash -Encoding ASCII
+
+    Write-Host "Building cac-cpu-deep-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "CpuDeepProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-cpu-deep-probe.exe" `
+        /link /guard:cf /Brepro psapi.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-cpu-deep-probe.exe build failed ($LASTEXITCODE)" }
+
+    $cpuDeepProbePath = Join-Path $dist "cac-cpu-deep-probe.exe"
+    $cpuDeepProbeHash = Get-CacSha256 $cpuDeepProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-cpu-deep-probe.sha256") -Value $cpuDeepProbeHash -Encoding ASCII
 } finally {
     Pop-Location
 }

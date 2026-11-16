@@ -21,6 +21,7 @@ param(
     [string]$DllPath,
     [string]$HardwareProbe,
     [string]$GpuProbe,
+    [string]$CpuDeepProbe,
     [string]$WmiProbe,
     [switch]$SkipCim
 )
@@ -31,6 +32,7 @@ if (-not $Launcher) { $Launcher = Join-Path $repoRoot 'native\dist\cac-native-la
 if (-not $DllPath) { $DllPath = Join-Path $repoRoot 'native\dist\NativeBridge.dll' }
 if (-not $HardwareProbe) { $HardwareProbe = Join-Path $repoRoot 'native\dist\cac-hardware-probe.exe' }
 if (-not $GpuProbe) { $GpuProbe = Join-Path $repoRoot 'native\dist\cac-gpu-probe.exe' }
+if (-not $CpuDeepProbe) { $CpuDeepProbe = Join-Path $repoRoot 'native\dist\cac-cpu-deep-probe.exe' }
 if (-not $WmiProbe) { $WmiProbe = Join-Path $repoRoot 'artifacts\wmi_probe.exe' }
 $ProfilePath = (Resolve-Path -LiteralPath $ProfilePath).Path
 $Launcher = (Resolve-Path -LiteralPath $Launcher).Path
@@ -40,6 +42,10 @@ if (-not (Test-Path -LiteralPath $GpuProbe -PathType Leaf)) {
     throw "GPU probe not found: $GpuProbe"
 }
 $GpuProbe = (Resolve-Path -LiteralPath $GpuProbe).Path
+if (-not (Test-Path -LiteralPath $CpuDeepProbe -PathType Leaf)) {
+    throw "CPU deep probe not found: $CpuDeepProbe"
+}
+$CpuDeepProbe = (Resolve-Path -LiteralPath $CpuDeepProbe).Path
 if (-not (Test-Path -LiteralPath $WmiProbe -PathType Leaf)) {
     throw "WMI probe not found: $WmiProbe"
 }
@@ -172,6 +178,10 @@ $gpuLog = Join-Path $OutputDir 'gpu-probe.txt'
 $gpuCode = Invoke-Injected -Executable $GpuProbe -Arguments @() -LogPath $gpuLog
 $gpu = Read-KeyValues -Path $gpuLog
 
+$cpuLog = Join-Path $OutputDir 'cpu-deep-probe.txt'
+$cpuCode = Invoke-Injected -Executable $CpuDeepProbe -Arguments @() -LogPath $cpuLog
+$cpu = Read-KeyValues -Path $cpuLog
+
 $cimCode = $null
 $cimLog = Join-Path $OutputDir 'cim-probe.txt'
 if (-not $SkipCim) {
@@ -191,6 +201,7 @@ $networkModeActual = $env:CAC_NETWORK_MODE
 Add-Check 'probe.hardware' 'fail' ($hardwareCode -eq 0 -and $hardware.Count -gt 0) 'exit 0 + key=value' "exit=$hardwareCode lines=$($hardware.Count)" 'native hardware probe'
 Add-Check 'probe.wmi' 'fail' ($wmiCode -eq 0 -and $wmi['wmi_state'] -eq 'ok') 'wmi_state=ok' "exit=$wmiCode state=$($wmi['wmi_state'])" 'IWbemLocator probe'
 Add-Check 'probe.gpu' 'fail' ($gpuCode -eq 0 -and $gpu['gpu_state'] -eq 'ok') 'gpu_state=ok' "exit=$gpuCode state=$($gpu['gpu_state'])" 'DXGI probe'
+Add-Check 'probe.cpudeep' 'fail' ($cpuCode -eq 0 -and $cpu.Count -gt 0) 'exit 0 + key=value' "exit=$cpuCode lines=$($cpu.Count)" 'CPU/memory deep probe'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -223,6 +234,22 @@ Add-Check 'consistency.disk_size' 'fail' ($diskGb -gt 0 -and $diskGb -eq $wmiDis
 $cpuCount = Convert-ToInt64 (Get-ProbeScalar -Path $hardwareLog -Key 'processors')
 $wmiLogical = Convert-ToInt64 $wmi['wmi_cpu_logical']
 Add-Check 'consistency.cpu_count' 'fail' ($cpuCount -gt 0 -and $cpuCount -eq $wmiLogical) "$cpuCount" "$wmiLogical" 'GetSystemInfo vs Win32_Processor.NumberOfLogicalProcessors'
+
+$expectedLogical = Convert-ToInt64 $identity.cpu_logical
+if ($expectedLogical -le 0) { $expectedLogical = 8 }
+$activeProcessors = Convert-ToInt64 $cpu['active_processors']
+$maximumProcessors = Convert-ToInt64 $cpu['maximum_processors']
+Add-Check 'consistency.active_processors' 'fail' ($activeProcessors -eq $expectedLogical) "$expectedLogical" "$activeProcessors" 'GetActiveProcessorCount'
+Add-Check 'consistency.maximum_processors' 'fail' ($maximumProcessors -eq $expectedLogical) "$expectedLogical" "$maximumProcessors" 'GetMaximumProcessorCount'
+
+$expectedMemoryMb = Convert-ToInt64 $identity.memory_total_mb
+if ($expectedMemoryMb -le 0) { $expectedMemoryMb = $memoryMb }
+$expectedAvailableMb = Convert-ToInt64 $identity.memory_available_mb
+if ($expectedAvailableMb -le 0) { $expectedAvailableMb = 12288 }
+$perfPhysical = Convert-ToInt64 $cpu['perf_physical_mb']
+$perfAvailable = Convert-ToInt64 $cpu['perf_available_mb']
+Add-Check 'consistency.perf_physical' 'fail' ($perfPhysical -eq $expectedMemoryMb) "$expectedMemoryMb MB" "$perfPhysical MB" 'GetPerformanceInfo.PhysicalTotal'
+Add-Check 'consistency.perf_available' 'fail' ($perfAvailable -eq $expectedAvailableMb) "$expectedAvailableMb MB" "$perfAvailable MB" 'GetPerformanceInfo.PhysicalAvailable'
 
 $label = Get-ProbeScalar -Path $hardwareLog -Key 'volume_label'
 Add-Check 'consistency.volume_label' 'fail' ($label -eq ([string]$wmi['wmi_disk_label'])) $label ([string]$wmi['wmi_disk_label']) 'GetVolumeInformation vs Win32_LogicalDisk.VolumeName'
@@ -291,9 +318,11 @@ $result = [ordered]@{
     raw = [ordered]@{
         hardware = $hardware
         gpu = $gpu
+        cpu = $cpu
         wmi = $wmi
         hardwareExit = $hardwareCode
         gpuExit = $gpuCode
+        cpuExit = $cpuCode
         wmiExit = $wmiCode
         cimExit = $cimCode
         processExit = $processCode
