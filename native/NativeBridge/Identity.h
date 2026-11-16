@@ -98,6 +98,7 @@ struct ProfileIdentity {
     std::string memoryVendor = "Samsung";
     std::string memoryPart = "M378A1K43CB2-CRC";
     std::string nicName = "Realtek PCIe GbE Family Controller";
+    std::string nicPciId = "PCI\\VEN_10EC&DEV_8168&SUBSYS_86761043&REV_15";
     std::string diskModel = "WDC WDS500G2B0A-00SM50";
     std::string chassisAssetTag;
     std::string boardAssetTag;

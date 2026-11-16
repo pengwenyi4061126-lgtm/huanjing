@@ -69,6 +69,50 @@ function New-FakeMac {
     return ('00:E0:4C:' + (($bytes | ForEach-Object { "{0:x2}" -f $_ }) -join ':'))
 }
 
+function New-RealisticMac {
+    param([string]$Seed)
+    # Vendor OUIs (global, unicast). Deriving from the profile seed keeps the
+    # address stable across restarts without a 02:xx locally-administered flag.
+    $ouis = @('00:E0:4C', '3C:7C:3F', 'B0:83:FE', '00:1B:21', 'A4:BB:6D')
+    $hex = Get-DerivedHex "$Seed|mac" 8
+    $index = [Convert]::ToByte($hex.Substring(0, 2), 16) % $ouis.Count
+    return ('{0}:{1}:{2}:{3}' -f $ouis[$index], $hex.Substring(2, 2), $hex.Substring(4, 2), $hex.Substring(6, 2))
+}
+
+function Test-RealisticMac {
+    param([string]$Value)
+    if ($Value -notmatch '^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$') { return $false }
+    $first = [Convert]::ToByte(($Value -split ':')[0], 16)
+    if (($first -band 0x03) -ne 0) { return $false }
+    if ($Value -match '^00:00:00:00:00:00$') { return $false }
+    return $true
+}
+
+function New-SerialToken {
+    param([string]$Seed, [int]$Length)
+    # Uppercase alphanumeric without I/O/0/1 so the value reads like a printed
+    # vendor serial instead of a raw hex digest.
+    $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    $hex = Get-DerivedHex "$Seed|serial" ($Length * 2)
+    $text = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $Length; $i++) {
+        $byte = [Convert]::ToByte($hex.Substring($i * 2, 2), 16)
+        [void]$text.Append($alphabet[$byte % $alphabet.Length])
+    }
+    return $text.ToString()
+}
+
+function New-NumericSerial {
+    param([string]$Seed, [int]$Length)
+    $hex = Get-DerivedHex "$Seed|numeric" ($Length * 2)
+    $text = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $Length; $i++) {
+        $byte = [Convert]::ToByte($hex.Substring($i * 2, 2), 16)
+        [void]$text.Append(([string]($byte % 10)))
+    }
+    return $text.ToString()
+}
+
 function Get-DerivedHex {
     param([string]$Seed, [int]$Length)
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -455,16 +499,17 @@ function Ensure-ProfileLayout {
     # the same device identity across restarts. Existing values are preserved.
     $uuidValue = [string]$identity.uuid
     $machineValue = [string]$identity.machine_id
+    $seed = $machineValue
     $derived = [ordered]@{
-        hostname = if ([string]::IsNullOrWhiteSpace([string]$identity.hostname)) { New-FakeHostname } else { [string]$identity.hostname }
-        mac_address = if ([string]::IsNullOrWhiteSpace([string]$identity.mac_address)) { New-FakeMac } else { [string]$identity.mac_address }
+        hostname = if ([string]::IsNullOrWhiteSpace([string]$identity.hostname)) { 'DESKTOP-' + (Get-DerivedHex "$seed|host" 7).ToUpperInvariant() } else { [string]$identity.hostname }
+        mac_address = if (Test-RealisticMac ([string]$identity.mac_address)) { [string]$identity.mac_address } else { New-RealisticMac $seed }
         system_uuid   = ($uuidValue -replace '-', '').ToUpperInvariant()
-        disk_serial   = ("WD-" + (Get-DerivedHex "$machineValue|disk" 12)).ToUpperInvariant()
-        bios_serial   = ("PF" + (Get-DerivedHex "$machineValue|bios" 10)).ToUpperInvariant()
-        board_serial  = ("MB" + (Get-DerivedHex "$machineValue|board" 10)).ToUpperInvariant()
-        system_serial = ("SYS" + (Get-DerivedHex "$machineValue|system" 10)).ToUpperInvariant()
+        disk_serial   = "WD-W" + (New-SerialToken "$seed|disk" 11)
+        bios_serial   = New-SerialToken "$seed|bios" 12
+        board_serial  = New-NumericSerial "$seed|board" 15
+        system_serial = New-SerialToken "$seed|system" 12
         processor_id  = (Get-DerivedHex "$machineValue|cpu" 16).ToUpperInvariant()
-        hid_serial    = "HID" + (Get-DerivedHex "$machineValue|hid" 10).ToUpperInvariant()
+        hid_serial    = New-NumericSerial "$seed|hid" 10
         volume_serial = (Get-DerivedHex "$machineValue|volume" 8).ToUpperInvariant()
         system_manufacturer = "ASUSTeK COMPUTER INC."
         system_product = "PRIME B550M-K"
@@ -495,6 +540,7 @@ function Ensure-ProfileLayout {
         disk_free_gb = 256
         disk_model = "WDC WDS500G2B0A-00SM50"
         nic_name = "Realtek PCIe GbE Family Controller"
+        nic_pci_id = "PCI\VEN_10EC&DEV_8168&SUBSYS_86761043&REV_15"
         cpu_cores = 4
         cpu_logical = 8
         cpu_max_mhz = 3600
@@ -539,6 +585,26 @@ function Ensure-ProfileLayout {
             Add-Member -InputObject $identity -NotePropertyName $key -NotePropertyValue $derived[$key] -Force
             $identityChanged = $true
         }
+    }
+    # Realism migration: legacy Profiles stored hex-digest serials, host-*
+    # names and a locally-administered 02:xx MAC. Repair those once and stamp
+    # the schema so later runs keep the derived values stable.
+    if ([int]$identity.realism_schema -lt 2) {
+        $repairs = [ordered]@{
+            hostname      = if ([string]$identity.hostname -match '^host-') { 'DESKTOP-' + (Get-DerivedHex "$seed|host" 7).ToUpperInvariant() } else { [string]$identity.hostname }
+            mac_address   = if (Test-RealisticMac ([string]$identity.mac_address)) { [string]$identity.mac_address } else { New-RealisticMac $seed }
+            disk_serial   = "WD-W" + (New-SerialToken "$seed|disk" 11)
+            bios_serial   = New-SerialToken "$seed|bios" 12
+            board_serial  = New-NumericSerial "$seed|board" 15
+            system_serial = New-SerialToken "$seed|system" 12
+            hid_serial    = New-NumericSerial "$seed|hid" 10
+            nic_pci_id    = "PCI\VEN_10EC&DEV_8168&SUBSYS_86761043&REV_15"
+            realism_schema = 2
+        }
+        foreach ($key in $repairs.Keys) {
+            Add-Member -InputObject $identity -NotePropertyName $key -NotePropertyValue $repairs[$key] -Force
+        }
+        $identityChanged = $true
     }
     if ($identityChanged) {
         Set-Content -LiteralPath $paths.IdentityPath -Value ($identity | ConvertTo-Json -Depth 5) -Encoding UTF8

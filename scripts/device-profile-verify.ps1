@@ -27,6 +27,7 @@ param(
     [string]$HidProbe,
     [string]$NvmlProbe,
     [string]$PnpProbe,
+    [string]$PnpWmiProbe,
     [string]$AudioProbe,
     [string]$OpenClProbe,
     [string]$WmiProbe,
@@ -45,6 +46,7 @@ if (-not $DisplayProbe) { $DisplayProbe = Join-Path $repoRoot 'native\dist\cac-d
 if (-not $HidProbe) { $HidProbe = Join-Path $repoRoot 'native\dist\cac-hid-probe.exe' }
 if (-not $NvmlProbe) { $NvmlProbe = Join-Path $repoRoot 'native\dist\cac-nvml-probe.exe' }
 if (-not $PnpProbe) { $PnpProbe = Join-Path $repoRoot 'native\dist\cac-pnp-probe.exe' }
+if (-not $PnpWmiProbe) { $PnpWmiProbe = Join-Path $repoRoot 'native\dist\cac-pnp-wmi-probe.exe' }
 if (-not $AudioProbe) { $AudioProbe = Join-Path $repoRoot 'native\dist\cac-audio-probe.exe' }
 if (-not $OpenClProbe) { $OpenClProbe = Join-Path $repoRoot 'native\dist\cac-opencl-probe.exe' }
 if (-not $WmiProbe) { $WmiProbe = Join-Path $repoRoot 'artifacts\wmi_probe.exe' }
@@ -80,6 +82,10 @@ if (-not (Test-Path -LiteralPath $PnpProbe -PathType Leaf)) {
     throw "PNP probe not found: $PnpProbe"
 }
 $PnpProbe = (Resolve-Path -LiteralPath $PnpProbe).Path
+if (-not (Test-Path -LiteralPath $PnpWmiProbe -PathType Leaf)) {
+    throw "PNP WMI probe not found: $PnpWmiProbe"
+}
+$PnpWmiProbe = (Resolve-Path -LiteralPath $PnpWmiProbe).Path
 if (-not (Test-Path -LiteralPath $AudioProbe -PathType Leaf)) {
     throw "Audio probe not found: $AudioProbe"
 }
@@ -244,6 +250,13 @@ $pnpLog = Join-Path $OutputDir 'pnp-probe.txt'
 $pnpCode = Invoke-Injected -Executable $PnpProbe -Arguments @() -LogPath $pnpLog
 $pnp = Read-KeyValues -Path $pnpLog
 
+$pnpWmiLog = Join-Path $OutputDir 'pnp-wmi-probe.txt'
+$pnpWmiCode = Invoke-Injected -Executable $PnpWmiProbe -Arguments @() -LogPath $pnpWmiLog
+$pnpWmi = Read-KeyValues -Path $pnpWmiLog
+$pnpWmiOutsideLog = Join-Path $OutputDir 'pnp-wmi-probe-outside.txt'
+& $PnpWmiProbe 2>&1 | Out-File -LiteralPath $pnpWmiOutsideLog -Encoding UTF8
+$pnpWmiOutside = Read-KeyValues -Path $pnpWmiOutsideLog
+
 $audioLog = Join-Path $OutputDir 'audio-probe.txt'
 $audioCode = Invoke-Injected -Executable $AudioProbe -Arguments @() -LogPath $audioLog
 $audio = Read-KeyValues -Path $audioLog
@@ -279,6 +292,44 @@ Add-Check 'probe.nvml' 'fail' ($nvmlCode -eq 0 -and $nvml['nvml_state'] -eq 'ok'
 Add-Check 'probe.pnp' 'fail' ($pnpCode -eq 0 -and $pnp['pnp_state'] -eq 'ok') 'pnp_state=ok' "exit=$pnpCode state=$($pnp['pnp_state'])" 'SetupDi PnP probe'
 Add-Check 'probe.audio' 'fail' ($audioCode -eq 0 -and $audio['audio_state'] -eq 'ok') 'audio_state=ok' "exit=$audioCode state=$($audio['audio_state'])" 'IMMDevice audio probe'
 Add-Check 'probe.opencl' 'fail' ($openclCode -eq 0 -and $opencl['opencl_state'] -eq 'ok') 'opencl_state=ok' "exit=$openclCode state=$($opencl['opencl_state'])" 'OpenCL probe'
+Add-Check 'probe.pnp_wmi' 'fail' ($pnpWmiCode -eq 0 -and $pnpWmi['pnp_wmi_state'] -eq 'ok') 'pnp_wmi_state=ok' "exit=$pnpWmiCode state=$($pnpWmi['pnp_wmi_state'])" 'WMI Win32_PnPEntity probe'
+$pnpWmiGameViewer = Convert-ToInt64 $pnpWmi['pnp_wmi_gameviewer']
+$pnpWmiOutsideGameViewer = Convert-ToInt64 $pnpWmiOutside['pnp_wmi_gameviewer']
+Add-Check 'hardware.wmi_pnp_gameviewer' 'fail' (
+    $pnpWmiGameViewer -eq 0 -and $pnpWmiOutsideGameViewer -gt 0
+) '0 inside / >0 outside' "$pnpWmiGameViewer / $pnpWmiOutsideGameViewer" 'WMI row filter proves the virtual display is hidden only under injection'
+$pnpWmiTotal = Convert-ToInt64 $pnpWmi['pnp_wmi_total']
+Add-Check 'hardware.wmi_pnp_rows' 'fail' ($pnpWmiTotal -gt 0) '>0 rows' "$pnpWmiTotal" 'Win32_PnPEntity enumeration is not empty'
+$pnpWmiText = (@($pnpWmi.Values | ForEach-Object { [string]$_ }) -join '|')
+$pnpProbeText = (@($pnp.Values | ForEach-Object { [string]$_ }) -join '|')
+$wmiBiosSerial = ([string]$pnpWmi['wmi_bios_serial']).Trim()
+$wmiComputerName = ([string]$pnpWmi['wmi_cs_name']).Trim()
+$wmiProcessorId = ([string]$pnpWmi['wmi_processor_id']).Trim()
+Add-Check 'hardware.wmi_pnp_identity' 'fail' (
+    $wmiBiosSerial -eq ([string]$identity.system_serial).Trim() -and
+    $wmiComputerName -eq ([string]$identity.hostname).Trim() -and
+    $wmiProcessorId -eq ([string]$identity.processor_id).Trim()
+) "$($identity.system_serial)/$($identity.hostname)/$($identity.processor_id)" "$wmiBiosSerial/$wmiComputerName/$wmiProcessorId" 'Win32_BIOS/ComputerSystem/Processor via WMI'
+Add-Check 'hardware.wmi_pnp_cross' 'fail' (
+    $pnpWmiText -notmatch 'GameViewer' -and
+    $pnpWmiText -match 'VEN_10DE&DEV_1F82' -and
+    $pnpWmiText -match 'DEL41A9' -and
+    $pnpProbeText -match 'VEN_10DE&DEV_1F82' -and
+    $pnpProbeText -match 'DEL41A9'
+) 'GPU and monitor PnP ids agree across WMI and SetupDi' "$pnpWmiTotal WMI rows" 'cross-surface PnP identity'
+$identityMac = [string]$identity.mac_address
+$identityMacValid = $identityMac -match '^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'
+$identityMacReal = $identityMacValid -and (([Convert]::ToByte(($identityMac -split ':')[0], 16) -band 0x03) -eq 0)
+Add-Check 'identity.mac_realism' 'fail' $identityMacReal 'globally administered unicast MAC' $identityMac '02:xx locally-administered MAC is an obvious synthetic marker'
+Add-Check 'identity.hostname_realism' 'fail' (
+    [string]$identity.hostname -match '^(DESKTOP|LAPTOP|WIN)-[A-Z0-9]{7}$'
+) 'DESKTOP-XXXXXXX' ([string]$identity.hostname) 'Windows default hostname shape'
+Add-Check 'identity.serial_realism' 'fail' (
+    [string]$identity.disk_serial -match '^WD-[A-Z0-9]{12}$' -and
+    [string]$identity.bios_serial -match '^[A-Z0-9]{8,16}$' -and
+    [string]$identity.board_serial -match '^[0-9]{10,18}$' -and
+    [string]$identity.system_serial -match '^[A-Z0-9]{8,16}$'
+) 'vendor serial shapes' "$($identity.disk_serial)/$($identity.bios_serial)/$($identity.board_serial)/$($identity.system_serial)" 'hex-digest serials read as synthetic'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -538,6 +589,8 @@ $result = [ordered]@{
         hid = $hid
         nvml = $nvml
         pnp = $pnp
+        pnpWmi = $pnpWmi
+        pnpWmiOutside = $pnpWmiOutside
         audio = $audio
         opencl = $opencl
         wmi = $wmi
@@ -549,6 +602,7 @@ $result = [ordered]@{
         hidExit = $hidCode
         nvmlExit = $nvmlCode
         pnpExit = $pnpCode
+        pnpWmiExit = $pnpWmiCode
         audioExit = $audioCode
         openclExit = $openclCode
         wmiExit = $wmiCode

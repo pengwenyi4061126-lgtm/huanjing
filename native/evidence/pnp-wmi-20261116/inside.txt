@@ -1,0 +1,19 @@
+
+pnp_wmi_state=ok
+pnp_wmi_query=1
+pnp_wmi_total=198
+pnp_wmi_gameviewer=0
+pnp_wmi_display_rows=1
+pnp_wmi_monitor_rows=1
+pnp_wmi_audio_rows=2
+pnp_wmi_disk_rows=2
+pnp_wmi_net_rows=12
+wmi_bios_serial=SYS674a560b11
+wmi_cs_name=host-7105ecbc
+wmi_cs_manufacturer=ASUSTeK COMPUTER INC.
+wmi_cs_model=PRIME B550M-K
+wmi_processor_name=AMD Ryzen 3 3100 4-Core Processor
+wmi_processor_id=8CD39B0BD8785A72
+wmi_disk_serial=WD-84490e004894
+wmi_nic_mac=02:2a:09:f6:66:f2
+

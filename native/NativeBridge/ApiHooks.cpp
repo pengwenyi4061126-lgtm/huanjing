@@ -1997,6 +1997,18 @@ BOOL WINAPI HookDeviceIoControl(HANDLE device, DWORD code, LPVOID input, DWORD i
         if (code == IOCTL_DISK_GET_DRIVE_LAYOUT_EX) {
             PatchDriveLayout(output, outputSize, *returned);
         }
+        static const BYTE kHidMouseReportDescriptor[] = {
+            0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x09, 0x01, 0xA1, 0x00,
+            0x05, 0x09, 0x19, 0x01, 0x29, 0x03, 0x15, 0x00, 0x25, 0x01,
+            0x95, 0x03, 0x75, 0x01, 0x81, 0x02, 0x95, 0x01, 0x75, 0x05,
+            0x81, 0x01, 0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x81,
+            0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0x81, 0x06, 0xC0, 0xC0};
+        if (code == 0x000B0007 && NativeHardwareHooksEnabled() &&
+            outputSize >= sizeof(kHidMouseReportDescriptor)) {
+            std::memcpy(output, kHidMouseReportDescriptor, sizeof(kHidMouseReportDescriptor));
+            *returned = sizeof(kHidMouseReportDescriptor);
+            AuditEventRateLimited("api.hid.reportdescriptor", "patched");
+        }
         AuditEventRateLimited("api.deviceiocontrol", "observed", nullptr, code, true);
     } else if (!result && overlapped && lastError == ERROR_IO_PENDING) {
         TrackPendingDeviceIo(overlapped, code, input, inputSize, output, outputSize);

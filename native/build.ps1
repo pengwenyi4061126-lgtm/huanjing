@@ -237,6 +237,18 @@ try {
     $pnpProbeHash = Get-CacSha256 $pnpProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-pnp-probe.sha256") -Value $pnpProbeHash -Encoding ASCII
 
+    Write-Host "Building cac-pnp-wmi-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "PnpWmiProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-pnp-wmi-probe.exe" `
+        /link /guard:cf /Brepro wbemuuid.lib ole32.lib oleaut32.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-pnp-wmi-probe.exe build failed ($LASTEXITCODE)" }
+
+    $pnpWmiProbePath = Join-Path $dist "cac-pnp-wmi-probe.exe"
+    $pnpWmiProbeHash = Get-CacSha256 $pnpWmiProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-pnp-wmi-probe.sha256") -Value $pnpWmiProbeHash -Encoding ASCII
+
     Write-Host "Building cac-opencl-probe.exe ..." -ForegroundColor Cyan
     $openclDef = Join-Path $root "OpenCLProbe\opencl.def"
     $openclLib = Join-Path $obj "opencl.lib"
@@ -252,6 +264,30 @@ try {
     $openclProbePath = Join-Path $dist "cac-opencl-probe.exe"
     $openclProbeHash = Get-CacSha256 $openclProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-opencl-probe.sha256") -Value $openclProbeHash -Encoding ASCII
+
+    Write-Host "Verifying dist artifact hashes ..." -ForegroundColor Cyan
+    $manifest = New-Object System.Collections.Generic.List[string]
+    $mismatches = New-Object System.Collections.Generic.List[string]
+    foreach ($binary in Get-ChildItem -LiteralPath $dist -File |
+             Where-Object { $_.Extension -in @('.exe', '.dll') }) {
+        $declaredName = [System.IO.Path]::GetFileNameWithoutExtension($binary.Name) + '.sha256'
+        $declaredPath = Join-Path $dist $declaredName
+        if (-not (Test-Path -LiteralPath $declaredPath -PathType Leaf)) {
+            $mismatches.Add("$($binary.Name): missing $declaredName")
+            continue
+        }
+        $actual = Get-CacSha256 $binary.FullName
+        $declared = (Get-Content -LiteralPath $declaredPath -Raw).Trim().ToUpperInvariant()
+        if ($actual -ne $declared) {
+            $mismatches.Add("$($binary.Name): declared=$declared actual=$actual")
+            continue
+        }
+        $manifest.Add(("{0} *{1}" -f $actual, $binary.Name))
+    }
+    if ($mismatches.Count -gt 0) {
+        throw ("dist hash mismatch:`n" + ($mismatches -join "`n"))
+    }
+    Set-Content -LiteralPath (Join-Path $dist "manifest.sha256") -Value $manifest -Encoding ASCII
 } finally {
     Pop-Location
 }

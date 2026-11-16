@@ -12,8 +12,10 @@
 #include "../AudioGuids.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <cwctype>
 #include <new>
 #include <string>
 #include <vector>
@@ -49,6 +51,20 @@ std::wstring FormatUuid(const std::string& hex) {
     for (wchar_t& c : upper) c = static_cast<wchar_t>(towupper(c));
     return upper.substr(0, 8) + L"-" + upper.substr(8, 4) + L"-" + upper.substr(12, 4) + L"-" +
            upper.substr(16, 4) + L"-" + upper.substr(20, 12);
+}
+
+std::wstring FormatCimDate(const std::string& text) {
+    int month = 1;
+    int day = 1;
+    int year = 2024;
+    if (sscanf_s(text.c_str(), "%d/%d/%d", &month, &day, &year) != 3) {
+        month = 1;
+        day = 1;
+        year = 2024;
+    }
+    wchar_t buffer[48] = {};
+    swprintf_s(buffer, L"%04d%02d%02d000000.000000+480", year, month, day);
+    return buffer;
 }
 
 enum class WmiValueType {
@@ -124,21 +140,18 @@ const Rule kRules[] = {
     { L"Win32_VideoController", L"DeviceID", 41 },
     { L"Win32_VideoController", L"AdapterCompatibility", 42 },
     { L"Win32_DesktopMonitor", L"Name", 43 },
-    { L"Win32_DesktopMonitor", L"MonitorID", 41 },
-    { L"Win32_DesktopMonitor", L"PNPDeviceID", 41 },
+    { L"Win32_DesktopMonitor", L"MonitorID", 59 },
+    { L"Win32_DesktopMonitor", L"PNPDeviceID", 59 },
     { L"Win32_SystemEnclosure", L"SMBIOSAssetTag", 50 },
     { L"Win32_NetworkAdapter", L"Name", 56 },
     { L"Win32_NetworkAdapter", L"Description", 56 },
     { L"Win32_NetworkAdapter", L"AdapterType", 57 },
-    { L"Win32_NetworkAdapter", L"PNPDeviceID", 41 },
+    { L"Win32_NetworkAdapter", L"PNPDeviceID", 60 },
     { L"Win32_NetworkAdapterConfiguration", L"Description", 56 },
     { L"MSFT_NetAdapter", L"InterfaceDescription", 56 },
     { L"MSFT_NetAdapter", L"DriverDescription", 56 },
-    { L"MSFT_NetAdapter", L"PNPDeviceID", 41 },
-    { L"MSFT_NetAdapter", L"DeviceID", 41 },
-    { L"Win32_PnPEntity", L"Name", 58 },
-    { L"Win32_PnPEntity", L"DeviceID", 41 },
-    { L"Win32_PnPEntity", L"PNPDeviceID", 41 },
+    { L"MSFT_NetAdapter", L"PNPDeviceID", 60 },
+    { L"MSFT_NetAdapter", L"DeviceID", 60 },
     { L"Win32_Battery", L"Name", 58 },
     { L"Win32_Battery", L"DeviceID", 41 },
     { L"Win32_Battery", L"SerialNumber", 1 },
@@ -283,7 +296,7 @@ WmiSpoof ValueForKind(int kind) {
         case 43: spoof.text = ToWide(identity.monitorName); break;
         case 44: spoof.text = ToWide(identity.biosVendor); break;
         case 45: spoof.text = ToWide(identity.biosVersion); break;
-        case 46: spoof.text = ToWide(identity.biosReleaseDate); break;
+        case 46: spoof.text = FormatCimDate(identity.biosReleaseDate); break;
         case 47: spoof.text = ToWide(identity.systemManufacturer); break;
         case 48: spoof.text = ToWide(identity.systemProduct); break;
         case 49: spoof.text = ToWide(identity.systemVersion); break;
@@ -296,6 +309,10 @@ WmiSpoof ValueForKind(int kind) {
         case 56: spoof.text = ToWide(identity.nicName); break;
         case 57: spoof.text = L"Ethernet 802.3"; break;
         case 58: spoof.text = ToWide(identity.systemProduct); break;
+        case 59:
+            spoof.text = std::wstring(L"MONITOR\\") + ToWide(identity.monitorPnpId);
+            break;
+        case 60: spoof.text = ToWide(identity.nicPciId); break;
         default: break;
     }
     return spoof;
@@ -410,6 +427,79 @@ bool SetSpoofVariant(VARIANT* value, const WmiSpoof& spoof) {
     }
 }
 
+bool IsVirtualPnpObject(IWbemClassObject* object) {
+    if (!object || !NativeHardwareHooksEnabled()) return false;
+    const std::wstring cls = GetObjectString(object, L"__CLASS");
+    if (_wcsicmp(cls.c_str(), L"Win32_PnPEntity") != 0) return false;
+    static const wchar_t* const properties[] = {L"Name", L"DeviceID", L"PNPDeviceID"};
+    for (const wchar_t* property : properties) {
+        const std::wstring value = GetObjectString(object, property);
+        if (wcsstr(value.c_str(), L"GameViewer")) {
+            AuditEventRateLimited("wmi.pnp", "virtual-hidden");
+            return true;
+        }
+    }
+    return false;
+}
+
+std::wstring NormalizeGuidText(const std::wstring& value) {
+    std::wstring text;
+    for (wchar_t ch : value) {
+        if ((ch >= L'0' && ch <= L'9') || (ch >= L'a' && ch <= L'f') ||
+            (ch >= L'A' && ch <= L'F')) {
+            text.push_back(static_cast<wchar_t>(towlower(ch)));
+        }
+    }
+    return text;
+}
+
+// Project Win32_PnPEntity rows onto the profile device graph. The host row
+// keeps its position, but the class-relevant name and instance id come from
+// the Profile so a WMI consumer cannot cross-check the real device behind it.
+bool PnpPropertyOverride(IWbemClassObject* object, LPCWSTR property, std::wstring* text) {
+    if (!object || !property || !text || !NativeHardwareHooksEnabled()) return false;
+    const std::wstring cls = GetObjectString(object, L"__CLASS");
+    if (_wcsicmp(cls.c_str(), L"Win32_PnPEntity") != 0) return false;
+    const bool wantName = _wcsicmp(property, L"Name") == 0;
+    const bool wantId = _wcsicmp(property, L"DeviceID") == 0 ||
+                        _wcsicmp(property, L"PNPDeviceID") == 0;
+    if (!wantName && !wantId) return false;
+
+    std::wstring deviceClass = GetObjectString(object, L"PNPClass");
+    const std::wstring instanceId = GetObjectString(object, L"PNPDeviceID");
+    if (deviceClass.empty()) {
+        const std::wstring guid = NormalizeGuidText(GetObjectString(object, L"ClassGuid"));
+        if (guid == L"4d36e968e32511cebfc108002be10318") deviceClass = L"Display";
+        else if (guid == L"4d36e96ee32511cebfc108002be10318") deviceClass = L"Monitor";
+        else if (guid == L"4d36e96ce32511cebfc108002be10318") deviceClass = L"MEDIA";
+        else if (guid == L"4d36e967e32511cebfc108002be10318") deviceClass = L"DiskDrive";
+        else if (guid == L"4d36e972e32511cebfc108002be10318") deviceClass = L"Net";
+    }
+    if (deviceClass.empty() && instanceId.rfind(L"MONITOR\\", 0) == 0) {
+        deviceClass = L"Monitor";
+    }
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    if (_wcsicmp(deviceClass.c_str(), L"Display") == 0) {
+        *text = wantName ? ToWide(identity.gpuName) : ToWide(identity.gpuPciId);
+    } else if (_wcsicmp(deviceClass.c_str(), L"Monitor") == 0) {
+        *text = wantName ? ToWide(identity.monitorName)
+                         : (std::wstring(L"MONITOR\\") + ToWide(identity.monitorPnpId));
+    } else if (_wcsicmp(deviceClass.c_str(), L"AudioEndpoint") == 0 ||
+               _wcsicmp(deviceClass.c_str(), L"MEDIA") == 0) {
+        if (!wantName) return false;
+        *text = ToWide(identity.audioFriendlyName);
+    } else if (_wcsicmp(deviceClass.c_str(), L"DiskDrive") == 0) {
+        if (!wantName) return false;
+        *text = ToWide(identity.diskModel);
+    } else if (_wcsicmp(deviceClass.c_str(), L"Net") == 0) {
+        *text = wantName ? ToWide(identity.nicName) : ToWide(identity.nicPciId);
+    } else {
+        return false;
+    }
+    AuditEventRateLimited("wmi.pnp", "projected");
+    return true;
+}
+
 class WmiObject : public IWbemClassObject, public RefCounted {
 public:
     explicit WmiObject(IWbemClassObject* inner) : inner_(inner) {}
@@ -432,16 +522,39 @@ public:
     }
     HRESULT STDMETHODCALLTYPE Get(LPCWSTR name, long flags, VARIANT* value, CIMTYPE* type,
                                   long* flavor) override {
+        const HRESULT original = inner_->Get(name, flags, value, type, flavor);
+        if (FAILED(original)) return original;
         if (name && value) {
+            const CIMTYPE originalType = type ? *type : CIM_ILLEGAL;
+            std::wstring pnpText;
+            if (PnpPropertyOverride(inner_, name, &pnpText)) {
+                VariantClear(value);
+                value->vt = VT_BSTR;
+                value->bstrVal = SysAllocStringLen(pnpText.data(),
+                                                   static_cast<UINT>(pnpText.size()));
+                if (!value->bstrVal) return E_OUTOFMEMORY;
+                if (type) *type = originalType != CIM_ILLEGAL ? originalType : CIM_STRING;
+                if (flavor) *flavor = 0;
+                return S_OK;
+            }
             WmiSpoof spoof;
             if (SpoofWmiValue(ClassName(), name, spoof)) {
+                VariantClear(value);
                 if (!SetSpoofVariant(value, spoof)) return E_OUTOFMEMORY;
-                if (type) *type = CimTypeFor(spoof.type);
+                if (type) {
+                    // Keep the provider-declared CIM type for strings so
+                    // datetime and reference properties stay convertible by
+                    // the MI/CIM client instead of failing with TYPE_MISMATCH.
+                    const bool keepOriginal = spoof.type == WmiValueType::String &&
+                                              originalType != CIM_ILLEGAL &&
+                                              originalType != CIM_STRING;
+                    *type = keepOriginal ? originalType : CimTypeFor(spoof.type);
+                }
                 if (flavor) *flavor = 0;
                 return S_OK;
             }
         }
-        return inner_->Get(name, flags, value, type, flavor);
+        return original;
     }
     HRESULT STDMETHODCALLTYPE Put(LPCWSTR name, long flags, VARIANT* value, CIMTYPE type) override {
         return inner_->Put(name, flags, value, type);
@@ -458,11 +571,28 @@ public:
                                    long* flavor) override {
         const HRESULT hr = inner_->Next(flags, name, value, type, flavor);
         if (FAILED(hr) || !name || !*name || !value) return hr;
+        const CIMTYPE originalType = type ? *type : CIM_ILLEGAL;
+        std::wstring pnpText;
+        if (PnpPropertyOverride(inner_, *name, &pnpText)) {
+            VariantClear(value);
+            value->vt = VT_BSTR;
+            value->bstrVal = SysAllocStringLen(pnpText.data(),
+                                               static_cast<UINT>(pnpText.size()));
+            if (!value->bstrVal) return E_OUTOFMEMORY;
+            if (type) *type = originalType != CIM_ILLEGAL ? originalType : CIM_STRING;
+            if (flavor) *flavor = 0;
+            return hr;
+        }
         WmiSpoof spoof;
         if (!SpoofWmiValue(ClassName(), *name, spoof)) return hr;
         VariantClear(value);
         if (!SetSpoofVariant(value, spoof)) return E_OUTOFMEMORY;
-        if (type) *type = CimTypeFor(spoof.type);
+        if (type) {
+            const bool keepOriginal = spoof.type == WmiValueType::String &&
+                                      originalType != CIM_ILLEGAL &&
+                                      originalType != CIM_STRING;
+            *type = keepOriginal ? originalType : CimTypeFor(spoof.type);
+        }
         if (flavor) *flavor = 0;
         return hr;
     }
@@ -573,7 +703,7 @@ public:
         wrappers.reserve(static_cast<size_t>(count));
         for (LONG index = 0; index < count; ++index) {
             IWbemClassObject* raw = objects[index];
-            if (!raw || IsVirtualNetworkObject(raw)) continue;
+            if (!raw || IsVirtualNetworkObject(raw) || IsVirtualPnpObject(raw)) continue;
             raw->AddRef();
             WmiObject* wrapper = new (std::nothrow) WmiObject(raw);
             if (!wrapper) {
@@ -625,11 +755,14 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override { return RefCounted::AddRef(); }
     ULONG STDMETHODCALLTYPE Release() override { return RefCounted::Release(); }
 
-    HRESULT STDMETHODCALLTYPE Reset() override { return inner_->Reset(); }
+    HRESULT STDMETHODCALLTYPE Reset() override {
+        displayKept_ = monitorKept_ = netKept_ = audioKept_ = diskKept_ = 0;
+        return inner_->Reset();
+    }
     HRESULT STDMETHODCALLTYPE Next(long timeout, ULONG count, IWbemClassObject** objects,
                                    ULONG* returned) override {
         if (!objects || !returned) return inner_->Next(timeout, count, objects, returned);
-        for (int attempt = 0; attempt < 8; ++attempt) {
+        for (int attempt = 0; attempt < 64; ++attempt) {
             ULONG fetched = 0;
             const HRESULT hr = inner_->Next(timeout, count, objects, &fetched);
             if (FAILED(hr) || fetched == 0) {
@@ -640,7 +773,8 @@ public:
             for (ULONG i = 0; i < fetched; ++i) {
                 IWbemClassObject* raw = objects[i];
                 if (!raw) continue;
-                if (IsVirtualNetworkObject(raw)) {
+                if (IsVirtualNetworkObject(raw) || IsVirtualPnpObject(raw) ||
+                    CollapsePnpRow(raw)) {
                     raw->Release();
                     continue;
                 }
@@ -690,7 +824,31 @@ public:
     }
 
 private:
+    bool CollapsePnpRow(IWbemClassObject* object) {
+        const std::wstring cls = GetObjectString(object, L"__CLASS");
+        if (_wcsicmp(cls.c_str(), L"Win32_PnPEntity") != 0) return false;
+        const std::wstring guid = NormalizeGuidText(GetObjectString(object, L"ClassGuid"));
+        int* counter = nullptr;
+        if (guid == L"4d36e968e32511cebfc108002be10318") counter = &displayKept_;
+        else if (guid == L"4d36e96ee32511cebfc108002be10318") counter = &monitorKept_;
+        else if (guid == L"4d36e972e32511cebfc108002be10318") counter = &netKept_;
+        else if (guid == L"4d36e96ce32511cebfc108002be10318") counter = &audioKept_;
+        else if (guid == L"4d36e967e32511cebfc108002be10318") counter = &diskKept_;
+        if (!counter) return false;
+        ++(*counter);
+        if (*counter > 1) {
+            AuditEventRateLimited("wmi.pnp", "collapsed");
+            return true;
+        }
+        return false;
+    }
+
     IEnumWbemClassObject* inner_;
+    int displayKept_ = 0;
+    int monitorKept_ = 0;
+    int netKept_ = 0;
+    int audioKept_ = 0;
+    int diskKept_ = 0;
 };
 
 class WmiServices : public IWbemServices, public IClientSecurity, public RefCounted {

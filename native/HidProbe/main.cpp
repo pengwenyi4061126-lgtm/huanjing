@@ -34,9 +34,14 @@ int wmain() {
             continue;
         }
 
-        HANDLE device = CreateFileW(detail->DevicePath, GENERIC_READ,
+        HANDLE device = CreateFileW(detail->DevicePath, GENERIC_READ | GENERIC_WRITE,
                                     FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                     OPEN_EXISTING, 0, nullptr);
+        if (device == INVALID_HANDLE_VALUE) {
+            device = CreateFileW(detail->DevicePath, GENERIC_READ,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                 OPEN_EXISTING, 0, nullptr);
+        }
         if (device == INVALID_HANDLE_VALUE) {
             std::printf("hid%d_state=open-failed error=%lu\n", shown, GetLastError());
             continue;
@@ -62,6 +67,19 @@ int wmain() {
                     std::printf("hid%d_feature_bytes=%u\n", shown, caps.FeatureReportByteLength);
                 }
                 HidD_FreePreparsedData(preparsed);
+            }
+            BYTE reportDescriptor[256] = {};
+            DWORD reportBytes = 0;
+            if (DeviceIoControl(device, 0x000B0007, nullptr, 0,
+                                reportDescriptor, sizeof(reportDescriptor),
+                                &reportBytes, nullptr)) {
+                std::printf("hid%d_report_bytes=%lu\n", shown,
+                            static_cast<unsigned long>(reportBytes));
+                if (reportBytes >= 4) {
+                    std::printf("hid%d_report_head=%02x%02x%02x%02x\n", shown,
+                                reportDescriptor[0], reportDescriptor[1],
+                                reportDescriptor[2], reportDescriptor[3]);
+                }
             }
             std::printf("hid%d_vendor=0x%04x\n", shown, attributes.VendorID);
             std::printf("hid%d_product=0x%04x\n", shown, attributes.ProductID);

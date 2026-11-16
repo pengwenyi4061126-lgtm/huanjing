@@ -1,0 +1,19 @@
+
+pnp_wmi_state=ok
+pnp_wmi_query=1
+pnp_wmi_total=199
+pnp_wmi_gameviewer=1
+pnp_wmi_display_rows=2
+pnp_wmi_monitor_rows=1
+pnp_wmi_audio_rows=2
+pnp_wmi_disk_rows=2
+pnp_wmi_net_rows=12
+wmi_bios_serial=Default string
+wmi_cs_name=DESKTOP-PBOG23U
+wmi_cs_manufacturer=HUANAN
+wmi_cs_model=Default string
+wmi_processor_name=Intel(R) Xeon(R) CPU E5-2678 v3 @ 2.50GHz
+wmi_processor_id=BFEBFBFF000306F2
+wmi_disk_serial=F4DJ13000878
+wmi_nic_mac=0A:E0:AF:B1:2C:E1
+

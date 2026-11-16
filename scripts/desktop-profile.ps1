@@ -721,6 +721,46 @@ function Get-DerivedHex {
     }
 }
 
+function New-RealisticMac {
+    param([string]$Seed)
+    $ouis = @('00:E0:4C', '3C:7C:3F', 'B0:83:FE', '00:1B:21', 'A4:BB:6D')
+    $hex = Get-DerivedHex "$Seed|mac" 8
+    $index = [Convert]::ToByte($hex.Substring(0, 2), 16) % $ouis.Count
+    return ('{0}:{1}:{2}:{3}' -f $ouis[$index], $hex.Substring(2, 2), $hex.Substring(4, 2), $hex.Substring(6, 2))
+}
+
+function Test-RealisticMac {
+    param([string]$Value)
+    if ($Value -notmatch '^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$') { return $false }
+    $first = [Convert]::ToByte(($Value -split ':')[0], 16)
+    if (($first -band 0x03) -ne 0) { return $false }
+    if ($Value -match '^00:00:00:00:00:00$') { return $false }
+    return $true
+}
+
+function New-SerialToken {
+    param([string]$Seed, [int]$Length)
+    $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    $hex = Get-DerivedHex "$Seed|serial" ($Length * 2)
+    $text = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $Length; $i++) {
+        $byte = [Convert]::ToByte($hex.Substring($i * 2, 2), 16)
+        [void]$text.Append($alphabet[$byte % $alphabet.Length])
+    }
+    return $text.ToString()
+}
+
+function New-NumericSerial {
+    param([string]$Seed, [int]$Length)
+    $hex = Get-DerivedHex "$Seed|numeric" ($Length * 2)
+    $text = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $Length; $i++) {
+        $byte = [Convert]::ToByte($hex.Substring($i * 2, 2), 16)
+        [void]$text.Append(([string]($byte % 10)))
+    }
+    return $text.ToString()
+}
+
 function Initialize-ProfileIdentity {
     param([psobject]$Paths)
     $hasLock = Test-Path -LiteralPath $Paths.DeviceImageLock -PathType Leaf
@@ -732,6 +772,24 @@ function Initialize-ProfileIdentity {
                     throw "identity.json is missing required field: $field"
                 }
             }
+            if ([int]$existing.realism_schema -lt 2) {
+                $seed = [string]$existing.machine_id
+                $repairs = [ordered]@{
+                    hostname       = if ([string]$existing.hostname -match '^host-') { 'DESKTOP-' + (Get-DerivedHex "$seed|host" 7).ToUpperInvariant() } else { [string]$existing.hostname }
+                    mac_address    = if (Test-RealisticMac ([string]$existing.mac_address)) { [string]$existing.mac_address } else { New-RealisticMac $seed }
+                    disk_serial    = 'WD-W' + (New-SerialToken "$seed|disk" 11)
+                    bios_serial    = New-SerialToken "$seed|bios" 12
+                    board_serial   = New-NumericSerial "$seed|board" 15
+                    system_serial  = New-SerialToken "$seed|system" 12
+                    hid_serial     = New-NumericSerial "$seed|hid" 10
+                    nic_pci_id     = 'PCI\VEN_10EC&DEV_8168&SUBSYS_86761043&REV_15'
+                    realism_schema = 2
+                }
+                foreach ($key in $repairs.Keys) {
+                    Add-Member -InputObject $existing -NotePropertyName $key -NotePropertyValue $repairs[$key] -Force
+                }
+                Set-Content -LiteralPath $Paths.IdentityPath -Value ($existing | ConvertTo-Json -Depth 5) -Encoding UTF8
+            }
             return $existing
         } catch {
             if ($hasLock) { throw "Locked identity.json is invalid: $($_.Exception.Message)" }
@@ -741,9 +799,10 @@ function Initialize-ProfileIdentity {
 
     $machineId = [guid]::NewGuid().ToString('N')
     $uuid = [guid]::NewGuid().ToString().ToUpperInvariant()
+    $seed = $machineId
     $macBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash(
-        [System.Text.Encoding]::UTF8.GetBytes($machineId + '|mac'))
-    $mac = '00:E0:4C:' + (($macBytes[0..2] | ForEach-Object { $_.ToString('x2') }) -join ':')
+        [System.Text.Encoding]::UTF8.GetBytes($seed + '|mac'))
+    $mac = New-RealisticMac $seed
     $userNames = @('alex', 'david', 'mike', 'chris', 'sarah')
     $username = $userNames[[int]$macBytes[4] % $userNames.Count]
     $identity = [ordered]@{
@@ -753,16 +812,16 @@ function Initialize-ProfileIdentity {
         stable_id     = [guid]::NewGuid().ToString().ToLowerInvariant()
         user_id       = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
         machine_id    = $machineId
-        hostname      = 'DESKTOP-' + (Get-DerivedHex ($machineId + '|host') 7).ToUpperInvariant()
+        hostname      = 'DESKTOP-' + (Get-DerivedHex ($seed + '|host') 7).ToUpperInvariant()
         mac_address   = $mac
         system_uuid   = ($uuid -replace '-', '').ToUpperInvariant()
-        disk_serial   = ('WD-' + (Get-DerivedHex ($machineId + '|disk') 12)).ToUpperInvariant()
-        bios_serial   = ('PF' + (Get-DerivedHex ($machineId + '|bios') 10)).ToUpperInvariant()
-        board_serial  = ('MB' + (Get-DerivedHex ($machineId + '|board') 10)).ToUpperInvariant()
-        system_serial = ('SYS' + (Get-DerivedHex ($machineId + '|system') 10)).ToUpperInvariant()
+        disk_serial   = 'WD-W' + (New-SerialToken "$seed|disk" 11)
+        bios_serial   = New-SerialToken "$seed|bios" 12
+        board_serial  = New-NumericSerial "$seed|board" 15
+        system_serial = New-SerialToken "$seed|system" 12
         processor_id  = (Get-DerivedHex ($machineId + '|cpu') 16).ToUpperInvariant()
         volume_serial = (Get-DerivedHex ($machineId + '|volume') 8).ToUpperInvariant()
-        hid_serial    = 'HID' + (Get-DerivedHex ($machineId + '|hid') 10).ToUpperInvariant()
+        hid_serial    = New-NumericSerial "$seed|hid" 10
         username      = $username
         system_manufacturer = 'ASUSTeK COMPUTER INC.'
         system_product = 'PRIME B550M-K'
@@ -793,6 +852,7 @@ function Initialize-ProfileIdentity {
         disk_free_gb = 256
         disk_model = 'WDC WDS500G2B0A-00SM50'
         nic_name = 'Realtek PCIe GbE Family Controller'
+        nic_pci_id = 'PCI\VEN_10EC&DEV_8168&SUBSYS_86761043&REV_15'
         cpu_cores = 4
         cpu_logical = 8
         cpu_max_mhz = 3600
@@ -829,6 +889,7 @@ function Initialize-ProfileIdentity {
         opencl_vendor = 'NVIDIA'
         opencl_version = 'OpenCL 3.0 CUDA'
         opencl_compute_units = 14
+        realism_schema = 2
     }
     $encoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
     [System.IO.File]::WriteAllText($Paths.IdentityPath, ($identity | ConvertTo-Json -Depth 5), $encoding)

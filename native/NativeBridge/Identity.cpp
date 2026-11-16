@@ -227,6 +227,7 @@ bool ProfileIdentity::Load() {
     JsonString(document, "memory_vendor", memoryVendor);
     JsonString(document, "memory_part", memoryPart);
     JsonString(document, "nic_name", nicName);
+    JsonString(document, "nic_pci_id", nicPciId);
     JsonString(document, "disk_model", diskModel);
     JsonString(document, "chassis_asset_tag", chassisAssetTag);
     JsonString(document, "board_asset_tag", boardAssetTag);

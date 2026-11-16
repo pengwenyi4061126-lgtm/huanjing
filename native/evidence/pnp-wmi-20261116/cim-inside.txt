@@ -1,0 +1,9 @@
+Get-CimInstance : 类型不匹配 
+At line:1 char:2
++ (Get-CimInstance Win32_BIOS).SerialNumber; (Get-CimInstance Win32_Com ...
++  ~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidType: (root\cimv2:Win32_BIOS:String) [Get-CimInstance], CimException
+    + FullyQualifiedErrorId : HRESULT 0x80041005,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand
+ 
+DESKTOP-PBOG23U
+1

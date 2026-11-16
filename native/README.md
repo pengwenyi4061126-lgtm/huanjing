@@ -97,10 +97,13 @@ and is a known separate gap; use `Get-CimInstance` or `wmic`.
 
 The `IWbemServices` wrapper forwards `IClientSecurity`, so CIM/MI queries
 no longer fail with `WBEM_E_ACCESS_DENIED` when WMI hooks are enabled.
-That restores availability, not filtering: MI/CIM results bypass the COM
-wrapper and still show real hardware values. The C++ `IWbemLocator` path
-is the covered one; `Win32_BIOS` over CIM under hooks remains a known
-type-mismatch gap.
+`IWbemClassObject::Get` now reads the provider value first and keeps the
+declared CIM type, so `Get-CimInstance Win32_BIOS` no longer fails with
+`WBEM_E_TYPE_MISMATCH` (`0x80041005`) under injection. Availability is
+restored, not filtering: MI/CIM results bypass the COM wrapper and still
+show real hardware values, and `Get-CimInstance Win32_PnPEntity` still
+returns the GameViewer row. The C++ `IWbemLocator` path is the covered
+one; CIM/MI is an explicit boundary.
 
 `CAC_NETWORK_MODE=enforce` additionally sets `CAC_NETWORK_ENFORCE=1`. NativeBridge opens a dynamic WFP session and installs rules for the current executable image: `127.0.0.1` and `::1` are permitted for a local proxy, while other ALE Connect traffic is blocked. Set `CAC_WFP_REQUIRED=1` to refuse readiness when the WFP session cannot be installed. This is not an NDIS lightweight filter or a kernel WFP callout.
 
@@ -216,8 +219,12 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 
   -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
 ```
 
-The 2026-11-16 baseline is `pass=69 fail=1 warn=0`; the only failure is
+The 2026-11-16 baseline is `pass=77 fail=1 warn=0`; the only failure is
 Clash process visibility, which belongs to the deferred TUN+clean work.
+The run also covers the PnP WMI projection (`hardware.wmi_pnp_*`), the
+identity realism checks (`identity.*_realism`) and cross-surface PnP
+agreement between SetupDi and WMI. Result:
+`artifacts\device-profile-20261116d\result.json`.
 SMBIOS Type 17 now rewrites only populated slots, so the sum of module
 sizes matches the profile memory total instead of filling empty slots.
 
@@ -250,8 +257,28 @@ from the Profile.
 
 PNP: instance IDs, hardware IDs, device description and friendly names for
 the GPU/monitor are rewritten, GameViewer is hidden, and parent/class/
-class-guid/driver fields are synthetic. WMI `Win32_PnPEntity` synchronization
-remains open.
+class-guid/driver fields are synthetic. WMI `Win32_PnPEntity` rows are
+filtered (GameViewer, `ROOT\DISPLAY`) and projected by class GUID:
+Display → profile GPU, Monitor → profile monitor, AudioEndpoint → profile
+audio name, DiskDrive → profile disk model, Net → profile NIC. Duplicate
+physical rows per class collapse to one. `Win32_DesktopMonitor` and
+`Win32_NetworkAdapter` ids now use the monitor/NIC instance ids instead of
+the GPU PCI id, so SetupDi, WMI and DXGI agree.
+
+Verify it with:
+
+```powershell
+native\dist\cac-pnp-wmi-probe.exe
+native\dist\cac-native-launch.exe native\dist\cac-pnp-wmi-probe.exe
+```
+
+The probe prints `pnp_wmi_total`, `pnp_wmi_gameviewer` and the projected
+`Win32_BIOS`/`Win32_ComputerSystem`/`Win32_Processor` values. On the
+2026-11-16 audit Profile the outside run reported 199 rows with 1
+GameViewer row; the injected run reported 185 rows with 0 GameViewer rows.
+
+`build.ps1` now recomputes every `dist\*.sha256`, refuses to finish on a
+mismatch, and writes `dist\manifest.sha256` for the packaged binaries.
 
 OpenCL: statically imported `OpenCL.dll` is covered via the IAT path;
 dynamic `GetProcAddress` resolution remains WIP.
