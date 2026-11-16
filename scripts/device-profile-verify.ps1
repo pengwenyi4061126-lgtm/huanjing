@@ -25,6 +25,7 @@ param(
     [string]$DiskProbe,
     [string]$DisplayProbe,
     [string]$HidProbe,
+    [string]$NvmlProbe,
     [string]$WmiProbe,
     [switch]$SkipCim
 )
@@ -39,6 +40,7 @@ if (-not $CpuDeepProbe) { $CpuDeepProbe = Join-Path $repoRoot 'native\dist\cac-c
 if (-not $DiskProbe) { $DiskProbe = Join-Path $repoRoot 'native\dist\cac-disk-probe.exe' }
 if (-not $DisplayProbe) { $DisplayProbe = Join-Path $repoRoot 'native\dist\cac-display-probe.exe' }
 if (-not $HidProbe) { $HidProbe = Join-Path $repoRoot 'native\dist\cac-hid-probe.exe' }
+if (-not $NvmlProbe) { $NvmlProbe = Join-Path $repoRoot 'native\dist\cac-nvml-probe.exe' }
 if (-not $WmiProbe) { $WmiProbe = Join-Path $repoRoot 'artifacts\wmi_probe.exe' }
 $ProfilePath = (Resolve-Path -LiteralPath $ProfilePath).Path
 $Launcher = (Resolve-Path -LiteralPath $Launcher).Path
@@ -64,6 +66,10 @@ if (-not (Test-Path -LiteralPath $HidProbe -PathType Leaf)) {
     throw "HID probe not found: $HidProbe"
 }
 $HidProbe = (Resolve-Path -LiteralPath $HidProbe).Path
+if (-not (Test-Path -LiteralPath $NvmlProbe -PathType Leaf)) {
+    throw "NVML probe not found: $NvmlProbe"
+}
+$NvmlProbe = (Resolve-Path -LiteralPath $NvmlProbe).Path
 if (-not (Test-Path -LiteralPath $WmiProbe -PathType Leaf)) {
     throw "WMI probe not found: $WmiProbe"
 }
@@ -212,6 +218,10 @@ $hidLog = Join-Path $OutputDir 'hid-probe.txt'
 $hidCode = Invoke-Injected -Executable $HidProbe -Arguments @() -LogPath $hidLog
 $hid = Read-KeyValues -Path $hidLog
 
+$nvmlLog = Join-Path $OutputDir 'nvml-probe.txt'
+$nvmlCode = Invoke-Injected -Executable $NvmlProbe -Arguments @() -LogPath $nvmlLog
+$nvml = Read-KeyValues -Path $nvmlLog
+
 $cimCode = $null
 $cimLog = Join-Path $OutputDir 'cim-probe.txt'
 if (-not $SkipCim) {
@@ -235,6 +245,7 @@ Add-Check 'probe.cpudeep' 'fail' ($cpuCode -eq 0 -and $cpu.Count -gt 0) 'exit 0 
 Add-Check 'probe.disk' 'fail' ($diskCode -eq 0 -and $disk['disk_state'] -eq 'ok') 'disk_state=ok' "exit=$diskCode state=$($disk['disk_state'])" 'Disk layout probe'
 Add-Check 'probe.display' 'fail' ($displayCode -eq 0 -and $display['display_state'] -eq 'ok') 'display_state=ok' "exit=$displayCode state=$($display['display_state'])" 'DisplayConfig probe'
 Add-Check 'probe.hid' 'fail' ($hidCode -eq 0 -and $hid['hid_state'] -eq 'ok') 'hid_state=ok' "exit=$hidCode state=$($hid['hid_state'])" 'HID probe'
+Add-Check 'probe.nvml' 'fail' ($nvmlCode -eq 0 -and $nvml['nvml_state'] -eq 'ok') 'nvml_state=ok' "exit=$nvmlCode state=$($nvml['nvml_state'])" 'NVML static-import probe'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -363,6 +374,21 @@ Add-Check 'hardware.hid_manufacturer' 'fail' ($hidManufacturer -eq 'Logitech') '
 $hidProductString = [string]$hid['hid0_product_string']
 Add-Check 'hardware.hid_product' 'fail' ($hidProductString -eq 'USB Receiver') 'USB Receiver' $hidProductString 'HidD_GetProductString'
 
+$expectedNvmlName = [string]$identity.gpu_name
+if (-not $expectedNvmlName) { $expectedNvmlName = 'NVIDIA GeForce GTX 1650' }
+$expectedNvmlSerial = [string]$identity.gpu_serial
+if (-not $expectedNvmlSerial) { $expectedNvmlSerial = '1321919076543' }
+$expectedNvmlUuid = [string]$identity.gpu_uuid
+if (-not $expectedNvmlUuid) { $expectedNvmlUuid = 'GPU-8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f' }
+$nvmlName = [string]$nvml['nvml0_name']
+$nvmlSerial = [string]$nvml['nvml0_serial']
+$nvmlUuid = [string]$nvml['nvml0_uuid']
+$nvmlMemory = Convert-ToInt64 $nvml['nvml0_mem_total_mb']
+Add-Check 'hardware.nvml_name' 'fail' ($nvmlName -eq $expectedNvmlName) $expectedNvmlName $nvmlName 'nvmlDeviceGetName'
+Add-Check 'hardware.nvml_serial' 'fail' ($nvmlSerial -eq $expectedNvmlSerial) $expectedNvmlSerial $nvmlSerial 'nvmlDeviceGetSerial'
+Add-Check 'hardware.nvml_uuid' 'fail' ($nvmlUuid -eq $expectedNvmlUuid) $expectedNvmlUuid $nvmlUuid 'nvmlDeviceGetUUID'
+Add-Check 'hardware.nvml_memory' 'fail' ($nvmlMemory -eq 4096) '4096 MB' "$nvmlMemory MB" 'nvmlDeviceGetMemoryInfo'
+
 $processNames = @()
 if (Test-Path -LiteralPath $processLog) {
     $processNames = @(Get-Content -LiteralPath $processLog | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() } | Sort-Object -Unique)
@@ -393,6 +419,7 @@ $result = [ordered]@{
         disk = $disk
         display = $display
         hid = $hid
+        nvml = $nvml
         wmi = $wmi
         hardwareExit = $hardwareCode
         gpuExit = $gpuCode
@@ -400,6 +427,7 @@ $result = [ordered]@{
         diskExit = $diskCode
         displayExit = $displayCode
         hidExit = $hidCode
+        nvmlExit = $nvmlCode
         wmiExit = $wmiCode
         cimExit = $cimCode
         processExit = $processCode

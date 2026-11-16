@@ -198,9 +198,13 @@ try {
     Set-Content -LiteralPath (Join-Path $dist "cac-hid-probe.sha256") -Value $hidProbeHash -Encoding ASCII
 
     Write-Host "Building cac-nvml-probe.exe ..." -ForegroundColor Cyan
+    $nvmlDef = Join-Path $root "NvmlProbe\nvml.def"
+    $nvmlLib = Join-Path $obj "nvml.lib"
+    & lib.exe /nologo "/def:$nvmlDef" "/out:$nvmlLib" /machine:x64
+    if ($LASTEXITCODE -ne 0) { throw "nvml.lib generation failed ($LASTEXITCODE)" }
     & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
-        (Join-Path $root "NvmlProbe\main.cpp") `
+        (Join-Path $root "NvmlProbe\main.cpp") $nvmlLib `
         "/Fo$obj\" "/Fe:$dist\cac-nvml-probe.exe" `
         /link /guard:cf /Brepro
     if ($LASTEXITCODE -ne 0) { throw "cac-nvml-probe.exe build failed ($LASTEXITCODE)" }

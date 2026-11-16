@@ -1,0 +1,9 @@
+LIBRARY nvml
+EXPORTS
+    nvmlInit_v2
+    nvmlDeviceGetCount_v2
+    nvmlDeviceGetHandleByIndex_v2
+    nvmlDeviceGetName
+    nvmlDeviceGetSerial
+    nvmlDeviceGetUUID
+    nvmlDeviceGetMemoryInfo

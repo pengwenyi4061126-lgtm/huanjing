@@ -2619,6 +2619,18 @@ void InstallNvmlHooksFromModule(HMODULE module) {
     static bool installed = false;
     if (installed) return;
     installed = true;
+    InstallOptionalInlineThenIat("nvml.dll", "nvmlDeviceGetName",
+                                 reinterpret_cast<void*>(&HookNvmlGetName),
+                                 reinterpret_cast<void**>(&g_origNvmlGetName));
+    InstallOptionalInlineThenIat("nvml.dll", "nvmlDeviceGetSerial",
+                                 reinterpret_cast<void*>(&HookNvmlGetSerial),
+                                 reinterpret_cast<void**>(&g_origNvmlGetSerial));
+    InstallOptionalInlineThenIat("nvml.dll", "nvmlDeviceGetUUID",
+                                 reinterpret_cast<void*>(&HookNvmlGetUUID),
+                                 reinterpret_cast<void**>(&g_origNvmlGetUUID));
+    InstallOptionalInlineThenIat("nvml.dll", "nvmlDeviceGetMemoryInfo",
+                                 reinterpret_cast<void*>(&HookNvmlGetMemoryInfo),
+                                 reinterpret_cast<void**>(&g_origNvmlGetMemoryInfo));
     AuditEvent("api.nvml.late-load", "installed");
 }
 
@@ -3320,7 +3332,9 @@ bool InstallApiHooks() {
         InstallOptionalInlineThenIat("user32.dll", "DisplayConfigGetDeviceInfo",
                              reinterpret_cast<void*>(&HookDisplayConfigGetDeviceInfo),
                              reinterpret_cast<void**>(&g_origDisplayConfigGetDeviceInfo));
-        LoadLibraryW(L"nvml.dll");
+        if (HMODULE nvml = LoadLibraryW(L"nvml.dll")) {
+            InstallNvmlHooksFromModule(nvml);
+        }
     }
     InstallInlineThenIat("kernel32.dll", "GetSystemFirmwareTable", reinterpret_cast<void*>(&HookGetSystemFirmwareTable),
                          reinterpret_cast<void**>(&g_origGetSystemFirmwareTable));

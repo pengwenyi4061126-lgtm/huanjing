@@ -36,6 +36,7 @@ replacement process by name. Profile handoff uses
 | `RegGetValueW` / `RegQueryValueExW` (MachineGuid/BIOS/CPU values) | inline-primary + IAT/delay patch | on |
 | `HidD_GetSerialNumberString` | inline-primary + IAT/delay patch | on |
 | `HidD_GetAttributes` / `GetManufacturerString` / `GetProductString` | profile VID/PID/version and strings | on |
+| NVML `nvmlDeviceGetName` / `GetSerial` / `GetUUID` / `GetMemoryInfo` | IAT/inline for statically imported nvml.dll | on (static) |
 | `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | inline-primary with IAT/delay fallback; profile mode hides virtual device IDs/properties, empty policy clears output | profile |
 | `GetIfTable2` / `GetIfEntry2` / `GetIfTable` | inline-primary + IAT/delay patch + MAC rewrite | on |
 | `RegEnumValueW` | inline-primary + IAT/delay patch + value rewrite | on |
@@ -206,7 +207,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 
   -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
 ```
 
-The 2026-11-16 baseline is `pass=46 fail=1 warn=0`; the only failure is
+The 2026-11-16 baseline is `pass=51 fail=1 warn=0`; the only failure is
 Clash process visibility, which belongs to the deferred TUN+clean work.
 SMBIOS Type 17 now rewrites only populated slots, so the sum of module
 sizes matches the profile memory total instead of filling empty slots.
@@ -229,9 +230,10 @@ manufacturer/product IDs, monitor path and adapter path.
 `cac-hid-probe.exe` enumerates HID interfaces and prints
 `hidN_vendor/product/version/manufacturer/product_string/serial`.
 
-NVML: `cac-nvml-probe.exe` and a `LoadLibraryW` late-load hook exist, but
-the probe still receives the real `nvmlDeviceGet*` exports. NVML identity
-is WIP, not part of the current verifier baseline.
+NVML: statically imported `nvml.dll` is covered (IAT/inline), verified by
+`cac-nvml-probe.exe`. Dynamic `GetProcAddress` resolution remains WIP; the
+main-module `GetProcAddress` IAT hook crashed with `0xC0000409` and was
+removed.
 
 ## Boundaries
 
