@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <hidsdi.h>
+#include <hidpi.h>
 #include <setupapi.h>
 
 #include <cstdio>
@@ -50,6 +51,18 @@ int wmain() {
             HidD_GetManufacturerString(device, manufacturer, sizeof(manufacturer));
             HidD_GetProductString(device, product, sizeof(product));
             HidD_GetSerialNumberString(device, serial, sizeof(serial));
+            PHIDP_PREPARSED_DATA preparsed = nullptr;
+            HIDP_CAPS caps = {};
+            if (HidD_GetPreparsedData(device, &preparsed) && preparsed) {
+                if (HidP_GetCaps(preparsed, &caps) >= 0) {
+                    std::printf("hid%d_usage_page=0x%04x\n", shown, caps.UsagePage);
+                    std::printf("hid%d_usage=0x%04x\n", shown, caps.Usage);
+                    std::printf("hid%d_input_bytes=%u\n", shown, caps.InputReportByteLength);
+                    std::printf("hid%d_output_bytes=%u\n", shown, caps.OutputReportByteLength);
+                    std::printf("hid%d_feature_bytes=%u\n", shown, caps.FeatureReportByteLength);
+                }
+                HidD_FreePreparsedData(preparsed);
+            }
             std::printf("hid%d_vendor=0x%04x\n", shown, attributes.VendorID);
             std::printf("hid%d_product=0x%04x\n", shown, attributes.ProductID);
             std::printf("hid%d_version=0x%04x\n", shown, attributes.VersionNumber);

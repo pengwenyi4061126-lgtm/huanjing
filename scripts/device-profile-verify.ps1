@@ -406,6 +406,12 @@ $hidManufacturer = [string]$hid['hid0_manufacturer']
 Add-Check 'hardware.hid_manufacturer' 'fail' ($hidManufacturer -eq 'Logitech') 'Logitech' $hidManufacturer 'HidD_GetManufacturerString'
 $hidProductString = [string]$hid['hid0_product_string']
 Add-Check 'hardware.hid_product' 'fail' ($hidProductString -eq 'USB Receiver') 'USB Receiver' $hidProductString 'HidD_GetProductString'
+$hidUsagePage = [string]$hid['hid0_usage_page']
+$hidUsage = [string]$hid['hid0_usage']
+$hidInputBytes = Convert-ToInt64 $hid['hid0_input_bytes']
+Add-Check 'hardware.hid_caps' 'fail' (
+    $hidUsagePage -eq '0x0001' -and $hidUsage -eq '0x0002' -and $hidInputBytes -eq 7
+) '0x0001/0x0002/7' "$hidUsagePage/$hidUsage/$hidInputBytes" 'HidP_GetCaps'
 
 $expectedNvmlName = [string]$identity.gpu_name
 if (-not $expectedNvmlName) { $expectedNvmlName = 'NVIDIA GeForce GTX 1650' }

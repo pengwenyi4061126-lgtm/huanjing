@@ -36,6 +36,7 @@ replacement process by name. Profile handoff uses
 | `RegGetValueW` / `RegQueryValueExW` (MachineGuid/BIOS/CPU values) | inline-primary + IAT/delay patch | on |
 | `HidD_GetSerialNumberString` | inline-primary + IAT/delay patch | on |
 | `HidD_GetAttributes` / `GetManufacturerString` / `GetProductString` | profile VID/PID/version and strings | on |
+| `HidP_GetCaps` | profile usage page/usage and report lengths | on |
 | NVML `nvmlDeviceGetName` / `GetSerial` / `GetUUID` / `GetMemoryInfo` | IAT/inline for statically imported nvml.dll | on (static) |
 | IMMDevice `GetId` | CoCreateInstance(MMDeviceEnumerator) wrapper + device/collection wrappers | on |
 | IMMDevice `IPropertyStore` | friendly/interface name, endpoint GUID, form factor | on |
@@ -215,7 +216,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 
   -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
 ```
 
-The 2026-11-16 baseline is `pass=68 fail=1 warn=0`; the only failure is
+The 2026-11-16 baseline is `pass=69 fail=1 warn=0`; the only failure is
 Clash process visibility, which belongs to the deferred TUN+clean work.
 SMBIOS Type 17 now rewrites only populated slots, so the sum of module
 sizes matches the profile memory total instead of filling empty slots.

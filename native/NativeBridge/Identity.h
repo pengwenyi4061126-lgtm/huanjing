@@ -28,6 +28,11 @@ struct ProfileIdentity {
     uint32_t     hidVersion = 0x0111;
     std::string  hidManufacturer = "Logitech";
     std::string  hidProduct = "USB Receiver";
+    uint32_t     hidUsagePage = 0x01;
+    uint32_t     hidUsage = 0x02;
+    uint32_t     hidInputReportBytes = 7;
+    uint32_t     hidOutputReportBytes = 0;
+    uint32_t     hidFeatureReportBytes = 0;
     std::string  audioEndpointId =
         "{0.0.0.00000000}.{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}";
     std::string  audioFriendlyName = "Speakers (Realtek(R) Audio)";

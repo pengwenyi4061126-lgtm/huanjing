@@ -13,6 +13,7 @@
 #include <intrin.h>
 #include <setupapi.h>
 #include <hidsdi.h>
+#include <hidpi.h>
 #include <devpropdef.h>
 #include <devpkey.h>
 #include <initguid.h>
@@ -275,6 +276,7 @@ typedef BOOLEAN (WINAPI* PFN_HidD_GetSerialNumberString)(HANDLE, PVOID, ULONG);
 typedef BOOLEAN (WINAPI* PFN_HidD_GetAttributes)(HANDLE, PHIDD_ATTRIBUTES);
 typedef BOOLEAN (WINAPI* PFN_HidD_GetManufacturerString)(HANDLE, PVOID, ULONG);
 typedef BOOLEAN (WINAPI* PFN_HidD_GetProductString)(HANDLE, PVOID, ULONG);
+typedef NTSTATUS (NTAPI* PFN_HidP_GetCaps)(PHIDP_PREPARSED_DATA, PHIDP_CAPS);
 typedef BOOL (WINAPI* PFN_SetupDiGetDevicePropertyW)(HDEVINFO, PSP_DEVINFO_DATA, const DEVPROPKEY*, DEVPROPTYPE*, PBYTE, DWORD, PDWORD, DWORD);
 typedef BOOL (WINAPI* PFN_SetupDiGetDeviceRegistryPropertyW)(HDEVINFO, PSP_DEVINFO_DATA, DWORD, PDWORD, PBYTE, DWORD, PDWORD);
 typedef BOOL (WINAPI* PFN_SetupDiGetDeviceInstanceIdW)(HDEVINFO, PSP_DEVINFO_DATA, PWSTR, DWORD, PDWORD);
@@ -341,6 +343,7 @@ PFN_HidD_GetSerialNumberString g_origHidGetSerial = nullptr;
 PFN_HidD_GetAttributes g_origHidGetAttributes = nullptr;
 PFN_HidD_GetManufacturerString g_origHidGetManufacturer = nullptr;
 PFN_HidD_GetProductString g_origHidGetProduct = nullptr;
+PFN_HidP_GetCaps g_origHidGetCaps = nullptr;
 PFN_SetupDiGetDevicePropertyW g_origSetupDiGetDeviceProperty = nullptr;
 PFN_SetupDiGetDeviceRegistryPropertyW g_origSetupDiGetRegistryProperty = nullptr;
 PFN_SetupDiGetDeviceInstanceIdW g_origSetupDiGetInstanceId = nullptr;
@@ -761,6 +764,20 @@ BOOLEAN WINAPI HookHidD_GetProductString(HANDLE device, PVOID buffer, ULONG buff
     return WriteHidStringValue(buffer, bufferLength,
                                ProfileIdentity::Get().hidProduct,
                                "api.hid.product");
+}
+
+NTSTATUS NTAPI HookHidPGetCaps(PHIDP_PREPARSED_DATA preparsed, PHIDP_CAPS caps) {
+    const NTSTATUS status = g_origHidGetCaps ? g_origHidGetCaps(preparsed, caps) : -1;
+    if (status >= 0 && caps && NativeHardwareHooksEnabled()) {
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        caps->UsagePage = static_cast<USHORT>(identity.hidUsagePage);
+        caps->Usage = static_cast<USHORT>(identity.hidUsage);
+        caps->InputReportByteLength = static_cast<USHORT>(identity.hidInputReportBytes);
+        caps->OutputReportByteLength = static_cast<USHORT>(identity.hidOutputReportBytes);
+        caps->FeatureReportByteLength = static_cast<USHORT>(identity.hidFeatureReportBytes);
+        AuditEventRateLimited("api.hid.caps", "patched");
+    }
+    return status;
 }
 
 const DEVPROPKEY kDevPkeyDeviceDesc = {
@@ -3587,6 +3604,9 @@ bool InstallApiHooks() {
     InstallInlineThenIat("hid.dll", "HidD_GetProductString",
                          reinterpret_cast<void*>(&HookHidD_GetProductString),
                          reinterpret_cast<void**>(&g_origHidGetProduct));
+    InstallInlineThenIat("hid.dll", "HidP_GetCaps",
+                         reinterpret_cast<void*>(&HookHidPGetCaps),
+                         reinterpret_cast<void**>(&g_origHidGetCaps));
     InstallInlineThenIat("setupapi.dll", "SetupDiGetDevicePropertyW",
                          reinterpret_cast<void*>(&HookSetupDiGetDevicePropertyW),
                          reinterpret_cast<void**>(&g_origSetupDiGetDeviceProperty));

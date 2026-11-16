@@ -517,6 +517,11 @@ function Ensure-ProfileLayout {
         hid_version = 0x0111
         hid_manufacturer = "Logitech"
         hid_product = "USB Receiver"
+        hid_usage_page = 0x01
+        hid_usage = 0x02
+        hid_input_report_bytes = 7
+        hid_output_report_bytes = 0
+        hid_feature_report_bytes = 0
         audio_endpoint_id = "{0.0.0.00000000}.{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}"
         audio_friendly_name = "Speakers (Realtek(R) Audio)"
         audio_interface_name = "Realtek High Definition Audio"
