@@ -1223,6 +1223,7 @@ FARPROC WINAPI HookGetProcAddress(HMODULE module, LPCSTR name) {
         ? g_origGetProcAddress(module, name)
         : GetProcAddress(module, name);
     if (!original || !name || !NativeHardwareHooksEnabled()) return original;
+    if (reinterpret_cast<ULONG_PTR>(name) <= 0xFFFF) return original;
     if (std::strcmp(name, "nvmlDeviceGetName") == 0) {
         g_origNvmlGetName = reinterpret_cast<PFN_nvmlDeviceGetName>(original);
         AuditEventRateLimited("api.getprocaddress.nvml", "name");
