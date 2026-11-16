@@ -1,0 +1,12 @@
+CoworkVMService CPU flag timing (PID 25300)
+process_start            2026-11-16T03:43:11.736Z
+service_log_start        2026-11-16T03:43:11.767Z  (+31 ms)
+target_found             2026-11-16T03:43:11.778Z  (+42 ms)
+early_cpu_flags          2026-11-16T03:43:11.779Z  (+43 ms)
+native_bridge_attach     2026-11-16T03:43:11.782Z  (+46 ms)
+cpu_hash_trusted         2026-11-16T03:43:11.783Z  (+47 ms)
+manifest_complete        2026-11-16T03:43:11.785Z  (+49 ms)
+native_flags_check       2026-11-16T03:43:11.785Z  (+49 ms)
+native_bridge_ready      2026-11-16T03:43:11.839Z  (+103 ms)
+signature_verification   2026-11-16T03:43:11.888Z  (+152 ms)
+service_ready            2026-11-16T03:43:11.888Z  (+152 ms)

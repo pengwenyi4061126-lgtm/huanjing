@@ -30,6 +30,7 @@ Assert-Admin
 if ($Uninstall) {
     & sc.exe stop $serviceName 2>$null | Out-Null
     & sc.exe delete $serviceName 2>$null | Out-Null
+    & (Join-Path $PSScriptRoot 'set-cowork-service-env.ps1') -Remove -NoRestart | Out-Null
     Write-Host "Service removed: $serviceName"
     return
 }
@@ -55,6 +56,18 @@ foreach ($name in $required) {
 }
 
 New-Item -ItemType Directory -Force -Path $nativeTarget, (Join-Path $DataRoot 'logs') | Out-Null
+$coworkKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\CoworkVMService'
+$coworkImage = (Get-ItemProperty -Path $coworkKey -Name ImagePath -ErrorAction SilentlyContinue).ImagePath
+if ($coworkImage) {
+    $coworkImage = $coworkImage.Trim('"')
+    if (Test-Path -LiteralPath $coworkImage) {
+        $coworkItem = Get-Item -LiteralPath $coworkImage
+        $coworkHash = (Get-FileHash -LiteralPath $coworkImage -Algorithm SHA256).Hash
+        $cachePath = Join-Path $nativeTarget 'cowork-svc.hash'
+        "$coworkImage|$($coworkItem.Length)|$($coworkItem.LastWriteTimeUtc.ToFileTimeUtc())|$coworkHash" |
+            Set-Content -LiteralPath $cachePath -Encoding ASCII
+    }
+}
 $nativeAudit = Join-Path $DataRoot 'logs\cowork-svc-native.jsonl'
 $injectorAudit = Join-Path $DataRoot 'logs\service-injector.jsonl'
 foreach ($log in @($nativeAudit, $injectorAudit)) {
@@ -94,6 +107,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 & sc.exe description $serviceName 'Injects NativeBridge into Claude Cowork service processes.' | Out-Null
 & sc.exe start $serviceName | Out-Null
+& (Join-Path $PSScriptRoot 'set-cowork-service-env.ps1') -NoRestart | Out-Null
 if ($coworkWasRunning) {
     & sc.exe start 'CoworkVMService' | Out-Null
 }

@@ -1,0 +1,3 @@
+# cac cowork-svc CPU flag patch layout (Go 1.25.14, Claude 5.1231.2.0)
+# module|sha256|internal_rva|internal_count|internal_preserve_index|vendor_rva|vendor_count|vendor_preserve_index
+C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\resources\cowork-svc.exe|88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646|0x123B9C0|21|12|0x123BB00|45|37

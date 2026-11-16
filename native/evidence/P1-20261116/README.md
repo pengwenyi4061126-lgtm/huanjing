@@ -1,5 +1,9 @@
 # P1 第一阶段证据：cowork-svc CPU manifest 与 profile 重定向
 
+> 后续完整 CPU flags 证据见
+> `native/evidence/P1-20261116-full/README.md`。本目录保留第一阶段的
+> manifest、重定向和 A/B 原始证据。
+
 日期：2026-11-16
 
 ## 目标

@@ -74,11 +74,23 @@ C:\ProgramData\CAC\active-profile.ini
    - `native/CpuProbe` + `scripts/probe-service-cpu.ps1` 在服务进程内
      调用被 hook 的入口，验证 neutral 结果。
 
+7. 启动阶段 CPU flags
+   - Go 1.25 在 Windows 上不会把 `GODEBUG` 传给
+     `internal/cpu.Initialize`，所以 `GODEBUG=cpu.all=off` 只能关掉
+     `vendor/golang.org/x/sys/cpu`；
+   - `scripts/set-cowork-service-env.ps1` 给 `CoworkVMService` 设置
+     服务级 `GODEBUG=cpu.all=off`；
+   - `cac-service-injector` 轮询改为 50 ms，找到进程后先按哈希校验，
+     在注入前直接中和 `internal/cpu.X86` 与 vendor `cpu.X86` 的
+     flag 字节；
+   - 当前版本实测在进程启动后约 43 ms 完成中和；
+   - NativeBridge 的 `NeutralizeGoCpuFlags()` 再做一次兜底。
+
 ## 实测结果
 
 ```text
 注入器服务: CacServiceInjector RUNNING
-目标进程:   cowork-svc.exe PID 4980
+目标进程:   cowork-svc.exe PID 25300
 模块:       NativeBridge.dll
 审计:       native.bridge ready
 身份:       mac=02:2a:09:f6:66:f2
@@ -86,6 +98,7 @@ C:\ProgramData\CAC\active-profile.ini
             machine=7105ecbcb4a642a685ea9848ddd5d3ba
             disk=WD-84490e004894
 CPU:        cpu.manifest complete entries=4 installed=4
+CPU flags:  internal HasOSXSAVE=1 / vendor HasSSE2=1，其余 optional=false
 内核策略:   kernel.policy verified
 ```
 
@@ -116,8 +129,12 @@ CreateFileW/A/2 / NtCreateFile
   （RVA 0x79356/0x79381/0x170BBD/0x504C4F）没有匹配的 Go 布局，
   未挂载。
 - Go runtime 的 `internal/cpu.Initialize` 在 DLL 注入前已经执行；
-  manifest 不能追溯修改启动时算出的 feature flags，只覆盖注入后
-  经过这 4 个入口的调用。
+  flags 由注入器在进程出现后约 43 ms 内直接中和，NativeBridge 在
+  +49 ms 安装 4 条 CPU hooks。服务日志显示应用层 ready 在 +152 ms，
+  晚于补丁和 hooks；0-43 ms 内只有 runtime 初始化。进程入口前注入
+  不在本阶段。
+- CPU flags 补丁按 `cowork-svc.exe` 的 SHA-256 和固定 RVA 生效；
+  Claude 更新后哈希变化会自动跳过，需要重新生成 RVAs/哈希。
 - 该服务是用户态 SYSTEM，不是 Ring-0；注入可以覆盖它的用户态 API，
   但 TPM quote / Ring-0 CPUID / PCI/DMA 仍不在非 VM 可解范围。
 
@@ -145,7 +162,7 @@ C:\ProgramData\CAC\logs\cowork-svc-native.jsonl
 
 ## A/B 验证
 
-测试 Profile B（临时，PID 23912）：
+测试 Profile B（临时，PID 17764）：
 
 ```text
 MAC:        02:bb:bb:bb:bb:bb
@@ -161,7 +178,7 @@ native.identity loaded mac=02:bb:bb:bb:bb:bb host=host-bbbb machine=bbbb... disk
 native.bridge ready
 ```
 
-恢复 Desktop profile 1 后（PID 4980）：
+恢复 Desktop profile 1 后（PID 25300）：
 
 ```text
 MAC:        02:2a:09:f6:66:f2
@@ -182,4 +199,5 @@ native.bridge ready
 每次服务启动都重新安装 CPU manifest，4/4 成功。
 
 P1 第一阶段的完整证据和复现命令见
-`native/evidence/P1-20261116/README.md`。
+`native/evidence/P1-20261116/README.md` 和
+`native/evidence/P1-20261116-full/README.md`。

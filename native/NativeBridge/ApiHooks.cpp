@@ -274,6 +274,7 @@ PFN_GetQueuedCompletionStatus g_origGetQueuedCompletionStatus = nullptr;
 PFN_GetQueuedCompletionStatusEx g_origGetQueuedCompletionStatusEx = nullptr;
 
 std::atomic<unsigned int> g_hookInstallFailures{0};
+bool g_cpuHashTrusted = false;
 
 struct PendingDeviceIo {
     LPOVERLAPPED overlapped = nullptr;
@@ -1646,6 +1647,20 @@ bool ComputeFileSha256(const std::wstring& path, std::string& hex) {
     return ok;
 }
 
+std::wstring g_cachedHashPath;
+std::string g_cachedHashValue;
+
+bool GetCachedFileSha256(const std::wstring& path, std::string& hex) {
+    if (g_cachedHashPath == path && !g_cachedHashValue.empty()) {
+        hex = g_cachedHashValue;
+        return true;
+    }
+    if (!ComputeFileSha256(path, hex)) return false;
+    g_cachedHashPath = path;
+    g_cachedHashValue = hex;
+    return true;
+}
+
 HMODULE FindModuleByPath(const std::wstring& path) {
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, GetCurrentProcessId());
     if (snapshot == INVALID_HANDLE_VALUE) return nullptr;
@@ -1784,16 +1799,18 @@ bool InstallManifestEntry(const std::string& line) {
     const std::string kind = fields[3];
     const std::vector<BYTE> prologue = ParseHexBytes(fields[4]);
 
-    std::string actualHash;
-    if (!ComputeFileSha256(modulePath, actualHash)) {
-        AuditEvent("cpu.manifest", "hash-unreadable", fields[0].c_str());
-        ++g_hookInstallFailures;
-        return false;
-    }
-    if (_stricmp(actualHash.c_str(), expectedHash.c_str()) != 0) {
-        AuditEvent("cpu.manifest", "hash-mismatch", fields[0].c_str());
-        ++g_hookInstallFailures;
-        return false;
+    if (!g_cpuHashTrusted) {
+        std::string actualHash;
+        if (!GetCachedFileSha256(modulePath, actualHash)) {
+            AuditEvent("cpu.manifest", "hash-unreadable", fields[0].c_str());
+            ++g_hookInstallFailures;
+            return false;
+        }
+        if (_stricmp(actualHash.c_str(), expectedHash.c_str()) != 0) {
+            AuditEvent("cpu.manifest", "hash-mismatch", fields[0].c_str());
+            ++g_hookInstallFailures;
+            return false;
+        }
     }
 
     HMODULE module = FindModuleByPath(modulePath);
@@ -1841,6 +1858,44 @@ bool InstallManifestEntry(const std::string& line) {
 
 }  // namespace
 
+void SetCpuHashTrusted(bool trusted) {
+    g_cpuHashTrusted = trusted;
+}
+
+bool CpuFlagsLookNeutral() {
+    wchar_t modulePath[32768] = {};
+    const DWORD pathLength =
+        GetModuleFileNameW(nullptr, modulePath, static_cast<DWORD>(_countof(modulePath)));
+    if (pathLength == 0 || pathLength >= _countof(modulePath)) return false;
+    const wchar_t* moduleName = std::wcsrchr(modulePath, L'\\');
+    moduleName = moduleName ? moduleName + 1 : modulePath;
+    if (_wcsicmp(moduleName, L"cowork-svc.exe") != 0) return false;
+
+    BYTE* base = reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
+    if (!base) return false;
+    const BYTE* internalFlags = base + 0x123B9C0;
+    const BYTE* vendorFlags = base + 0x123BB00;
+    MEMORY_BASIC_INFORMATION internalInfo = {};
+    MEMORY_BASIC_INFORMATION vendorInfo = {};
+    if (VirtualQuery(internalFlags, &internalInfo, sizeof(internalInfo)) != sizeof(internalInfo) ||
+        VirtualQuery(vendorFlags, &vendorInfo, sizeof(vendorInfo)) != sizeof(vendorInfo)) {
+        return false;
+    }
+    if (internalInfo.State != MEM_COMMIT || internalInfo.Type != MEM_IMAGE ||
+        internalInfo.AllocationBase != base ||
+        vendorInfo.State != MEM_COMMIT || vendorInfo.Type != MEM_IMAGE ||
+        vendorInfo.AllocationBase != base) {
+        return false;
+    }
+    for (size_t i = 0; i < 21; ++i) {
+        if (i != 12 && internalFlags[i] != 0) return false;
+    }
+    for (size_t i = 0; i < 45; ++i) {
+        if (i != 37 && vendorFlags[i] != 0) return false;
+    }
+    return internalFlags[12] == 1 && vendorFlags[37] == 1;
+}
+
 // Go 1.25 internal/cpu assembly ABI: arguments and results live on the
 // caller's stack.  The stubs in GoCpuDetours.asm preserve that layout and
 // call these C helpers.
@@ -1874,6 +1929,101 @@ extern "C" void __cdecl CacGoXgetbvFilter(unsigned int out[2]) {
     std::snprintf(detail, sizeof(detail), "go xcr0=0x%llx",
                   static_cast<unsigned long long>(value));
     AuditEventRateLimited("cpu.goxgetbv", "observed", detail);
+}
+
+bool NeutralizeGoCpuFlags() {
+    // Go 1.25 on Windows does not pass GODEBUG to internal/cpu during
+    // runtime startup (getGodebugEarly returns false for GOOS=windows).
+    // internal/cpu has therefore already cached the real feature bits by
+    // the time NativeBridge is injected.  The layout below is specific to
+    // the hash-checked cowork-svc.exe build; vendor/x-sys cpu is handled
+    // below as well so both copies stay consistent.
+    static const char* kCoworkSvcHash =
+        "88447B35800CD7A8C3DDE1F7E2ABB001DD14B93749637BF653D92DEBA4133646";
+    static const uint64_t kInternalFlagsRva = 0x123B9C0;
+    static const size_t kInternalFlagCount = 21;
+    static const size_t kInternalOsxsaveIndex = 12;
+    static const uint64_t kVendorFlagsRva = 0x123BB00;
+    static const size_t kVendorFlagCount = 45;
+    static const size_t kVendorSse2Index = 37;
+
+    if (GetCpuidReadMode() != CpuidReadMode::Neutral) {
+        AuditEvent("cpu.flags", "skipped", "cpuid-mode-not-neutral");
+        return false;
+    }
+
+    wchar_t modulePath[32768] = {};
+    const DWORD pathLength =
+        GetModuleFileNameW(nullptr, modulePath, static_cast<DWORD>(_countof(modulePath)));
+    if (pathLength == 0 || pathLength >= _countof(modulePath)) {
+        AuditEvent("cpu.flags", "skipped", "module-path-unavailable");
+        return false;
+    }
+
+    if (!g_cpuHashTrusted) {
+        std::string hash;
+        if (!GetCachedFileSha256(modulePath, hash) || _stricmp(hash.c_str(), kCoworkSvcHash) != 0) {
+            AuditEvent("cpu.flags", "skipped", "module-hash-mismatch");
+            return false;
+        }
+    }
+
+    BYTE* base = reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
+    if (!base) {
+        AuditEvent("cpu.flags", "skipped", "module-base-unavailable");
+        return false;
+    }
+    BYTE* internalFlags = base + kInternalFlagsRva;
+    BYTE* vendorFlags = base + kVendorFlagsRva;
+
+    SYSTEM_INFO systemInfo = {};
+    GetSystemInfo(&systemInfo);
+    const uintptr_t pageSize = systemInfo.dwPageSize ? systemInfo.dwPageSize : 0x1000;
+    const uintptr_t firstPage =
+        reinterpret_cast<uintptr_t>(internalFlags) & ~(pageSize - 1);
+    const uintptr_t lastByte =
+        reinterpret_cast<uintptr_t>(vendorFlags) + kVendorFlagCount - 1;
+    const uintptr_t lastPage = (lastByte + pageSize - 1) & ~(pageSize - 1);
+    const SIZE_T protectSize = static_cast<SIZE_T>(lastPage - firstPage + pageSize);
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(reinterpret_cast<void*>(firstPage), protectSize, PAGE_READWRITE,
+                        &oldProtect)) {
+        AuditEvent("cpu.flags", "failed", "virtual-protect");
+        return false;
+    }
+
+    BYTE internalBefore[kInternalFlagCount] = {};
+    BYTE vendorBefore[kVendorFlagCount] = {};
+    std::memcpy(internalBefore, internalFlags, sizeof(internalBefore));
+    std::memcpy(vendorBefore, vendorFlags, sizeof(vendorBefore));
+
+    for (size_t i = 0; i < kInternalFlagCount; ++i) {
+        if (i != kInternalOsxsaveIndex) internalFlags[i] = 0;
+    }
+    for (size_t i = 0; i < kVendorFlagCount; ++i) {
+        if (i != kVendorSse2Index) vendorFlags[i] = 0;
+    }
+
+    DWORD ignored = 0;
+    VirtualProtect(reinterpret_cast<void*>(firstPage), protectSize, oldProtect, &ignored);
+
+    unsigned int internalChanged = 0;
+    unsigned int vendorChanged = 0;
+    for (size_t i = 0; i < kInternalFlagCount; ++i) {
+        if (internalBefore[i] != internalFlags[i]) ++internalChanged;
+    }
+    for (size_t i = 0; i < kVendorFlagCount; ++i) {
+        if (vendorBefore[i] != vendorFlags[i]) ++vendorChanged;
+    }
+
+    char detail[160] = {};
+    std::snprintf(detail, sizeof(detail),
+                  "internal=%u/%u vendor=%u/%u osxsave-kept sse2-kept",
+                  internalChanged, static_cast<unsigned int>(kInternalFlagCount),
+                  vendorChanged, static_cast<unsigned int>(kVendorFlagCount));
+    AuditEvent("cpu.flags", "neutralized", detail);
+    return true;
 }
 
 void InstallHookShared(const char* dllName, const char* functionName, void* detour,

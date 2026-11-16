@@ -105,7 +105,7 @@ try {
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
         (Join-Path $root "ServiceInjector\main.cpp") `
         "/Fo$obj\" "/Fe:$dist\cac-service-injector.exe" `
-        /link /guard:cf /Brepro advapi32.lib
+        /link /guard:cf /Brepro advapi32.lib bcrypt.lib
     if ($LASTEXITCODE -ne 0) { throw "cac-service-injector.exe build failed ($LASTEXITCODE)" }
 
     $injectorPath = Join-Path $dist "cac-service-injector.exe"

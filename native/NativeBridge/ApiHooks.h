@@ -29,3 +29,6 @@ bool NativeProxyRedirectEnabled();
 bool NativeIsVirtualAdapterName(const wchar_t* name);
 void InstallCpuHooksFromManifest();
 void ScanCpuCandidates();
+bool NeutralizeGoCpuFlags();
+void SetCpuHashTrusted(bool trusted);
+bool CpuFlagsLookNeutral();

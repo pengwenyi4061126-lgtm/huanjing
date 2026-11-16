@@ -1,0 +1,7 @@
+{
+  "service": "CoworkVMService",
+  "environment": [
+    "GODEBUG=cpu.all=off"
+  ],
+  "restarted": false
+}

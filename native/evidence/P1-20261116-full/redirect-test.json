@@ -1,0 +1,9 @@
+{
+  "test_root": "E:\\环境\\huanjing\\artifacts\\redirect-a71a81e796c245878ec8b70f41b6277b",
+  "target_ant_did": true,
+  "target_claude_3p": true,
+  "original_ant_did": false,
+  "original_claude_3p": false,
+  "target_ant_did_content": "ant-did-test",
+  "target_claude_3p_content": "claude-3p-test"
+}

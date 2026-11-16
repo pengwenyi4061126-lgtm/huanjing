@@ -153,6 +153,17 @@ bool SignalReady() {
     return true;
 }
 
+bool CpuVerifiedByInjector() {
+    wchar_t name[96] = {};
+    std::swprintf(name, _countof(name), L"Local\\CACNativeBridgeCpuVerified_%lu",
+                  static_cast<unsigned long>(GetCurrentProcessId()));
+    HANDLE event = OpenEventW(SYNCHRONIZE, FALSE, name);
+    if (!event) return false;
+    const bool signaled = WaitForSingleObject(event, 0) == WAIT_OBJECT_0;
+    CloseHandle(event);
+    return signaled;
+}
+
 void SignalFailure() {
     (void)SignalBridgeEvent(L"Failed");
 }
@@ -171,6 +182,17 @@ DWORD WINAPI InitializeThread(LPVOID) {
         AuditEvent("native.identity", "loaded", identityDetail);
     }
 
+    // CPU state must be neutral before the service starts serving requests.
+    const bool verifiedByInjector = CpuVerifiedByInjector();
+    const bool neutralFlags = CpuFlagsLookNeutral();
+    const bool cpuHashTrusted = verifiedByInjector || neutralFlags;
+    SetCpuHashTrusted(cpuHashTrusted);
+    AuditEvent("cpu.hash", cpuHashTrusted ? "trusted" : "local",
+               verifiedByInjector ? "injector"
+                                  : neutralFlags ? "flags-neutral" : "nativebridge");
+    InstallCpuHooksFromManifest();
+    NeutralizeGoCpuFlags();
+
     const bool apiReady = InstallApiHooks();
     InstallChildInjection();
     InstallWmiHooks();
@@ -179,8 +201,6 @@ DWORD WINAPI InitializeThread(LPVOID) {
     } else {
         InstallNetworkHooks();
     }
-    InstallCpuHooksFromManifest();
-
     const bool kernelPolicyReady = RegisterCurrentProcessKernelPolicy();
     if (!kernelPolicyReady && KernelPolicyRequired()) {
         AuditEvent("native.bridge", "failed", "kernel-policy-required", 0, false);

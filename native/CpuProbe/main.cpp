@@ -168,6 +168,9 @@ int wmain(int argc, wchar_t** argv) {
     uint64_t rva = 0;
     uint64_t leaf = 0x40000000ULL;
     uint64_t subleaf = 0;
+    uint64_t readRva = 0;
+    uint64_t readLength = 0;
+    bool readMode = false;
     std::wstring module = L"cowork-svc.exe";
     bool xgetbv = false;
 
@@ -181,6 +184,11 @@ int wmain(int argc, wchar_t** argv) {
             if (!ParseU64(Narrow(argv[++i]).c_str(), leaf)) return 2;
         } else if (arg == L"--subleaf" && i + 1 < argc) {
             if (!ParseU64(Narrow(argv[++i]).c_str(), subleaf)) return 2;
+        } else if (arg == L"--read" && i + 1 < argc) {
+            if (!ParseU64(Narrow(argv[++i]).c_str(), readRva)) return 2;
+            readMode = true;
+        } else if (arg == L"--length" && i + 1 < argc) {
+            if (!ParseU64(Narrow(argv[++i]).c_str(), readLength)) return 2;
         } else if (arg == L"--module" && i + 1 < argc) {
             module = argv[++i];
         } else if (arg == L"--kind" && i + 1 < argc) {
@@ -196,10 +204,11 @@ int wmain(int argc, wchar_t** argv) {
         }
     }
 
-    if (processId == 0 || rva == 0) {
+    if (processId == 0 || (!readMode && rva == 0)) {
         std::fprintf(stderr,
                      "usage: cac-cpu-probe --pid PID --rva RVA [--kind cpuid|xgetbv] "
-                     "[--leaf N] [--subleaf N] [--module NAME]\n");
+                     "[--leaf N] [--subleaf N] [--module NAME]\n"
+                     "       cac-cpu-probe --pid PID --read RVA --length N [--module NAME]\n");
         return 2;
     }
 
@@ -210,6 +219,43 @@ int wmain(int argc, wchar_t** argv) {
                      static_cast<unsigned long>(processId));
         return 3;
     }
+
+    if (readMode) {
+        if (readLength == 0 || readLength > 0x1000) {
+            std::fprintf(stderr, "invalid read length: %llu\n",
+                         static_cast<unsigned long long>(readLength));
+            return 2;
+        }
+        HANDLE reader = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
+        if (!reader) {
+            std::fprintf(stderr, "OpenProcess(read) failed: %lu\n",
+                         static_cast<unsigned long>(GetLastError()));
+            return 3;
+        }
+        std::vector<BYTE> buffer(static_cast<size_t>(readLength));
+        SIZE_T read = 0;
+        const uint64_t address = base + readRva;
+        const BOOL ok = ReadProcessMemory(reader, reinterpret_cast<const void*>(address),
+                                          buffer.data(), buffer.size(), &read);
+        const DWORD error = ok ? ERROR_SUCCESS : GetLastError();
+        CloseHandle(reader);
+        if (!ok || read != buffer.size()) {
+            std::fprintf(stderr, "ReadProcessMemory(0x%llx) failed: %lu\n",
+                         static_cast<unsigned long long>(address),
+                         static_cast<unsigned long>(error));
+            return 3;
+        }
+        std::printf("{\"mode\":\"read\",\"pid\":%lu,\"module\":\"%ls\",\"base\":\"0x%llx\","
+                    "\"rva\":\"0x%llx\",\"length\":%llu,\"hex\":\"",
+                    static_cast<unsigned long>(processId), module.c_str(),
+                    static_cast<unsigned long long>(base),
+                    static_cast<unsigned long long>(readRva),
+                    static_cast<unsigned long long>(readLength));
+        PrintHexBytes(buffer.data(), buffer.size());
+        std::printf("\"}\n");
+        return 0;
+    }
+
     const uint64_t target = base + rva;
 
     HANDLE process = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |

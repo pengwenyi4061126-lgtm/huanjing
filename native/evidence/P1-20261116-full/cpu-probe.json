@@ -1,0 +1,90 @@
+[
+  {
+    "pid": 25300,
+    "module": "cowork-svc.exe",
+    "base": "0x7ff761fa0000",
+    "rva": "0x2ba0",
+    "kind": "cpuid",
+    "leaf": "0x40000000",
+    "subleaf": "0x0",
+    "entry": "e95bd4feff909090",
+    "threadExit": 0,
+    "results": [
+      "00000000",
+      "00000000",
+      "00000000",
+      "00000000"
+    ],
+    "host": [
+      "00000000",
+      "0000002f",
+      "00000000",
+      "00000002"
+    ]
+  },
+  {
+    "pid": 25300,
+    "module": "cowork-svc.exe",
+    "base": "0x7ff761fa0000",
+    "rva": "0x2bc0",
+    "kind": "xgetbv",
+    "leaf": "0x40000000",
+    "subleaf": "0x0",
+    "entry": "e93bd4fdff0f01d0",
+    "threadExit": 0,
+    "results": [
+      "00000007",
+      "00000000",
+      "00000000",
+      "00000000"
+    ],
+    "host": [
+      "00000007",
+      "00000000"
+    ]
+  },
+  {
+    "pid": 25300,
+    "module": "cowork-svc.exe",
+    "base": "0x7ff761fa0000",
+    "rva": "0x212a60",
+    "kind": "cpuid",
+    "leaf": "0x40000000",
+    "subleaf": "0x0",
+    "entry": "e99bd5dbff909090",
+    "threadExit": 0,
+    "results": [
+      "00000000",
+      "00000000",
+      "00000000",
+      "00000000"
+    ],
+    "host": [
+      "00000000",
+      "0000002f",
+      "00000000",
+      "00000002"
+    ]
+  },
+  {
+    "pid": 25300,
+    "module": "cowork-svc.exe",
+    "base": "0x7ff761fa0000",
+    "rva": "0x212a80",
+    "kind": "xgetbv",
+    "leaf": "0x40000000",
+    "subleaf": "0x0",
+    "entry": "e97bd5daff0f01d0",
+    "threadExit": 0,
+    "results": [
+      "00000007",
+      "00000000",
+      "00000000",
+      "00000000"
+    ],
+    "host": [
+      "00000007",
+      "00000000"
+    ]
+  }
+]
