@@ -268,6 +268,21 @@ the driver returns a protocol-specific identify payload. `cac-smart-probe.exe`
 shows the real `CJ325060BC / F4DJ13000878 / 1.00` outside and the profile
 `WDC WDS500G2B0A-00SM50 / WD-W2H6F8RBV79H / X61190WD` inside.
 
+Monitor WMI: `WmiMonitorID` (`ROOT\WMI`) arrays are projected from the
+Profile: ManufacturerName/ProductCodeID from `monitor_pnp_id`,
+SerialNumberID from `monitor_serial` (derived `MON-<hash>` when empty),
+UserFriendlyName from `monitor_name`, plus the four Length fields and
+InstanceName. `cac-monitor-wmi-probe.exe` reports the real
+`PHL/C031/UK11125009671/Philips 190E` outside and
+`DEL/41A9/MON-bed5c608a7/Dell U2419H` inside.
+
+USB: non-hub `USB\VID_*` rows are projected to the Profile HID receiver
+(`VID_046D&PID_C52B`, manufacturer `Logitech`, description `USB Input
+Device`); instance IDs keep a stable per-row synthetic suffix so rows stay
+unique; MI_xx suffixes are preserved. Root hubs and generic hubs
+(`ROOT_HUB*`, `VID_8087`) are left untouched. `cac-usb-probe.exe` reports
+the real `1C4F:0034` / `1A2C:0B2A` devices outside and `046D:C52B` inside.
+
 Audio: `cac-audio-probe.exe` verifies the `IMMDeviceEnumerator` wrapper;
 endpoint IDs, friendly/interface names, endpoint GUID and form factor come
 from the Profile.

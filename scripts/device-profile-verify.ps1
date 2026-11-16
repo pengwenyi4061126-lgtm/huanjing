@@ -28,6 +28,8 @@ param(
     [string]$NvmlProbe,
     [string]$VulkanProbe,
     [string]$SmartProbe,
+    [string]$MonitorWmiProbe,
+    [string]$UsbProbe,
     [string]$PnpProbe,
     [string]$PnpWmiProbe,
     [string]$AudioProbe,
@@ -49,6 +51,8 @@ if (-not $HidProbe) { $HidProbe = Join-Path $repoRoot 'native\dist\cac-hid-probe
 if (-not $NvmlProbe) { $NvmlProbe = Join-Path $repoRoot 'native\dist\cac-nvml-probe.exe' }
 if (-not $VulkanProbe) { $VulkanProbe = Join-Path $repoRoot 'native\dist\cac-vulkan-probe.exe' }
 if (-not $SmartProbe) { $SmartProbe = Join-Path $repoRoot 'native\dist\cac-smart-probe.exe' }
+if (-not $MonitorWmiProbe) { $MonitorWmiProbe = Join-Path $repoRoot 'native\dist\cac-monitor-wmi-probe.exe' }
+if (-not $UsbProbe) { $UsbProbe = Join-Path $repoRoot 'native\dist\cac-usb-probe.exe' }
 if (-not $PnpProbe) { $PnpProbe = Join-Path $repoRoot 'native\dist\cac-pnp-probe.exe' }
 if (-not $PnpWmiProbe) { $PnpWmiProbe = Join-Path $repoRoot 'native\dist\cac-pnp-wmi-probe.exe' }
 if (-not $AudioProbe) { $AudioProbe = Join-Path $repoRoot 'native\dist\cac-audio-probe.exe' }
@@ -90,6 +94,14 @@ if (-not (Test-Path -LiteralPath $SmartProbe -PathType Leaf)) {
     throw "SMART probe not found: $SmartProbe"
 }
 $SmartProbe = (Resolve-Path -LiteralPath $SmartProbe).Path
+if (-not (Test-Path -LiteralPath $MonitorWmiProbe -PathType Leaf)) {
+    throw "Monitor WMI probe not found: $MonitorWmiProbe"
+}
+$MonitorWmiProbe = (Resolve-Path -LiteralPath $MonitorWmiProbe).Path
+if (-not (Test-Path -LiteralPath $UsbProbe -PathType Leaf)) {
+    throw "USB probe not found: $UsbProbe"
+}
+$UsbProbe = (Resolve-Path -LiteralPath $UsbProbe).Path
 if (-not (Test-Path -LiteralPath $PnpProbe -PathType Leaf)) {
     throw "PNP probe not found: $PnpProbe"
 }
@@ -266,6 +278,15 @@ $smartLog = Join-Path $OutputDir 'smart-probe.txt'
 $smartCode = Invoke-Injected -Executable $SmartProbe -Arguments @() -LogPath $smartLog
 $smart = Read-KeyValues -Path $smartLog
 
+$monitorWmiLog = Join-Path $OutputDir 'monitor-wmi-probe.txt'
+$monitorWmiCode = Invoke-Injected -Executable $MonitorWmiProbe -Arguments @() -LogPath $monitorWmiLog
+$monitorWmi = Read-KeyValues -Path $monitorWmiLog
+
+$usbLog = Join-Path $OutputDir 'usb-probe.txt'
+$usbCode = Invoke-Injected -Executable $UsbProbe -Arguments @() -LogPath $usbLog
+$usb = Read-KeyValues -Path $usbLog
+$usbText = if (Test-Path -LiteralPath $usbLog) { Get-Content -LiteralPath $usbLog -Raw } else { '' }
+
 $pnpLog = Join-Path $OutputDir 'pnp-probe.txt'
 $pnpCode = Invoke-Injected -Executable $PnpProbe -Arguments @() -LogPath $pnpLog
 $pnp = Read-KeyValues -Path $pnpLog
@@ -311,6 +332,7 @@ Add-Check 'probe.hid' 'fail' ($hidCode -eq 0 -and $hid['hid_state'] -eq 'ok') 'h
 Add-Check 'probe.nvml' 'fail' ($nvmlCode -eq 0 -and $nvml['nvml_state'] -eq 'ok') 'nvml_state=ok' "exit=$nvmlCode state=$($nvml['nvml_state'])" 'NVML static-import probe'
 Add-Check 'probe.vulkan' 'fail' ($vulkanCode -eq 0 -and $vulkan['vulkan_state'] -eq 'ok') 'vulkan_state=ok' "exit=$vulkanCode state=$($vulkan['vulkan_state'])" 'Vulkan static-import probe'
 Add-Check 'probe.smart' 'fail' ($smartCode -eq 0 -and $smart['smart_state'] -eq 'ok') 'smart_state=ok' "exit=$smartCode state=$($smart['smart_state'])" 'SMART/NVMe/firmware probe'
+Add-Check 'probe.monitor_wmi' 'fail' ($monitorWmiCode -eq 0 -and $monitorWmi['monitor_wmi_state'] -eq 'ok') 'monitor_wmi_state=ok' "exit=$monitorWmiCode state=$($monitorWmi['monitor_wmi_state'])" 'ROOT\WMI WmiMonitorID probe'
 Add-Check 'probe.pnp' 'fail' ($pnpCode -eq 0 -and $pnp['pnp_state'] -eq 'ok') 'pnp_state=ok' "exit=$pnpCode state=$($pnp['pnp_state'])" 'SetupDi PnP probe'
 Add-Check 'probe.audio' 'fail' ($audioCode -eq 0 -and $audio['audio_state'] -eq 'ok') 'audio_state=ok' "exit=$audioCode state=$($audio['audio_state'])" 'IMMDevice audio probe'
 Add-Check 'probe.opencl' 'fail' ($openclCode -eq 0 -and $opencl['opencl_state'] -eq 'ok') 'opencl_state=ok' "exit=$openclCode state=$($opencl['opencl_state'])" 'OpenCL probe'
@@ -523,6 +545,37 @@ Add-Check 'hardware.smart_attributes' 'fail' (
     ((Convert-ToInt64 (([string]$smart['smart_attr194']) -split '/')[-1])) -gt 0
 ) 'version 0x0010 + nonzero hours/temperature' "$($smart['smart_version'])/$($smart['smart_attr9'])/$($smart['smart_attr194'])" 'ATA SMART READ DATA'
 Add-Check 'hardware.smart_firmware_slot' 'fail' ([string]$smart['firmware_slot0'] -eq 'X61190WD') 'X61190WD' ([string]$smart['firmware_slot0']) 'IOCTL_STORAGE_FIRMWARE_GET_INFO'
+$monitorPnp = [string]$identity.monitor_pnp_id
+if ([string]::IsNullOrWhiteSpace($monitorPnp)) { $monitorPnp = 'DEL41A9' }
+$expectedMonitorMfr = if ($monitorPnp.Length -ge 3) { $monitorPnp.Substring(0, 3) } else { 'DEL' }
+$expectedMonitorProduct = if ($monitorPnp.Length -ge 7) { $monitorPnp.Substring(3, 4) } else { '41A9' }
+$monitorWmiMfr = [string]$monitorWmi['monitor_wmi0_manufacturer']
+$monitorWmiProduct = [string]$monitorWmi['monitor_wmi0_product']
+$monitorWmiSerial = [string]$monitorWmi['monitor_wmi0_serial']
+$monitorWmiFriendly = [string]$monitorWmi['monitor_wmi0_friendly']
+$monitorWmiInstance = [string]$monitorWmi['monitor_wmi0_instance']
+$expectedMonitorFriendly = [string]$identity.monitor_name
+if ([string]::IsNullOrWhiteSpace($expectedMonitorFriendly)) { $expectedMonitorFriendly = 'Dell U2419H' }
+Add-Check 'hardware.monitor_wmi_manufacturer' 'fail' ($monitorWmiMfr -eq $expectedMonitorMfr) $expectedMonitorMfr $monitorWmiMfr 'WmiMonitorID.ManufacturerName'
+Add-Check 'hardware.monitor_wmi_product' 'fail' ($monitorWmiProduct -eq $expectedMonitorProduct) $expectedMonitorProduct $monitorWmiProduct 'WmiMonitorID.ProductCodeID'
+Add-Check 'hardware.monitor_wmi_friendly' 'fail' ($monitorWmiFriendly -eq $expectedMonitorFriendly) $expectedMonitorFriendly $monitorWmiFriendly 'WmiMonitorID.UserFriendlyName'
+Add-Check 'hardware.monitor_wmi_instance' 'fail' (
+    $monitorWmiInstance -match [regex]::Escape($expectedMonitorMfr) -and
+    $monitorWmiInstance -notmatch 'PHL|C031'
+) 'profile monitor InstanceName' $monitorWmiInstance 'WmiMonitorID.InstanceName'
+Add-Check 'hardware.monitor_wmi_serial' 'fail' (
+    ($monitorWmiSerial -match '^MON-[0-9a-f]{10}$') -or
+    ($monitorWmiSerial -eq [string]$identity.monitor_serial)
+) 'MON-<10 hex> or identity.monitor_serial' $monitorWmiSerial 'WmiMonitorID.SerialNumberID'
+$usbCount = Convert-ToInt64 $usb['USB_count']
+Add-Check 'probe.usb' 'fail' ($usbCode -eq 0 -and $usbCount -gt 0) 'USB_count>0' "exit=$usbCode count=$usbCount" 'SetupDi USB enumerator probe'
+Add-Check 'hardware.usb_hid_projected' 'fail' (
+    $usbText -match 'VID_046D&PID_C52B' -and
+    $usbText -notmatch 'VID_1C4F' -and
+    $usbText -notmatch 'VID_1A2C'
+) 'HID rows report Logitech 046D:C52B' "$usbCount USB rows" 'SPDRP_HARDWAREID / instance id'
+Add-Check 'hardware.usb_manufacturer' 'fail' ($usbText -match 'manufacturer=Logitech') 'Logitech' 'SPDRP_MFG' 'USB HID manufacturer projection'
+Add-Check 'hardware.usb_hubs_preserved' 'fail' ($usbText -match 'ROOT_HUB30') 'root hub rows untouched' 'ROOT_HUB30' 'generic hubs must not be renamed'
 
 $pnpInstances = @($pnp.Keys | Where-Object { $_ -match '^pnp\d+_instance$' } | ForEach-Object { [string]$pnp[$_] })
 $pnpText = $pnpInstances -join '|'
@@ -635,6 +688,8 @@ $result = [ordered]@{
         nvml = $nvml
         vulkan = $vulkan
         smart = $smart
+        monitorWmi = $monitorWmi
+        usb = $usb
         pnp = $pnp
         pnpWmi = $pnpWmi
         pnpWmiOutside = $pnpWmiOutside
@@ -650,6 +705,8 @@ $result = [ordered]@{
         nvmlExit = $nvmlCode
         vulkanExit = $vulkanCode
         smartExit = $smartCode
+        monitorWmiExit = $monitorWmiCode
+        usbExit = $usbCode
         pnpExit = $pnpCode
         pnpWmiExit = $pnpWmiCode
         audioExit = $audioCode

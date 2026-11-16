@@ -305,6 +305,18 @@ try {
     $monitorWmiProbeHash = Get-CacSha256 $monitorWmiProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-monitor-wmi-probe.sha256") -Value $monitorWmiProbeHash -Encoding ASCII
 
+    Write-Host "Building cac-usb-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "UsbProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-usb-probe.exe" `
+        /link /guard:cf /Brepro setupapi.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-usb-probe.exe build failed ($LASTEXITCODE)" }
+
+    $usbProbePath = Join-Path $dist "cac-usb-probe.exe"
+    $usbProbeHash = Get-CacSha256 $usbProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-usb-probe.sha256") -Value $usbProbeHash -Encoding ASCII
+
     Write-Host "Verifying dist artifact hashes ..." -ForegroundColor Cyan
     $manifest = New-Object System.Collections.Generic.List[string]
     $mismatches = New-Object System.Collections.Generic.List[string]

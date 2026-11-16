@@ -814,6 +814,29 @@ bool SameDevPropKey(const DEVPROPKEY* left, const DEVPROPKEY& right) {
     return left && IsEqualGUID(left->fmtid, right.fmtid) && left->pid == right.pid;
 }
 
+bool IsUsbHidRow(const std::wstring& instance) {
+    if (instance.rfind(L"USB\\VID_", 0) != 0) return false;
+    if (wcsstr(instance.c_str(), L"ROOT_HUB")) return false;
+    if (wcsstr(instance.c_str(), L"VID_8087")) return false;  // generic hubs
+    return true;
+}
+
+std::wstring UsbMiSuffix(const std::wstring& instance) {
+    const wchar_t* mi = wcsstr(instance.c_str(), L"&MI_");
+    return mi ? std::wstring(mi, 6) : std::wstring();
+}
+
+std::wstring UsbSyntheticInstance(const std::wstring& instance) {
+    uint32_t hash = 2166136261u;
+    for (wchar_t ch : instance) {
+        hash ^= static_cast<uint32_t>(ch);
+        hash *= 16777619u;
+    }
+    wchar_t suffix[32] = {};
+    swprintf_s(suffix, L"5&%08X&0&1", hash);
+    return L"USB\\VID_046D&PID_C52B" + UsbMiSuffix(instance) + L"\\" + suffix;
+}
+
 BOOL WINAPI HookSetupDiGetDevicePropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, const DEVPROPKEY* key,
                                           DEVPROPTYPE* type, PBYTE buffer, DWORD bufferSize,
                                           PDWORD required, DWORD flags) {
@@ -843,6 +866,29 @@ BOOL WINAPI HookSetupDiGetDevicePropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, c
         if (g_origSetupDiGetInstanceId(set, info, instance, _countof(instance), &instanceNeeded)) {
             const bool gpu = wcsstr(instance, L"VEN_10DE") != nullptr;
             const bool monitor = wcsstr(instance, L"DISPLAY\\") != nullptr;
+            const bool usbHid = IsUsbHidRow(instance);
+            if (usbHid) {
+                std::wstring value;
+                if (SameDevPropKey(key, kDevPkeyDeviceFriendlyName)) {
+                    value = L"Logitech USB Receiver";
+                } else if (SameDevPropKey(key, kDevPkeyDeviceDesc)) {
+                    value = L"USB Input Device";
+                } else if (SameDevPropKey(key, kDevPkeyDeviceManufacturer)) {
+                    value = L"Logitech";
+                }
+                if (!value.empty()) {
+                    const size_t bytes = (value.size() + 1) * sizeof(wchar_t);
+                    if (type) *type = DEVPROP_TYPE_STRING;
+                    if (required) *required = static_cast<DWORD>(bytes);
+                    if (!buffer || bufferSize < bytes) {
+                        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+                        return FALSE;
+                    }
+                    std::memcpy(buffer, value.c_str(), bytes);
+                    AuditEventRateLimited("api.setupdi.property", "usb-rewrite");
+                    return TRUE;
+                }
+            }
             if (gpu || monitor) {
                 const ProfileIdentity& identity = ProfileIdentity::Get();
                 if (SameDevPropKey(key, kDevPkeyDeviceClassGuid)) {
@@ -924,6 +970,14 @@ BOOL WINAPI HookSetupDiGetDeviceRegistryPropertyW(HDEVINFO set, PSP_DEVINFO_DATA
             return FALSE;
         }
     }
+    std::wstring rowInstance;
+    if (NativeHardwareHooksEnabled() && g_origSetupDiGetInstanceId) {
+        wchar_t instance[512] = {};
+        DWORD instanceNeeded = 0;
+        if (g_origSetupDiGetInstanceId(set, info, instance, _countof(instance), &instanceNeeded)) {
+            rowInstance = instance;
+        }
+    }
     const BOOL result = g_origSetupDiGetRegistryProperty
         ? g_origSetupDiGetRegistryProperty(set, info, property, type, buffer, bufferSize, required)
         : FALSE;
@@ -939,6 +993,46 @@ BOOL WINAPI HookSetupDiGetDeviceRegistryPropertyW(HDEVINFO set, PSP_DEVINFO_DATA
             ReplaceAllWide(text, L"Philips 190E", monitorName.c_str());
         };
         bool changed = false;
+        if (IsUsbHidRow(rowInstance)) {
+            const std::wstring mi = UsbMiSuffix(rowInstance);
+            if (*type == REG_SZ) {
+                std::wstring text;
+                if (property == SPDRP_MFG) {
+                    text = L"Logitech";
+                } else if (property == SPDRP_DEVICEDESC) {
+                    text = L"USB Input Device";
+                } else if (property == SPDRP_FRIENDLYNAME) {
+                    text = L"Logitech USB Receiver";
+                }
+                if (!text.empty() && (text.size() + 1) * sizeof(wchar_t) <= bufferSize) {
+                    std::memcpy(buffer, text.c_str(), (text.size() + 1) * sizeof(wchar_t));
+                    changed = true;
+                }
+            } else if (*type == REG_MULTI_SZ) {
+                const std::vector<std::wstring> items = {
+                    L"USB\\VID_046D&PID_C52B&REV_0111" + mi,
+                    L"USB\\VID_046D&PID_C52B" + mi,
+                    L"USB\\VID_046D&PID_C52B",
+                };
+                size_t chars = 1;
+                for (const std::wstring& item : items) chars += item.size() + 1;
+                if (chars * sizeof(wchar_t) <= bufferSize) {
+                    wchar_t* cursor = reinterpret_cast<wchar_t*>(buffer);
+                    for (const std::wstring& item : items) {
+                        std::memcpy(cursor, item.c_str(),
+                                    (item.size() + 1) * sizeof(wchar_t));
+                        cursor += item.size() + 1;
+                    }
+                    *cursor = L'\0';
+                    changed = true;
+                }
+            }
+            if (changed) {
+                AuditEventRateLimited("api.setupdi.registry", "usb-rewrite");
+            }
+            AuditEventRateLimited("api.setupdi.registry", "observed", nullptr, property, true);
+            return result;
+        }
         if (*type == REG_SZ) {
             auto* raw = reinterpret_cast<const wchar_t*>(buffer);
             const size_t maxChars = bufferSize / sizeof(wchar_t);
@@ -1023,6 +1117,15 @@ BOOL WINAPI HookSetupDiGetDeviceInstanceIdW(HDEVINFO set, PSP_DEVINFO_DATA info,
     }
     if (result && instanceId && NativeHardwareHooksEnabled()) {
         std::wstring value = instanceId;
+        if (IsUsbHidRow(value)) {
+            const std::wstring rewritten = UsbSyntheticInstance(value);
+            if ((rewritten.size() + 1) <= instanceIdSize) {
+                wcscpy_s(instanceId, instanceIdSize, rewritten.c_str());
+                AuditEventRateLimited("api.setupdi.instanceid", "usb-rewrite");
+            }
+            AuditEventRateLimited("api.setupdi.instanceid", "observed");
+            return result;
+        }
         ReplaceAllWide(value, L"VEN_10DE&DEV_1C82", L"VEN_10DE&DEV_1F82");
         ReplaceAllWide(value, L"PHLC031", L"DEL41A9");
         if (value != instanceId && (value.size() + 1) <= instanceIdSize) {
