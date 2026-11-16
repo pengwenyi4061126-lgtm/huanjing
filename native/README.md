@@ -45,6 +45,7 @@ replacement process by name. Profile handoff uses
 | SetupDi `SPDRP_HARDWAREID` / `DEVICEDESC` / `FRIENDLYNAME` | GPU/monitor ID and string rewrite | profile |
 | SetupDi instance enumeration | GameViewer virtual display hidden by hardware ID | profile |
 | SetupDi `DEVPKEY_Device_*` | FriendlyName / DeviceDesc / Manufacturer | profile |
+| SetupDi PnP graph fields | Parent / Class / ClassGuid / Driver | profile |
 | `GetIfTable2` / `GetIfEntry2` / `GetIfTable` | inline-primary + IAT/delay patch + MAC rewrite | on |
 | `RegEnumValueW` | inline-primary + IAT/delay patch + value rewrite | on |
 | `EnumDeviceDrivers` / `K32EnumDeviceDrivers` | inline-primary + IAT/delay patch; empty policy hides the list; profile mode filters virtualization drivers | on |
@@ -214,7 +215,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 
   -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
 ```
 
-The 2026-11-16 baseline is `pass=67 fail=1 warn=0`; the only failure is
+The 2026-11-16 baseline is `pass=68 fail=1 warn=0`; the only failure is
 Clash process visibility, which belongs to the deferred TUN+clean work.
 SMBIOS Type 17 now rewrites only populated slots, so the sum of module
 sizes matches the profile memory total instead of filling empty slots.
@@ -247,8 +248,9 @@ endpoint IDs, friendly/interface names, endpoint GUID and form factor come
 from the Profile.
 
 PNP: instance IDs, hardware IDs, device description and friendly names for
-the GPU/monitor are rewritten, and GameViewer is hidden. A full synthetic
-PnP graph (parent relationships, driver keys, device classes) remains open.
+the GPU/monitor are rewritten, GameViewer is hidden, and parent/class/
+class-guid/driver fields are synthetic. WMI `Win32_PnPEntity` synchronization
+remains open.
 
 OpenCL: statically imported `OpenCL.dll` is covered via the IAT path;
 dynamic `GetProcAddress` resolution remains WIP.

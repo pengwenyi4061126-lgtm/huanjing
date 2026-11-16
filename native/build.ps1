@@ -230,7 +230,7 @@ try {
         /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
         (Join-Path $root "PnpProbe\main.cpp") `
         "/Fo$obj\" "/Fe:$dist\cac-pnp-probe.exe" `
-        /link /guard:cf /Brepro setupapi.lib
+        /link /guard:cf /Brepro setupapi.lib ole32.lib
     if ($LASTEXITCODE -ne 0) { throw "cac-pnp-probe.exe build failed ($LASTEXITCODE)" }
 
     $pnpProbePath = Join-Path $dist "cac-pnp-probe.exe"

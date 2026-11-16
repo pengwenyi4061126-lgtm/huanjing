@@ -449,6 +449,13 @@ Add-Check 'hardware.pnp_devprops' 'fail' (
     $pnpAll -notmatch 'GTX 1050' -and
     $pnpAll -notmatch 'Philips'
 ) 'profile DEVPKEY strings' $pnpAll 'SetupDiGetDevicePropertyW'
+Add-Check 'hardware.pnp_graph' 'fail' (
+    $pnpAll -match 'VEN_10DE&DEV_1F82' -and
+    $pnpAll -match 'Display' -and
+    $pnpAll -match 'Monitor' -and
+    $pnpAll -match '4d36e968' -and
+    $pnpAll -match '4d36e96e'
+) 'parent/class/classguid/driver' $pnpAll 'PnP graph fields'
 
 $expectedAudioId = [string]$identity.audio_endpoint_id
 if (-not $expectedAudioId) {

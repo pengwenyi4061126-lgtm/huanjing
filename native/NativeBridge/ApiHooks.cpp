@@ -769,6 +769,18 @@ const DEVPROPKEY kDevPkeyDeviceManufacturer = {
     {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 13};
 const DEVPROPKEY kDevPkeyDeviceFriendlyName = {
     {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 14};
+const DEVPROPKEY kDevPkeyDeviceParent = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 8};
+const DEVPROPKEY kDevPkeyDeviceClass = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 9};
+const DEVPROPKEY kDevPkeyDeviceClassGuid = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 10};
+const DEVPROPKEY kDevPkeyDeviceDriver = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 11};
+const GUID kDisplayClassGuid = {
+    0x4D36E968, 0xE325, 0x11CE, {0xBF, 0xC1, 0x08, 0x00, 0x2B, 0xE1, 0x03, 0x18}};
+const GUID kMonitorClassGuid = {
+    0x4D36E96E, 0xE325, 0x11CE, {0xBF, 0xC1, 0x08, 0x00, 0x2B, 0xE1, 0x03, 0x18}};
 
 bool SameDevPropKey(const DEVPROPKEY* left, const DEVPROPKEY& right) {
     return left && IsEqualGUID(left->fmtid, right.fmtid) && left->pid == right.pid;
@@ -805,12 +817,34 @@ BOOL WINAPI HookSetupDiGetDevicePropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, c
             const bool monitor = wcsstr(instance, L"DISPLAY\\") != nullptr;
             if (gpu || monitor) {
                 const ProfileIdentity& identity = ProfileIdentity::Get();
+                if (SameDevPropKey(key, kDevPkeyDeviceClassGuid)) {
+                    const GUID guid = gpu ? kDisplayClassGuid : kMonitorClassGuid;
+                    if (type) *type = DEVPROP_TYPE_GUID;
+                    if (required) *required = sizeof(guid);
+                    if (!buffer || bufferSize < sizeof(guid)) {
+                        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+                        return FALSE;
+                    }
+                    std::memcpy(buffer, &guid, sizeof(guid));
+                    AuditEventRateLimited("api.setupdi.property", "profile-rewrite");
+                    return TRUE;
+                }
                 std::wstring value;
                 if (SameDevPropKey(key, kDevPkeyDeviceFriendlyName) ||
                     SameDevPropKey(key, kDevPkeyDeviceDesc)) {
                     value = Utf8ToWide(gpu ? identity.gpuName : identity.monitorName);
                 } else if (SameDevPropKey(key, kDevPkeyDeviceManufacturer)) {
                     value = Utf8ToWide(gpu ? identity.gpuVendor : identity.monitorManufacturer);
+                } else if (SameDevPropKey(key, kDevPkeyDeviceClass)) {
+                    value = gpu ? L"Display" : L"Monitor";
+                } else if (SameDevPropKey(key, kDevPkeyDeviceDriver)) {
+                    value = gpu
+                        ? L"{4d36e968-e325-11ce-bfc1-08002be10318}\\0000"
+                        : L"{4d36e96e-e325-11ce-bfc1-08002be10318}\\0000";
+                } else if (SameDevPropKey(key, kDevPkeyDeviceParent)) {
+                    value = gpu
+                        ? L"PCI\\VEN_1022&DEV_1483&SUBSYS_14831022&REV_00\\3&11583659&0&08"
+                        : L"PCI\\VEN_10DE&DEV_1F82&SUBSYS_1F8210DE&REV_A1\\4&2A43D483&0&0010";
                 }
                 if (!value.empty()) {
                     const size_t bytes = (value.size() + 1) * sizeof(wchar_t);
