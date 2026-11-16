@@ -235,6 +235,10 @@ NVML: statically imported `nvml.dll` is covered (IAT/inline), verified by
 main-module `GetProcAddress` IAT hook crashed with `0xC0000409` and was
 removed.
 
+Audio: `cac-audio-probe.exe` and an `IMMDevice::GetId` vtable hook exist,
+but the probe's out-of-process devices use a different proxy vtable, so
+`GetId` is not intercepted yet. Audio endpoint identity is WIP.
+
 ## Boundaries
 
 - NativeBridge remains a userland return-value layer. CacKernel is a separate SCM-loaded storage filter and control plane for per-process registration/lifecycle evidence; `network_mode=enforce` adds a dynamic user-mode WFP session for the Claude image.

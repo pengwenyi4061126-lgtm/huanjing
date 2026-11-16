@@ -237,6 +237,7 @@ DWORD WINAPI InitializeThread(LPVOID) {
 
     const bool apiReady = InstallApiHooks();
     InstallGpuHooks();
+    InstallAudioHooks();
     InstallChildInjection();
     if (WmiHooksDisabledByEnvironment()) {
         AuditEvent("wmi.hooks", "skipped", "CAC_NATIVE_DISABLE_WMI");

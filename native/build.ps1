@@ -212,6 +212,18 @@ try {
     $nvmlProbePath = Join-Path $dist "cac-nvml-probe.exe"
     $nvmlProbeHash = Get-CacSha256 $nvmlProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-nvml-probe.sha256") -Value $nvmlProbeHash -Encoding ASCII
+
+    Write-Host "Building cac-audio-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "AudioProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-audio-probe.exe" `
+        /link /guard:cf /Brepro ole32.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-audio-probe.exe build failed ($LASTEXITCODE)" }
+
+    $audioProbePath = Join-Path $dist "cac-audio-probe.exe"
+    $audioProbeHash = Get-CacSha256 $audioProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-audio-probe.sha256") -Value $audioProbeHash -Encoding ASCII
 } finally {
     Pop-Location
 }

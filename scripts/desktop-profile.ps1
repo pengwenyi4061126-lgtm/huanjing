@@ -814,6 +814,7 @@ function Initialize-ProfileIdentity {
         hid_version = 0x0111
         hid_manufacturer = 'Logitech'
         hid_product = 'USB Receiver'
+        audio_endpoint_id = '{0.0.0.00000000}.{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}'
     }
     $encoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
     [System.IO.File]::WriteAllText($Paths.IdentityPath, ($identity | ConvertTo-Json -Depth 5), $encoding)

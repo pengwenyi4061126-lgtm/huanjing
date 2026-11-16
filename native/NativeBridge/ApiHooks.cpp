@@ -19,6 +19,7 @@
 #include <netioapi.h>
 #include <psapi.h>
 #include <tbs.h>
+#include <mmdeviceapi.h>
 
 #include <cstdint>
 #include <atomic>
@@ -3498,4 +3499,83 @@ void ScanCpuCandidates() {
     }
     CloseHandle(snapshot);
     AuditEvent("cpu.candidate", "scan-complete", nullptr, static_cast<unsigned long long>(candidates), true);
+}
+
+static HRESULT(STDMETHODCALLTYPE* g_origAudioGetId)(IMMDevice*, LPWSTR*) = nullptr;
+
+static HRESULT STDMETHODCALLTYPE HookAudioGetId(IMMDevice* device, LPWSTR* id) {
+    const HRESULT result = g_origAudioGetId ? g_origAudioGetId(device, id) : E_FAIL;
+    if (SUCCEEDED(result) && id && *id && NativeHardwareHooksEnabled()) {
+        const std::wstring value = Utf8ToWide(ProfileIdentity::Get().audioEndpointId);
+        const size_t bytes = (value.size() + 1) * sizeof(wchar_t);
+        auto* copy = static_cast<LPWSTR>(CoTaskMemAlloc(bytes));
+        if (copy) {
+            std::memcpy(copy, value.c_str(), bytes);
+            CoTaskMemFree(*id);
+            *id = copy;
+            AuditEventRateLimited("api.audio.getid", "patched");
+        }
+    }
+    return result;
+}
+
+static bool PatchAudioSlot(void** vtable, size_t index, void* hook, void** original) {
+    if (!vtable || !original) return false;
+    void** slot = &vtable[index];
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect)) return false;
+    *original = *slot;
+    *slot = hook;
+    DWORD ignored = 0;
+    VirtualProtect(slot, sizeof(void*), oldProtect, &ignored);
+    FlushInstructionCache(GetCurrentProcess(), slot, sizeof(void*));
+    return true;
+}
+
+void InstallAudioHooks() {
+    if (!NativeHardwareHooksEnabled()) {
+        AuditEvent("audio.hook", "skipped", "hardware-disabled");
+        return;
+    }
+    static bool installed = false;
+    if (installed) return;
+    installed = true;
+
+    const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool comInitialized = SUCCEEDED(comResult);
+    IMMDeviceEnumerator* enumerator = nullptr;
+    HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                  IID_PPV_ARGS(&enumerator));
+    if (FAILED(hr) || !enumerator) {
+        AuditEvent("audio.hook", "skipped", "enumerator-failed");
+        if (comInitialized) CoUninitialize();
+        return;
+    }
+
+    IMMDeviceCollection* collection = nullptr;
+    hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &collection);
+    if (FAILED(hr) || !collection) {
+        enumerator->Release();
+        AuditEvent("audio.hook", "skipped", "enumeration-failed");
+        if (comInitialized) CoUninitialize();
+        return;
+    }
+
+    UINT count = 0;
+    collection->GetCount(&count);
+    IMMDevice* device = nullptr;
+    if (count > 0) collection->Item(0, &device);
+    bool patched = false;
+    if (device) {
+        void** vtable = *reinterpret_cast<void***>(device);
+        patched = PatchAudioSlot(vtable, 5,
+                                 reinterpret_cast<void*>(&HookAudioGetId),
+                                 reinterpret_cast<void**>(&g_origAudioGetId));
+        device->Release();
+    }
+    collection->Release();
+    enumerator->Release();
+    if (comInitialized) CoUninitialize();
+    AuditEvent("audio.hook", patched ? "installed" : "skipped",
+               patched ? "immdevice-getid" : "no-device");
 }
