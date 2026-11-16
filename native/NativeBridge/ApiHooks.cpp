@@ -885,6 +885,22 @@ BOOL WINAPI HookSetupDiGetDeviceInstanceIdW(HDEVINFO set, PSP_DEVINFO_DATA info,
     const BOOL result = g_origSetupDiGetInstanceId
         ? g_origSetupDiGetInstanceId(set, info, instanceId, instanceIdSize, required)
         : FALSE;
+    if (result && NativeHardwareHooksEnabled() && set && info &&
+        g_origSetupDiGetRegistryProperty) {
+        wchar_t hardwareId[512] = {};
+        DWORD type = 0;
+        DWORD needed = 0;
+        if (g_origSetupDiGetRegistryProperty(
+                set, info, SPDRP_HARDWAREID, &type,
+                reinterpret_cast<PBYTE>(hardwareId), sizeof(hardwareId), &needed) &&
+            wcsstr(hardwareId, L"GameViewer")) {
+            if (instanceId && instanceIdSize > 0) instanceId[0] = L'\0';
+            if (required) *required = 1;
+            SetLastError(ERROR_NOT_FOUND);
+            AuditEventRateLimited("api.setupdi.instanceid", "virtual-hidden");
+            return FALSE;
+        }
+    }
     if (result && instanceId && !ProfileIdentity::Get().hypervisorPresent &&
         NativeIsVirtualDeviceName(instanceId)) {
         instanceId[0] = L'\0';

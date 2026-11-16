@@ -417,6 +417,10 @@ Add-Check 'hardware.pnp_strings' 'fail' (
     $pnpAll -match 'GTX 1650' -and
     $pnpAll -match 'Dell U2419H'
 ) 'profile GPU/monitor strings' $pnpAll 'SPDRP_HARDWAREID/DEVICEDESC/FRIENDLYNAME'
+Add-Check 'hardware.pnp_virtual_hidden' 'fail' (
+    $pnpAll -notmatch 'GameViewer' -and
+    $pnpAll -notmatch 'ROOT\\DISPLAY'
+) 'no GameViewer virtual display' $pnpAll 'SetupDiGetDeviceInstanceIdW virtual-hidden'
 
 $processNames = @()
 if (Test-Path -LiteralPath $processLog) {
