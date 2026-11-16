@@ -46,8 +46,10 @@
   `attached 1 → 6`，`detached 0 → 5`。
 - Fault：clone fail、lower fail、fault reset、set-short/set-long/state-short、
   fault-invalid 全部按预期；`pass=true`。
-- 当前正在运行：30× disable/enable、10× restart、2h 流量、
-  100 并发 TCP；完成后归档到 `evidence/`。
+- 当前正在运行：`soak-20261116-150836`。30× disable/enable 和
+  10× restart 已完成（`attached=59`、`detached=55`、`oidRewrites=114`），
+  OID storm 完成（`oidDelta=569`），2h 流量从 15:15:21 开始，
+  预计 17:15:21 结束；完成后自动归档到 `evidence/`。
 - 隔离测试机 `C:\Windows\System32\drivers\CacMacLwf.sys` 实测
   SHA-256 = `DA5AC0634A92F36EB7FCFE303D5835A4647CA2E2D8C16DCEE6157DB96C22E670`，
   与本仓库 `bin` 构建一致。
