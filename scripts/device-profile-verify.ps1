@@ -23,6 +23,7 @@ param(
     [string]$GpuProbe,
     [string]$CpuDeepProbe,
     [string]$DiskProbe,
+    [string]$DisplayProbe,
     [string]$WmiProbe,
     [switch]$SkipCim
 )
@@ -35,6 +36,7 @@ if (-not $HardwareProbe) { $HardwareProbe = Join-Path $repoRoot 'native\dist\cac
 if (-not $GpuProbe) { $GpuProbe = Join-Path $repoRoot 'native\dist\cac-gpu-probe.exe' }
 if (-not $CpuDeepProbe) { $CpuDeepProbe = Join-Path $repoRoot 'native\dist\cac-cpu-deep-probe.exe' }
 if (-not $DiskProbe) { $DiskProbe = Join-Path $repoRoot 'native\dist\cac-disk-probe.exe' }
+if (-not $DisplayProbe) { $DisplayProbe = Join-Path $repoRoot 'native\dist\cac-display-probe.exe' }
 if (-not $WmiProbe) { $WmiProbe = Join-Path $repoRoot 'artifacts\wmi_probe.exe' }
 $ProfilePath = (Resolve-Path -LiteralPath $ProfilePath).Path
 $Launcher = (Resolve-Path -LiteralPath $Launcher).Path
@@ -52,6 +54,10 @@ if (-not (Test-Path -LiteralPath $DiskProbe -PathType Leaf)) {
     throw "Disk probe not found: $DiskProbe"
 }
 $DiskProbe = (Resolve-Path -LiteralPath $DiskProbe).Path
+if (-not (Test-Path -LiteralPath $DisplayProbe -PathType Leaf)) {
+    throw "Display probe not found: $DisplayProbe"
+}
+$DisplayProbe = (Resolve-Path -LiteralPath $DisplayProbe).Path
 if (-not (Test-Path -LiteralPath $WmiProbe -PathType Leaf)) {
     throw "WMI probe not found: $WmiProbe"
 }
@@ -192,6 +198,10 @@ $diskLog = Join-Path $OutputDir 'disk-probe.txt'
 $diskCode = Invoke-Injected -Executable $DiskProbe -Arguments @() -LogPath $diskLog
 $disk = Read-KeyValues -Path $diskLog
 
+$displayLog = Join-Path $OutputDir 'display-probe.txt'
+$displayCode = Invoke-Injected -Executable $DisplayProbe -Arguments @() -LogPath $displayLog
+$display = Read-KeyValues -Path $displayLog
+
 $cimCode = $null
 $cimLog = Join-Path $OutputDir 'cim-probe.txt'
 if (-not $SkipCim) {
@@ -213,6 +223,7 @@ Add-Check 'probe.wmi' 'fail' ($wmiCode -eq 0 -and $wmi['wmi_state'] -eq 'ok') 'w
 Add-Check 'probe.gpu' 'fail' ($gpuCode -eq 0 -and $gpu['gpu_state'] -eq 'ok') 'gpu_state=ok' "exit=$gpuCode state=$($gpu['gpu_state'])" 'DXGI probe'
 Add-Check 'probe.cpudeep' 'fail' ($cpuCode -eq 0 -and $cpu.Count -gt 0) 'exit 0 + key=value' "exit=$cpuCode lines=$($cpu.Count)" 'CPU/memory deep probe'
 Add-Check 'probe.disk' 'fail' ($diskCode -eq 0 -and $disk['disk_state'] -eq 'ok') 'disk_state=ok' "exit=$diskCode state=$($disk['disk_state'])" 'Disk layout probe'
+Add-Check 'probe.display' 'fail' ($displayCode -eq 0 -and $display['display_state'] -eq 'ok') 'display_state=ok' "exit=$displayCode state=$($display['display_state'])" 'DisplayConfig probe'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -308,6 +319,18 @@ Add-Check 'hardware.disk_layout' 'fail' ($diskStyle -eq 'GPT' -or $diskStyle -eq
 $diskId = if ($diskStyle -eq 'GPT') { [string]$disk['disk_id'] } else { [string]$disk['disk_signature'] }
 Add-Check 'hardware.disk_id' 'fail' (-not [string]::IsNullOrWhiteSpace($diskId) -and $diskId -ne '0x90248822') 'profile disk signature/GUID' $diskId 'real MBR signature 0x90248822 must not leak'
 
+$expectedMonitor = [string]$identity.monitor_name
+if (-not $expectedMonitor) { $expectedMonitor = 'Dell U2419H' }
+$displayName = [string]$display['display0_friendly']
+Add-Check 'hardware.display_name' 'fail' ($displayName -eq $expectedMonitor) $expectedMonitor $displayName 'DisplayConfig target friendly name'
+$displayVendor = [string]$display['display0_edid_manufacturer']
+$displayProduct = [string]$display['display0_edid_product']
+Add-Check 'hardware.display_edid' 'fail' ($displayVendor -eq '0x10ac' -and $displayProduct -eq '0x41a9') '0x10ac/0x41a9' "$displayVendor/$displayProduct" 'DisplayConfig EDID IDs'
+$displayPath = [string]$display['display0_path']
+Add-Check 'hardware.display_path' 'fail' ($displayPath -notmatch 'PHLC031|PHL') 'profile monitor path' $displayPath 'real monitor PnP id must not leak'
+$displayAdapterPath = [string]$display['adapter0_path']
+Add-Check 'hardware.display_adapter_path' 'fail' ($displayAdapterPath -notmatch 'DEV_1C82|DEV_1c82') 'profile GPU PCI id' $displayAdapterPath 'real GPU PCI id must not leak'
+
 $processNames = @()
 if (Test-Path -LiteralPath $processLog) {
     $processNames = @(Get-Content -LiteralPath $processLog | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() } | Sort-Object -Unique)
@@ -336,11 +359,13 @@ $result = [ordered]@{
         gpu = $gpu
         cpu = $cpu
         disk = $disk
+        display = $display
         wmi = $wmi
         hardwareExit = $hardwareCode
         gpuExit = $gpuCode
         cpuExit = $cpuCode
         diskExit = $diskCode
+        displayExit = $displayCode
         wmiExit = $wmiCode
         cimExit = $cimCode
         processExit = $processCode

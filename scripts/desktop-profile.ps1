@@ -803,7 +803,10 @@ function Initialize-ProfileIdentity {
         tpm_present = $false
         volume_label = 'System'
         filesystem = 'NTFS'
-        monitor_name = 'Philips PHL 243V7'
+        monitor_name = 'Dell U2419H'
+        monitor_pnp_id = 'DEL41A9'
+        monitor_edid_manufacturer = 0x10AC
+        monitor_edid_product = 0x41A9
     }
     $encoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
     [System.IO.File]::WriteAllText($Paths.IdentityPath, ($identity | ConvertTo-Json -Depth 5), $encoding)

@@ -183,6 +183,9 @@ bool ProfileIdentity::Load() {
     JsonString(document, "gpu_driver_version", gpuDriverVersion);
     JsonString(document, "gpu_pci_id", gpuPciId);
     JsonString(document, "monitor_name", monitorName);
+    JsonString(document, "monitor_pnp_id", monitorPnpId);
+    JsonU32(document, "monitor_edid_manufacturer", monitorEdidManufacturer);
+    JsonU32(document, "monitor_edid_product", monitorEdidProduct);
     JsonString(document, "monitor_serial", monitorSerial);
     JsonString(document, "monitor_edid_hex", monitorEdidHex);
     JsonString(document, "tpm_vendor", tpmVendor);

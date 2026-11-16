@@ -222,6 +222,7 @@ typedef BOOL (WINAPI* PFN_GetPhysicallyInstalledSystemMemory)(PULONGLONG);
 typedef DWORD (WINAPI* PFN_GetActiveProcessorCount)(WORD);
 typedef DWORD (WINAPI* PFN_GetMaximumProcessorCount)(WORD);
 typedef BOOL (WINAPI* PFN_GetPerformanceInfo)(PPERFORMANCE_INFORMATION, DWORD);
+typedef LONG (WINAPI* PFN_DisplayConfigGetDeviceInfo)(DISPLAYCONFIG_DEVICE_INFO_HEADER*);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExW)(LPCWSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExA)(LPCSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef void (WINAPI* PFN_GetSystemInfo)(LPSYSTEM_INFO);
@@ -277,6 +278,7 @@ PFN_GetPhysicallyInstalledSystemMemory g_origGetPhysicallyInstalledSystemMemory 
 PFN_GetActiveProcessorCount g_origGetActiveProcessorCount = nullptr;
 PFN_GetMaximumProcessorCount g_origGetMaximumProcessorCount = nullptr;
 PFN_GetPerformanceInfo g_origGetPerformanceInfo = nullptr;
+PFN_DisplayConfigGetDeviceInfo g_origDisplayConfigGetDeviceInfo = nullptr;
 PFN_GetDiskFreeSpaceExW g_origGetDiskFreeSpaceExW = nullptr;
 PFN_GetDiskFreeSpaceExA g_origGetDiskFreeSpaceExA = nullptr;
 PFN_GetSystemInfo g_origGetSystemInfo = nullptr;
@@ -993,6 +995,55 @@ BOOL WINAPI HookGetPerformanceInfo(PPERFORMANCE_INFORMATION info, DWORD size) {
     return result;
 }
 
+LONG WINAPI HookDisplayConfigGetDeviceInfo(DISPLAYCONFIG_DEVICE_INFO_HEADER* header) {
+    const LONG result = g_origDisplayConfigGetDeviceInfo
+        ? g_origDisplayConfigGetDeviceInfo(header)
+        : ERROR_INVALID_PARAMETER;
+    if (result != ERROR_SUCCESS || !header || !NativeHardwareHooksEnabled()) {
+        return result;
+    }
+    if (header->type == DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME) {
+        auto* target = reinterpret_cast<DISPLAYCONFIG_TARGET_DEVICE_NAME*>(header);
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        const std::wstring name = Utf8ToWide(identity.monitorName);
+        wcsncpy_s(target->monitorFriendlyDeviceName,
+                  _countof(target->monitorFriendlyDeviceName), name.c_str(), _TRUNCATE);
+        target->edidManufactureId = static_cast<UINT16>(identity.monitorEdidManufacturer);
+        target->edidProductCodeId = static_cast<UINT16>(identity.monitorEdidProduct);
+        std::wstring path = target->monitorDevicePath;
+        const std::wstring pnpId = Utf8ToWide(identity.monitorPnpId);
+        const size_t display = path.find(L"DISPLAY#");
+        if (display != std::wstring::npos) {
+            const size_t end = path.find(L'#', display + 8);
+            if (end != std::wstring::npos) {
+                path = path.substr(0, display + 8) + pnpId + path.substr(end);
+            }
+        }
+        wcsncpy_s(target->monitorDevicePath, _countof(target->monitorDevicePath),
+                  path.c_str(), _TRUNCATE);
+        AuditEventRateLimited("api.displayconfig.target", "patched");
+    } else if (header->type == DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME) {
+        auto* adapter = reinterpret_cast<DISPLAYCONFIG_ADAPTER_NAME*>(header);
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        std::wstring path = adapter->adapterDevicePath;
+        const size_t pci = path.find(L"PCI#");
+        if (pci != std::wstring::npos) {
+            const size_t end = path.find(L'#', pci + 4);
+            if (end != std::wstring::npos) {
+                std::wstring id = Utf8ToWide(identity.gpuPciId);
+                for (wchar_t& ch : id) {
+                    if (ch == L'\\') ch = L'#';
+                }
+                path = path.substr(0, pci) + id + path.substr(end);
+            }
+        }
+        wcsncpy_s(adapter->adapterDevicePath, _countof(adapter->adapterDevicePath),
+                  path.c_str(), _TRUNCATE);
+        AuditEventRateLimited("api.displayconfig.adapter", "patched");
+    }
+    return result;
+}
+
 BOOL WINAPI HookEnumDisplayDevicesW(LPCWSTR device, DWORD deviceIndex,
                                     PDISPLAY_DEVICEW displayDevice, DWORD flags) {
     if (!NativeHardwareHooksEnabled()) {
@@ -1013,7 +1064,7 @@ BOOL WINAPI HookEnumDisplayDevicesW(LPCWSTR device, DWORD deviceIndex,
         SetWideBuffer(displayDevice->DeviceString, _countof(displayDevice->DeviceString), name);
         const std::wstring deviceId = deviceIndex == 0
             ? Utf8ToWide(identity.gpuPciId)
-            : std::wstring(L"MONITOR\\PHL243V7");
+            : (std::wstring(L"MONITOR\\") + Utf8ToWide(identity.monitorPnpId));
         SetWideBuffer(displayDevice->DeviceID, _countof(displayDevice->DeviceID), deviceId);
         SetWideBuffer(displayDevice->DeviceKey, _countof(displayDevice->DeviceKey),
                       L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Video\\{00000000-0000-0000-0000-000000000000}\\0000");
@@ -2950,6 +3001,9 @@ bool InstallApiHooks() {
         InstallOptionalInlineThenIat("user32.dll", "GetMonitorInfoW",
                              reinterpret_cast<void*>(&HookGetMonitorInfoW),
                              reinterpret_cast<void**>(&g_origGetMonitorInfo));
+        InstallOptionalInlineThenIat("user32.dll", "DisplayConfigGetDeviceInfo",
+                             reinterpret_cast<void*>(&HookDisplayConfigGetDeviceInfo),
+                             reinterpret_cast<void**>(&g_origDisplayConfigGetDeviceInfo));
     }
     InstallInlineThenIat("kernel32.dll", "GetSystemFirmwareTable", reinterpret_cast<void*>(&HookGetSystemFirmwareTable),
                          reinterpret_cast<void**>(&g_origGetSystemFirmwareTable));
