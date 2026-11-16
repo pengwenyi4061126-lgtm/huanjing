@@ -48,6 +48,9 @@ function Assert-Administrator {
 
 function Write-Record {
     param([hashtable]$Record)
+    if (-not (Test-Path -LiteralPath $OutputDir)) {
+        New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+    }
     $Record['utc'] = (Get-Date).ToUniversalTime().ToString('o')
     $line = ($Record | ConvertTo-Json -Compress -Depth 6)
     [System.IO.File]::AppendAllText(

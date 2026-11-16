@@ -1,0 +1,27 @@
+C:\cacmac\run-macfilter-soak.ps1 : 使用“3”个参数调用“AppendAllText”时发生异常:“未能找到路径“C:\cacmac\evidence\soak-20261116-144949\soak.
+jsonl”的一部分。”
+所在位置 C:\cacmac\guest-soak.ps1:11 字符: 5
++     & (Join-Path $PWD 'run-macfilter-soak.ps1') `
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [run-macfilter-soak.ps1], MethodInvocationException
+    + FullyQualifiedErrorId : DirectoryNotFoundException,run-macfilter-soak.ps1
+ 
+
+Test-DeviceIoctl : 无法将“System.Collections.ArrayList+ArrayListEnumeratorSimple”类型的“System.Collections.ArrayList+ArrayLis
+tEnumeratorSimple”值转换为“System.Byte[]”类型。
+所在位置 C:\cacmac\run-macfilter-fault.ps1:170 字符: 19
++ ...   $result = Test-DeviceIoctl -Code $case.code -Input $case.input -Out ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidArgument: (:) [Test-DeviceIoctl]，PSInvalidCastException
+    + FullyQualifiedErrorId : ConvertToFinalInvalidCastException,Test-DeviceIoctl
+ 
+
+C:\cacmac\run-macfilter-fault.ps1 : 无法将“CreateFileW”的参数“access”(其值为“-1073741824”)转换为类型“System.UInt32”:“无法将值“-1073741824
+”转换为类型“System.UInt32”。错误:“值对于 UInt32 太大或太小。””
+所在位置 C:\cacmac\guest-soak.ps1:22 字符: 5
++     & (Join-Path $PWD 'run-macfilter-fault.ps1') -OidStormIterations  ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [run-macfilter-fault.ps1], MethodException
+    + FullyQualifiedErrorId : MethodArgumentConversionInvalidCastArgument,run-macfilter-fault.ps1
+ 
+

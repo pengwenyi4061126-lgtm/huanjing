@@ -1,0 +1,58 @@
+﻿{
+    "schema":  1,
+    "pass":  true,
+    "adapter":  "Ethernet0",
+    "mac":  "02:11:22:33:44:55",
+    "startedUtc":  "2026-11-16T07:04:44.7735772Z",
+    "finishedUtc":  "2026-11-16T07:05:47.9199611Z",
+    "cycles":  {
+                   "disableEnable":  3,
+                   "restart":  2,
+                   "sleep":  0,
+                   "trafficSeconds":  0
+               },
+    "baseline":  {
+                     "ok":  true,
+                     "setCount":  2,
+                     "oidQueriesSeen":  3122,
+                     "oidRewrites":  22,
+                     "attached":  11,
+                     "detached":  10,
+                     "registerStatus":  0,
+                     "running":  1,
+                     "lastOid":  16843010,
+                     "lastRewriteOid":  16843010,
+                     "sendPaused":  0,
+                     "sendForwarded":  1578,
+                     "receivePaused":  0,
+                     "receiveForwarded":  404,
+                     "faultMode":  0,
+                     "mac":  "02:11:22:33:44:55"
+                 },
+    "final":  {
+                  "ok":  true,
+                  "setCount":  3,
+                  "oidQueriesSeen":  4607,
+                  "oidRewrites":  34,
+                  "attached":  19,
+                  "detached":  15,
+                  "registerStatus":  0,
+                  "running":  1,
+                  "lastOid":  16843010,
+                  "lastRewriteOid":  16843010,
+                  "sendPaused":  0,
+                  "sendForwarded":  1975,
+                  "receivePaused":  0,
+                  "receiveForwarded":  431,
+                  "faultMode":  0,
+                  "mac":  "02:11:22:33:44:55"
+              },
+    "newDumps":  [
+
+                 ],
+    "newBugChecks":  0,
+    "failures":  [
+
+                 ],
+    "log":  "C:\\cacmac\\evidence\\soak-20261116-150444\\soak.jsonl"
+}

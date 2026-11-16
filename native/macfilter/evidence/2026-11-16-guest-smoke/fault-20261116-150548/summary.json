@@ -1,0 +1,15 @@
+﻿{
+    "schema":  1,
+    "pass":  true,
+    "startedUtc":  "2026-11-16T07:05:48.0367487Z",
+    "finishedUtc":  "2026-11-16T07:05:51.5439799Z",
+    "oidStormIterations":  5,
+    "newDumps":  [
+
+                 ],
+    "newBugChecks":  0,
+    "failures":  [
+
+                 ],
+    "log":  "C:\\cacmac\\evidence\\fault-20261116-150548\\fault.jsonl"
+}

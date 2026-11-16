@@ -37,6 +37,19 @@
   唯一警告是本机已安装的旧驱动 `E3A307C0...` 仍是 11-14 版本，服务
   `DISABLED`，未加载。
 
+## 隔离测试机运行证据
+
+- 2026-11-16 smoke：`evidence/2026-11-16-guest-smoke/`。
+- Soak：3× disable/enable、2× restart、OID storm；`pass=true`，
+  `newDumps=[]`，`newBugChecks=0`，`failures=[]`；
+  `oidQueriesSeen 225 → 1508`，`oidRewrites 2 → 12`，
+  `attached 1 → 6`，`detached 0 → 5`。
+- Fault：clone fail、lower fail、fault reset、set-short/set-long/state-short、
+  fault-invalid 全部按预期；`pass=true`。
+- 当前正在运行：30× disable/enable、10× restart、2h 流量、
+  100 并发 TCP；完成后归档到 `evidence/`。
+- 尚未运行：3× sleep/resume、5× boot、低权限 IOCTL。
+
 ## 明确边界
 
 - LWF 只改写 OID 查询结果，不改变适配器真实 MAC。

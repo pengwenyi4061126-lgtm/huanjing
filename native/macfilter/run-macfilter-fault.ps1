@@ -34,6 +34,9 @@ $failures = New-Object System.Collections.Generic.List[string]
 
 function Write-Record {
     param([hashtable]$Record)
+    if (-not (Test-Path -LiteralPath $OutputDir)) {
+        New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+    }
     $Record['utc'] = (Get-Date).ToUniversalTime().ToString('o')
     $line = ($Record | ConvertTo-Json -Compress -Depth 6)
     [System.IO.File]::AppendAllText(
@@ -94,9 +97,10 @@ public static class CacMacIoctlProbe {
 '@
 
 function Test-DeviceIoctl {
-    param([uint32]$Code, [byte[]]$Input, [uint32]$OutputSize)
+    param([uint32]$Code, [byte[]]$InputBytes, [uint32]$OutputSize)
+    $access = [uint32]3221225472  # GENERIC_READ | GENERIC_WRITE
     $handle = [CacMacIoctlProbe]::CreateFileW(
-        '\\.\CacMacLwf', 0xC0000000, 0, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
+        '\\.\CacMacLwf', $access, 0, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
     if ($handle.ToInt64() -eq -1) {
         return [pscustomobject]@{ ok = $false; error = [Runtime.InteropServices.Marshal]::GetLastWin32Error(); note = 'open' }
     }
@@ -104,7 +108,7 @@ function Test-DeviceIoctl {
         $buffer = if ($OutputSize -gt 0) { [byte[]]::new([int]$OutputSize) } else { $null }
         $returned = [uint32]0
         $ok = [CacMacIoctlProbe]::DeviceIoControl(
-            $handle, $Code, $Input, [uint32]($Input.Length), $buffer, $OutputSize,
+            $handle, $Code, $InputBytes, [uint32]($InputBytes.Length), $buffer, $OutputSize,
             [ref]$returned, [IntPtr]::Zero)
         return [pscustomobject]@{ ok = $ok; error = [Runtime.InteropServices.Marshal]::GetLastWin32Error(); returned = $returned }
     } finally {
@@ -164,7 +168,7 @@ if (-not $SkipInvalidIoctl) {
         @{ name = 'fault-invalid'; code = $faultCode; input = [BitConverter]::GetBytes([uint32]3); output = 0 }
     )
     foreach ($case in $cases) {
-        $result = Test-DeviceIoctl -Code $case.code -Input $case.input -OutputSize $case.output
+        $result = Test-DeviceIoctl -Code $case.code -InputBytes $case.input -OutputSize $case.output
         $ok = -not $result.ok
         if (-not $ok) { $failures.Add("invalid IOCTL $($case.name) unexpectedly succeeded") }
         Write-Record @{ phase = 'invalid-ioctl'; name = $case.name; ok = $ok; result = $result }

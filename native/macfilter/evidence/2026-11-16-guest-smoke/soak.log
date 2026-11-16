@@ -1,0 +1,283 @@
+﻿**********************
+Windows PowerShell 脚本开始
+开始时间: 20261116144949
+用户名: DESKTOP-614945G\Administrator
+RunAs 用户: DESKTOP-614945G\Administrator
+配置名称: 
+计算机: DESKTOP-614945G (Microsoft Windows NT 10.0.22631.0)
+主机应用程序: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\cacmac\guest-soak.ps1
+进程 ID: 4036
+PSVersion: 5.1.22621.7376
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.22621.7376
+BuildVersion: 10.0.22621.7376
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+已启动脚本，输出文件为 C:\cacmac\soak.log
+PS>TerminatingError():“使用“3”个参数调用“AppendAllText”时发生异常:“未能找到路径“C:\cacmac\evidence\soak-20261116-144949\soak.jsonl”的一部分。””
+>> TerminatingError(run-macfilter-soak.ps1):“使用“3”个参数调用“AppendAllText”时发生异常:“未能找到路径“C:\cacmac\evidence\soak-20261116-144949\soak.jsonl”的一部分。””
+**********************
+Windows PowerShell 脚本结束
+结束时间: 20261116144953
+**********************
+**********************
+Windows PowerShell 脚本开始
+开始时间: 20261116145632
+用户名: DESKTOP-614945G\Administrator
+RunAs 用户: DESKTOP-614945G\Administrator
+配置名称: 
+计算机: DESKTOP-614945G (Microsoft Windows NT 10.0.22631.0)
+主机应用程序: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -noprofile -executionpolicy bypass -file c:\cacmac\guest-soak.ps1
+进程 ID: 1396
+PSVersion: 5.1.22621.7376
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.22621.7376
+BuildVersion: 10.0.22621.7376
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+已启动脚本，输出文件为 C:\cacmac\soak.log
+{
+    "schema":  1,
+    "pass":  true,
+    "adapter":  "Ethernet0",
+    "mac":  "02:11:22:33:44:55",
+    "startedUtc":  "2026-11-16T06:56:32.5675530Z",
+    "finishedUtc":  "2026-11-16T06:57:34.9928615Z",
+    "cycles":  {
+                   "disableEnable":  3,
+                   "restart":  2,
+                   "sleep":  0,
+                   "trafficSeconds":  0
+               },
+    "baseline":  {
+                     "ok":  true,
+                     "setCount":  0,
+                     "oidQueriesSeen":  225,
+                     "oidRewrites":  2,
+                     "attached":  1,
+                     "detached":  0,
+                     "registerStatus":  0,
+                     "running":  1,
+                     "lastOid":  16843010,
+                     "lastRewriteOid":  16843010,
+                     "sendPaused":  0,
+                     "sendForwarded":  589,
+                     "receivePaused":  0,
+                     "receiveForwarded":  233,
+                     "faultMode":  0,
+                     "mac":  "02:00:00:00:00:01"
+                 },
+    "final":  {
+                  "ok":  true,
+                  "setCount":  1,
+                  "oidQueriesSeen":  1508,
+                  "oidRewrites":  12,
+                  "attached":  6,
+                  "detached":  5,
+                  "registerStatus":  0,
+                  "running":  1,
+                  "lastOid":  16843010,
+                  "lastRewriteOid":  16843010,
+                  "sendPaused":  0,
+                  "sendForwarded":  1006,
+                  "receivePaused":  0,
+                  "receiveForwarded":  260,
+                  "faultMode":  0,
+                  "mac":  "02:11:22:33:44:55"
+              },
+    "newDumps":  [
+
+                 ],
+    "newBugChecks":  0,
+    "failures":  [
+
+                 ],
+    "log":  "C:\\cacmac\\evidence\\soak-20261116-145632\\soak.jsonl"
+}
+PS>TerminatingError(Test-DeviceIoctl):“无法将“System.Collections.ArrayList+ArrayListEnumeratorSimple”类型的“System.Collections.ArrayList+ArrayListEnumeratorSimple”值转换为“System.Byte[]”类型。”
+>> TerminatingError(Test-DeviceIoctl):“无法将“System.Collections.ArrayList+ArrayListEnumeratorSimple”类型的“System.Collections.ArrayList+ArrayListEnumeratorSimple”值转换为“System.Byte[]”类型。”
+**********************
+Windows PowerShell 脚本结束
+结束时间: 20261116145738
+**********************
+**********************
+Windows PowerShell 脚本开始
+开始时间: 20261116150029
+用户名: DESKTOP-614945G\Administrator
+RunAs 用户: DESKTOP-614945G\Administrator
+配置名称: 
+计算机: DESKTOP-614945G (Microsoft Windows NT 10.0.22631.0)
+主机应用程序: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -noprofile -executionpolicy bypass -file c:\cacmac\guest-soak.ps1
+进程 ID: 4580
+PSVersion: 5.1.22621.7376
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.22621.7376
+BuildVersion: 10.0.22621.7376
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+已启动脚本，输出文件为 C:\cacmac\soak.log
+{
+    "schema":  1,
+    "pass":  true,
+    "adapter":  "Ethernet0",
+    "mac":  "02:11:22:33:44:55",
+    "startedUtc":  "2026-11-16T07:00:30.2038924Z",
+    "finishedUtc":  "2026-11-16T07:01:32.5012156Z",
+    "cycles":  {
+                   "disableEnable":  3,
+                   "restart":  2,
+                   "sleep":  0,
+                   "trafficSeconds":  0
+               },
+    "baseline":  {
+                     "ok":  true,
+                     "setCount":  1,
+                     "oidQueriesSeen":  1679,
+                     "oidRewrites":  12,
+                     "attached":  6,
+                     "detached":  5,
+                     "registerStatus":  0,
+                     "running":  1,
+                     "lastOid":  16843010,
+                     "lastRewriteOid":  16843010,
+                     "sendPaused":  0,
+                     "sendForwarded":  1089,
+                     "receivePaused":  0,
+                     "receiveForwarded":  318,
+                     "faultMode":  0,
+                     "mac":  "02:11:22:33:44:55"
+                 },
+    "final":  {
+                  "ok":  true,
+                  "setCount":  2,
+                  "oidQueriesSeen":  2942,
+                  "oidRewrites":  22,
+                  "attached":  11,
+                  "detached":  10,
+                  "registerStatus":  0,
+                  "running":  1,
+                  "lastOid":  16843010,
+                  "lastRewriteOid":  16843010,
+                  "sendPaused":  0,
+                  "sendForwarded":  1494,
+                  "receivePaused":  0,
+                  "receiveForwarded":  344,
+                  "faultMode":  0,
+                  "mac":  "02:11:22:33:44:55"
+              },
+    "newDumps":  [
+
+                 ],
+    "newBugChecks":  0,
+    "failures":  [
+
+                 ],
+    "log":  "C:\\cacmac\\evidence\\soak-20261116-150030\\soak.jsonl"
+}
+PS>TerminatingError():“无法将“CreateFileW”的参数“access”(其值为“-1073741824”)转换为类型“System.UInt32”:“无法将值“-1073741824”转换为类型“System.UInt32”。错误:“值对于 UInt32 太大或太小。”””
+>> TerminatingError(run-macfilter-fault.ps1):“无法将“CreateFileW”的参数“access”(其值为“-1073741824”)转换为类型“System.UInt32”:“无法将值“-1073741824”转换为类型“System.UInt32”。错误:“值对于 UInt32 太大或太小。”””
+**********************
+Windows PowerShell 脚本结束
+结束时间: 20261116150136
+**********************
+**********************
+Windows PowerShell 脚本开始
+开始时间: 20261116150444
+用户名: DESKTOP-614945G\Administrator
+RunAs 用户: DESKTOP-614945G\Administrator
+配置名称: 
+计算机: DESKTOP-614945G (Microsoft Windows NT 10.0.22631.0)
+主机应用程序: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -noprofile -executionpolicy bypass -file c:\cacmac\guest-soak.ps1
+进程 ID: 5420
+PSVersion: 5.1.22621.7376
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.22621.7376
+BuildVersion: 10.0.22621.7376
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+已启动脚本，输出文件为 C:\cacmac\soak.log
+{
+    "schema":  1,
+    "pass":  true,
+    "adapter":  "Ethernet0",
+    "mac":  "02:11:22:33:44:55",
+    "startedUtc":  "2026-11-16T07:04:44.7735772Z",
+    "finishedUtc":  "2026-11-16T07:05:47.9199611Z",
+    "cycles":  {
+                   "disableEnable":  3,
+                   "restart":  2,
+                   "sleep":  0,
+                   "trafficSeconds":  0
+               },
+    "baseline":  {
+                     "ok":  true,
+                     "setCount":  2,
+                     "oidQueriesSeen":  3122,
+                     "oidRewrites":  22,
+                     "attached":  11,
+                     "detached":  10,
+                     "registerStatus":  0,
+                     "running":  1,
+                     "lastOid":  16843010,
+                     "lastRewriteOid":  16843010,
+                     "sendPaused":  0,
+                     "sendForwarded":  1578,
+                     "receivePaused":  0,
+                     "receiveForwarded":  404,
+                     "faultMode":  0,
+                     "mac":  "02:11:22:33:44:55"
+                 },
+    "final":  {
+                  "ok":  true,
+                  "setCount":  3,
+                  "oidQueriesSeen":  4607,
+                  "oidRewrites":  34,
+                  "attached":  19,
+                  "detached":  15,
+                  "registerStatus":  0,
+                  "running":  1,
+                  "lastOid":  16843010,
+                  "lastRewriteOid":  16843010,
+                  "sendPaused":  0,
+                  "sendForwarded":  1975,
+                  "receivePaused":  0,
+                  "receiveForwarded":  431,
+                  "faultMode":  0,
+                  "mac":  "02:11:22:33:44:55"
+              },
+    "newDumps":  [
+
+                 ],
+    "newBugChecks":  0,
+    "failures":  [
+
+                 ],
+    "log":  "C:\\cacmac\\evidence\\soak-20261116-150444\\soak.jsonl"
+}
+{
+    "schema":  1,
+    "pass":  true,
+    "startedUtc":  "2026-11-16T07:05:48.0367487Z",
+    "finishedUtc":  "2026-11-16T07:05:51.5439799Z",
+    "oidStormIterations":  5,
+    "newDumps":  [
+
+                 ],
+    "newBugChecks":  0,
+    "failures":  [
+
+                 ],
+    "log":  "C:\\cacmac\\evidence\\fault-20261116-150548\\fault.jsonl"
+}
