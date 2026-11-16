@@ -1,0 +1,10 @@
+vulkan_state=ok
+vulkan_count=1
+vulkan0_name=NVIDIA GeForce GTX 1050 Ti
+vulkan0_vendor=0x10de
+vulkan0_device=0x1c82
+vulkan0_type=discrete
+vulkan0_api=1.3.224
+vulkan0_driver=0x838bc000
+vulkan0_heaps=3
+vulkan0_heap0_mb=4017

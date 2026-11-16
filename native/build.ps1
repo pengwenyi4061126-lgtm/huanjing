@@ -265,6 +265,18 @@ try {
     $openclProbeHash = Get-CacSha256 $openclProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-opencl-probe.sha256") -Value $openclProbeHash -Encoding ASCII
 
+    Write-Host "Building cac-vulkan-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "VulkanProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-vulkan-probe.exe" `
+        /link /guard:cf /Brepro
+    if ($LASTEXITCODE -ne 0) { throw "cac-vulkan-probe.exe build failed ($LASTEXITCODE)" }
+
+    $vulkanProbePath = Join-Path $dist "cac-vulkan-probe.exe"
+    $vulkanProbeHash = Get-CacSha256 $vulkanProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-vulkan-probe.sha256") -Value $vulkanProbeHash -Encoding ASCII
+
     Write-Host "Verifying dist artifact hashes ..." -ForegroundColor Cyan
     $manifest = New-Object System.Collections.Generic.List[string]
     $mismatches = New-Object System.Collections.Generic.List[string]

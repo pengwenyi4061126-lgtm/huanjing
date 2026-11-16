@@ -251,6 +251,14 @@ NVML: statically imported `nvml.dll` is covered (IAT/inline), verified by
 main-module `GetProcAddress` IAT hook crashed with `0xC0000409` and was
 removed.
 
+Vulkan: `cac-vulkan-probe.exe` creates an instance, enumerates physical
+devices and prints `name/vendor/device/type/api/driver/heap0_mb`. Vulkan
+identity is not spoofed yet: `vulkan-1.dll` exports are 5-byte `jmp rel32`
+terminator thunks. The generic inline engine refuses that prologue, and a
+naive thunk patch re-enters the loader dispatch and fail-fasts with
+`0xC0000409`. The probe is kept as the measurement harness; a safe
+`vkGetInstanceProcAddr` wrapper is the next step.
+
 Audio: `cac-audio-probe.exe` verifies the `IMMDeviceEnumerator` wrapper;
 endpoint IDs, friendly/interface names, endpoint GUID and form factor come
 from the Profile.
