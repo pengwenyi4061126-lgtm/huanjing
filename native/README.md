@@ -70,6 +70,13 @@ The `profile` mode is the compatibility default. The `empty` mode is intentional
 
 `CAC_NETWORK_MODE=clean` (or `network_mode` file set to `clean`) hides virtual adapters from enumeration, refuses virtual LUID/name resolution, forces WinHTTP/IE/registry proxy queries to DIRECT, and filters virtual WMI network rows. `empty` read policy implies `clean`. This is a process-local view: actual routing and the server-visible exit IP are unchanged, and `GetBestRoute2` can still expose a tunnel interface index.
 
+WMI COM hooks are skipped for tool images (`powershell.exe`, `pwsh.exe`,
+`wmic.exe`, `cscript.exe`, `wscript.exe`, `mshta.exe`, `mmc.exe`) so
+`Get-CimInstance` and `wmic` stay usable. Set `CAC_WMI_SPOOF_TOOLS=1` to
+force filtering in those images, and `CAC_NATIVE_DISABLE_WMI=1` to disable
+WMI hooks for every process. `Get-WmiObject` still crashes under injection
+and is a known separate gap; use `Get-CimInstance` or `wmic`.
+
 `CAC_NETWORK_MODE=enforce` additionally sets `CAC_NETWORK_ENFORCE=1`. NativeBridge opens a dynamic WFP session and installs rules for the current executable image: `127.0.0.1` and `::1` are permitted for a local proxy, while other ALE Connect traffic is blocked. Set `CAC_WFP_REQUIRED=1` to refuse readiness when the WFP session cannot be installed. This is not an NDIS lightweight filter or a kernel WFP callout.
 
 Enable it for a Code Profile with:

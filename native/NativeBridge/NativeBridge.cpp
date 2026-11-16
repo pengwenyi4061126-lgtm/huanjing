@@ -118,6 +118,46 @@ bool NetworkHooksDisabledForCommandLineProxy() {
            std::strcmp(value, "yes") == 0;
 }
 
+bool WmiHooksDisabledByEnvironment() {
+    char value[16] = {};
+    const DWORD length = GetEnvironmentVariableA(
+        "CAC_NATIVE_DISABLE_WMI", value, static_cast<DWORD>(sizeof(value)));
+    if (length == 0 || length >= sizeof(value)) return false;
+    for (DWORD i = 0; i < length; ++i) {
+        if (value[i] >= 'A' && value[i] <= 'Z') value[i] = static_cast<char>(value[i] - 'A' + 'a');
+    }
+    return std::strcmp(value, "1") == 0 || std::strcmp(value, "true") == 0 ||
+           std::strcmp(value, "yes") == 0;
+}
+
+bool WmiToolSpoofEnabled() {
+    char value[16] = {};
+    const DWORD length = GetEnvironmentVariableA(
+        "CAC_WMI_SPOOF_TOOLS", value, static_cast<DWORD>(sizeof(value)));
+    if (length == 0 || length >= sizeof(value)) return false;
+    for (DWORD i = 0; i < length; ++i) {
+        if (value[i] >= 'A' && value[i] <= 'Z') value[i] = static_cast<char>(value[i] - 'A' + 'a');
+    }
+    return std::strcmp(value, "1") == 0 || std::strcmp(value, "true") == 0 ||
+           std::strcmp(value, "yes") == 0;
+}
+
+bool IsWmiToolImage() {
+    wchar_t path[MAX_PATH] = {};
+    const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) return false;
+    const wchar_t* base = wcsrchr(path, L'\\');
+    base = base ? base + 1 : path;
+    static const wchar_t* const names[] = {
+        L"powershell.exe", L"pwsh.exe", L"wmic.exe", L"cscript.exe",
+        L"wscript.exe", L"mshta.exe", L"mmc.exe",
+    };
+    for (const wchar_t* name : names) {
+        if (_wcsicmp(base, name) == 0) return true;
+    }
+    return false;
+}
+
 const char* ProcessTypeDetail() {
     const wchar_t* commandLine = GetCommandLineW();
     if (commandLine) {
@@ -196,7 +236,13 @@ DWORD WINAPI InitializeThread(LPVOID) {
 
     const bool apiReady = InstallApiHooks();
     InstallChildInjection();
-    InstallWmiHooks();
+    if (WmiHooksDisabledByEnvironment()) {
+        AuditEvent("wmi.hooks", "skipped", "CAC_NATIVE_DISABLE_WMI");
+    } else if (IsWmiToolImage() && !WmiToolSpoofEnabled()) {
+        AuditEvent("wmi.hooks", "skipped", "tool-image");
+    } else {
+        InstallWmiHooks();
+    }
     if (NetworkHooksDisabledForCommandLineProxy()) {
         AuditEvent("network.hooks", "skipped", "command-line-proxy-authoritative");
     } else {
