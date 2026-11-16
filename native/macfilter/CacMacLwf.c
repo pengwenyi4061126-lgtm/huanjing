@@ -37,8 +37,6 @@
 typedef struct _CAC_MAC_FILTER_CTX {
     NDIS_HANDLE NdisFilterHandle;
     BOOLEAN Running;
-    NDIS_EVENT PauseEvent;
-    volatile LONG Outstanding;
 } CAC_MAC_FILTER_CTX;
 
 static NDIS_HANDLE g_FilterDriverHandle = NULL;
@@ -53,16 +51,6 @@ static ULONG g_OidRewrites = 0;
 static ULONG g_Attached = 0;
 static ULONG g_Detached = 0;
 static ULONG g_RegisterStatus = 0xFFFFFFFFu;
-
-static VOID
-CacMacMaybeSetPauseEvent(
-    _In_ CAC_MAC_FILTER_CTX *Context
-    )
-{
-    if (NdisInterlockedDecrement(&Context->Outstanding) == 0) {
-        NdisSetEvent(&Context->PauseEvent);
-    }
-}
 
 static NDIS_STATUS
 CacMacFilterAttach(
@@ -85,7 +73,6 @@ CacMacFilterAttach(
     }
     NdisZeroMemory(context, sizeof(*context));
     context->NdisFilterHandle = NdisFilterHandle;
-    NdisInitializeEvent(&context->PauseEvent);
 
     NdisZeroMemory(&attributes, sizeof(attributes));
     attributes.Header.Revision = NDIS_FILTER_ATTRIBUTES_REVISION_1;
@@ -134,18 +121,16 @@ CacMacFilterPause(
     )
 {
     CAC_MAC_FILTER_CTX *context = (CAC_MAC_FILTER_CTX *)FilterModuleContext;
-    NDIS_STATUS status;
 
     UNREFERENCED_PARAMETER(PauseParameters);
     context->Running = FALSE;
-    if (context->Outstanding == 0) {
-        NdisSetEvent(&context->PauseEvent);
-    } else {
-        NdisResetEvent(&context->PauseEvent);
-    }
-    status = NdisWaitEvent(&context->PauseEvent, 0);
-    return status == NDIS_STATUS_SUCCESS ? NDIS_STATUS_SUCCESS
-                                         : NDIS_STATUS_FAILURE;
+
+    /*
+     * FILTER_PAUSE must never fail.  This filter does not queue, originate
+     * or meaningfully modify NBLs, so there is no private work to drain.
+     * NDIS owns the pass-through lifetime; returning SUCCESS is correct.
+     */
+    return NDIS_STATUS_SUCCESS;
 }
 
 static NDIS_STATUS
@@ -155,8 +140,37 @@ CacMacFilterOidRequest(
     )
 {
     CAC_MAC_FILTER_CTX *context = (CAC_MAC_FILTER_CTX *)FilterModuleContext;
+    NDIS_OID oid;
 
-    /* EXPERIMENT 2: pure pass-through, no counters, no state changes. */
+    if (OidRequest->RequestType == NdisRequestQueryInformation) {
+        oid = OidRequest->DATA.QUERY_INFORMATION.Oid;
+        if (oid == OID_802_3_CURRENT_ADDRESS ||
+            oid == OID_802_11_MAC_ADDRESS ||
+            oid == OID_802_11_PERMANENT_ADDRESS) {
+            if (OidRequest->DATA.QUERY_INFORMATION.InformationBuffer != NULL &&
+                OidRequest->DATA.QUERY_INFORMATION.InformationBufferLength >= 6) {
+                KIRQL irql;
+
+                NdisInterlockedIncrement((PLONG)&g_OidSeen);
+                KeAcquireSpinLock(&g_MacLock, &irql);
+                NdisMoveMemory(
+                    OidRequest->DATA.QUERY_INFORMATION.InformationBuffer,
+                    g_Mac,
+                    6);
+                KeReleaseSpinLock(&g_MacLock, irql);
+                OidRequest->DATA.QUERY_INFORMATION.BytesWritten = 6;
+                OidRequest->DATA.QUERY_INFORMATION.BytesNeeded = 6;
+                NdisInterlockedIncrement((PLONG)&g_OidRewrites);
+                return NDIS_STATUS_SUCCESS;
+            }
+
+            OidRequest->DATA.QUERY_INFORMATION.BytesWritten = 0;
+            OidRequest->DATA.QUERY_INFORMATION.BytesNeeded = 6;
+            return NDIS_STATUS_INVALID_LENGTH;
+        }
+    }
+
+    NdisInterlockedIncrement((PLONG)&g_OidSeen);
     return NdisFOidRequest(context->NdisFilterHandle, OidRequest);
 }
 
@@ -169,8 +183,6 @@ CacMacFilterOidRequestComplete(
 {
     CAC_MAC_FILTER_CTX *context = (CAC_MAC_FILTER_CTX *)FilterModuleContext;
 
-    UNREFERENCED_PARAMETER(Status);
-    /* EXPERIMENT 2: no counters, no rewrite, no pause-sync. */
     NdisFOidRequestComplete(
         context->NdisFilterHandle, OidRequest, Status);
 }
@@ -185,7 +197,21 @@ CacMacFilterSendNetBufferLists(
 {
     CAC_MAC_FILTER_CTX *context = (CAC_MAC_FILTER_CTX *)FilterModuleContext;
 
-    NdisInterlockedIncrement(&context->Outstanding);
+    if (!context->Running) {
+        PNET_BUFFER_LIST current = NetBufferLists;
+        ULONG completeFlags = NDIS_TEST_SEND_AT_DISPATCH_LEVEL(SendFlags)
+            ? NDIS_SEND_COMPLETE_FLAGS_DISPATCH_LEVEL
+            : 0;
+
+        while (current != NULL) {
+            NET_BUFFER_LIST_STATUS(current) = NDIS_STATUS_PAUSED;
+            current = NET_BUFFER_LIST_NEXT_NBL(current);
+        }
+        NdisFSendNetBufferListsComplete(
+            context->NdisFilterHandle, NetBufferLists, completeFlags);
+        return;
+    }
+
     NdisFSendNetBufferLists(
         context->NdisFilterHandle, NetBufferLists, PortNumber, SendFlags);
 }
@@ -199,9 +225,8 @@ CacMacFilterSendNetBufferListsComplete(
 {
     CAC_MAC_FILTER_CTX *context = (CAC_MAC_FILTER_CTX *)FilterModuleContext;
 
-    UNREFERENCED_PARAMETER(NetBufferLists);
-    UNREFERENCED_PARAMETER(SendCompleteFlags);
-    CacMacMaybeSetPauseEvent(context);
+    NdisFSendNetBufferListsComplete(
+        context->NdisFilterHandle, NetBufferLists, SendCompleteFlags);
 }
 
 static VOID
@@ -215,7 +240,20 @@ CacMacFilterReceiveNetBufferLists(
 {
     CAC_MAC_FILTER_CTX *context = (CAC_MAC_FILTER_CTX *)FilterModuleContext;
 
-    NdisInterlockedIncrement(&context->Outstanding);
+    if (!context->Running) {
+        if (NDIS_TEST_RECEIVE_CAN_PEND(ReceiveFlags)) {
+            ULONG returnFlags = 0;
+
+            if (NDIS_TEST_RECEIVE_AT_DISPATCH_LEVEL(ReceiveFlags)) {
+                NDIS_SET_RETURN_FLAG(
+                    returnFlags, NDIS_RETURN_FLAGS_DISPATCH_LEVEL);
+            }
+            NdisFReturnNetBufferLists(
+                context->NdisFilterHandle, NetBufferLists, returnFlags);
+        }
+        return;
+    }
+
     NdisFIndicateReceiveNetBufferLists(
         context->NdisFilterHandle, NetBufferLists, PortNumber,
         NumberOfNetBufferLists, ReceiveFlags);
@@ -230,9 +268,8 @@ CacMacFilterReturnNetBufferLists(
 {
     CAC_MAC_FILTER_CTX *context = (CAC_MAC_FILTER_CTX *)FilterModuleContext;
 
-    UNREFERENCED_PARAMETER(NetBufferLists);
-    UNREFERENCED_PARAMETER(ReturnFlags);
-    CacMacMaybeSetPauseEvent(context);
+    NdisFReturnNetBufferLists(
+        context->NdisFilterHandle, NetBufferLists, ReturnFlags);
 }
 
 static VOID
@@ -392,19 +429,8 @@ DriverEntry(
     characteristics.DetachHandler = CacMacFilterDetach;
     characteristics.RestartHandler = CacMacFilterRestart;
     characteristics.PauseHandler = CacMacFilterPause;
-    /*
-     * EXPERIMENT 1: do not participate in the OID path at all.
-     * NDIS passes OID requests through filters with NULL OidRequest /
-     * OidRequestComplete handlers. If the wfplwfs OID_PNP_SET_POWER
-     * completion crash disappears, our OID participation is the trigger.
-     */
-    /*
-     * EXPERIMENT 3 (control): NULL OID handlers + NIC power cycle.
-     * If this survives the same NIC disable/enable that crashed exp2,
-     * OID participation is conclusively the trigger.
-     */
-    characteristics.OidRequestHandler = NULL;
-    characteristics.OidRequestCompleteHandler = NULL;
+    characteristics.OidRequestHandler = CacMacFilterOidRequest;
+    characteristics.OidRequestCompleteHandler = CacMacFilterOidRequestComplete;
     characteristics.SendNetBufferListsHandler =
         CacMacFilterSendNetBufferLists;
     characteristics.SendNetBufferListsCompleteHandler =
