@@ -17,9 +17,12 @@
 #include <devguid.h>
 #include <netioapi.h>
 #include <psapi.h>
+#include <tbs.h>
 
 #include <cstdint>
 #include <atomic>
+#include <cctype>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
@@ -37,6 +40,12 @@
 
 extern "C" void GoCpuidDetour();
 extern "C" void GoXgetbvDetour();
+
+bool NativeFirmwareHideAcpi();
+bool NativeIsVirtualDriverName(const char* name);
+bool NativeModuleFilterEnabled();
+bool NativeSmbiosPatchEnabled();
+bool NativeHardwareHooksEnabled();
 
 namespace {
 
@@ -206,7 +215,22 @@ void ClearAdapterMac(PIP_ADAPTER_INFO adapter) {
 typedef ULONG (WINAPI* PFN_GetAdaptersAddresses)(ULONG, ULONG, PVOID, PIP_ADAPTER_ADDRESSES, PULONG);
 typedef DWORD (WINAPI* PFN_GetAdaptersInfo)(PIP_ADAPTER_INFO, PULONG);
 typedef BOOL (WINAPI* PFN_GetVolumeInformationW)(LPCWSTR, LPWSTR, DWORD, LPDWORD, LPDWORD, LPDWORD, LPWSTR, DWORD);
+typedef BOOL (WINAPI* PFN_GlobalMemoryStatusEx)(LPMEMORYSTATUSEX);
+typedef BOOL (WINAPI* PFN_GetPhysicallyInstalledSystemMemory)(PULONGLONG);
+typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExW)(LPCWSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
+typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExA)(LPCSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
+typedef void (WINAPI* PFN_GetSystemInfo)(LPSYSTEM_INFO);
+typedef void (WINAPI* PFN_GetNativeSystemInfo)(LPSYSTEM_INFO);
+typedef BOOL (WINAPI* PFN_EnumDisplayDevicesW)(LPCWSTR, DWORD, PDISPLAY_DEVICEW, DWORD);
+typedef BOOL (WINAPI* PFN_EnumDisplaySettingsW)(LPCWSTR, DWORD, PDEVMODEW);
+typedef BOOL (WINAPI* PFN_GetMonitorInfoW)(HMONITOR, LPMONITORINFO);
+typedef TBS_RESULT (WINAPI* PFN_Tbsi_Context_Create)(PCTBS_CONTEXT_PARAMS, PTBS_HCONTEXT);
+typedef TBS_RESULT (WINAPI* PFN_Tbsip_Submit_Command)(TBS_HCONTEXT, TBS_COMMAND_LOCALITY,
+                                                     TBS_COMMAND_PRIORITY, PCBYTE, UINT32,
+                                                     PBYTE, PUINT32);
+typedef TBS_RESULT (WINAPI* PFN_Tbsi_Get_TCG_Log)(TBS_HCONTEXT, PBYTE, PUINT32);
 typedef UINT (WINAPI* PFN_GetSystemFirmwareTable)(DWORD, DWORD, PVOID, DWORD);
+typedef UINT (WINAPI* PFN_EnumSystemFirmwareTables)(DWORD, PVOID, DWORD);
 typedef NTSTATUS (NTAPI* PFN_NtQuerySystemInformation)(ULONG, PVOID, ULONG, PULONG);
 typedef BOOL (WINAPI* PFN_DeviceIoControl)(HANDLE, DWORD, LPVOID, DWORD, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 typedef BOOL (WINAPI* PFN_GetComputerNameW)(LPWSTR, LPDWORD);
@@ -236,13 +260,27 @@ typedef NETIO_STATUS (WINAPI* PFN_GetIfEntry2)(PMIB_IF_ROW2);
 typedef DWORD (WINAPI* PFN_GetIfTable)(PMIB_IFTABLE, PULONG, BOOL);
 typedef LSTATUS (WINAPI* PFN_RegEnumValueW)(HKEY, DWORD, LPWSTR, LPDWORD, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
 typedef BOOL (WINAPI* PFN_EnumDeviceDrivers)(LPVOID*, DWORD, LPDWORD);
+typedef DWORD (WINAPI* PFN_GetDeviceDriverBaseNameW)(LPVOID, LPWSTR, DWORD);
 typedef HDEVINFO (WINAPI* PFN_SetupDiGetClassDevsW)(const GUID*, PCWSTR, HWND, DWORD);
 typedef HANDLE (WINAPI* PFN_CreateFileW)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 
 PFN_GetAdaptersAddresses g_origGetAdaptersAddresses = nullptr;
 PFN_GetAdaptersInfo g_origGetAdaptersInfo = nullptr;
 PFN_GetVolumeInformationW g_origGetVolumeInformation = nullptr;
+PFN_GlobalMemoryStatusEx g_origGlobalMemoryStatusEx = nullptr;
+PFN_GetPhysicallyInstalledSystemMemory g_origGetPhysicallyInstalledSystemMemory = nullptr;
+PFN_GetDiskFreeSpaceExW g_origGetDiskFreeSpaceExW = nullptr;
+PFN_GetDiskFreeSpaceExA g_origGetDiskFreeSpaceExA = nullptr;
+PFN_GetSystemInfo g_origGetSystemInfo = nullptr;
+PFN_GetNativeSystemInfo g_origGetNativeSystemInfo = nullptr;
+PFN_EnumDisplayDevicesW g_origEnumDisplayDevices = nullptr;
+PFN_EnumDisplaySettingsW g_origEnumDisplaySettings = nullptr;
+PFN_GetMonitorInfoW g_origGetMonitorInfo = nullptr;
+PFN_Tbsi_Context_Create g_origTbsiContextCreate = nullptr;
+PFN_Tbsip_Submit_Command g_origTbsipSubmitCommand = nullptr;
+PFN_Tbsi_Get_TCG_Log g_origTbsiGetTcgLog = nullptr;
 PFN_GetSystemFirmwareTable g_origGetSystemFirmwareTable = nullptr;
+PFN_EnumSystemFirmwareTables g_origEnumSystemFirmwareTables = nullptr;
 PFN_NtQuerySystemInformation g_origNtQuerySystemInformation = nullptr;
 PFN_DeviceIoControl g_origDeviceIoControl = nullptr;
 PFN_GetComputerNameW g_origGetComputerName = nullptr;
@@ -263,6 +301,7 @@ PFN_GetIfEntry2 g_origGetIfEntry2 = nullptr;
 PFN_GetIfTable g_origGetIfTable = nullptr;
 PFN_RegEnumValueW g_origRegEnumValue = nullptr;
 PFN_EnumDeviceDrivers g_origEnumDeviceDrivers = nullptr;
+PFN_GetDeviceDriverBaseNameW g_getDeviceDriverBaseName = nullptr;
 PFN_SetupDiGetClassDevsW g_origSetupDiGetClassDevs = nullptr;
 PFN_CreateFileW g_origCreateFile = nullptr;
 PFN_CreateFileA g_origCreateFileA = nullptr;
@@ -295,7 +334,27 @@ struct FirmwareTableInfo {
     UCHAR TableBuffer[1];
 };
 
+struct SystemModuleEntry {
+    HANDLE Section;
+    PVOID MappedBase;
+    PVOID ImageBase;
+    ULONG ImageSize;
+    ULONG Flags;
+    USHORT LoadOrderIndex;
+    USHORT InitOrderIndex;
+    USHORT LoadCount;
+    USHORT OffsetToFileName;
+    UCHAR FullPathName[256];
+};
+
+struct SystemModuleInformation {
+    ULONG Count;
+    SystemModuleEntry Modules[1];
+};
+
 constexpr DWORD kRsmbSignature = 0x52534D42;  // 'RSMB'
+constexpr DWORD kAcpiSignature = 0x41435049;  // 'ACPI'
+constexpr DWORD kFirmSignature = 0x4649524D;  // 'FIRM'
 
 #ifndef IOCTL_SMART_RECEIVE_DRIVE_DATA
 #define IOCTL_SMART_RECEIVE_DRIVE_DATA 0x0007C088
@@ -354,6 +413,22 @@ bool GetRegistrySpoofValue(const wchar_t* name, std::wstring& value) {
     if (_wcsicmp(name, L"ProcessorNameString") == 0) { value = L"Generic x64 Processor"; return true; }
     if (_wcsicmp(name, L"VendorIdentifier") == 0) { value = L"GenuineIntel"; return true; }
     if (_wcsicmp(name, L"Identifier") == 0) { value = L"x86 Family 6 Model 0 Stepping 0"; return true; }
+    if (_wcsicmp(name, L"DriverVersion") == 0) { value = Utf8ToWide(identity.gpuDriverVersion); return true; }
+    if (_wcsicmp(name, L"VideoProcessor") == 0 ||
+        _wcsicmp(name, L"HardwareInformation.AdapterString") == 0 ||
+        _wcsicmp(name, L"HardwareInformation.ChipType") == 0 ||
+        _wcsicmp(name, L"HardwareInformation.DacType") == 0) {
+        value = Utf8ToWide(identity.gpuName);
+        return true;
+    }
+    if (_wcsicmp(name, L"HardwareInformation.BiosString") == 0) {
+        value = L"1.0";
+        return true;
+    }
+    if (_wcsicmp(name, L"MonitorID") == 0 || _wcsicmp(name, L"MonitorName") == 0) {
+        value = Utf8ToWide(identity.monitorName);
+        return true;
+    }
     return false;
 }
 
@@ -388,6 +463,61 @@ LSTATUS ReturnRegistryDword(DWORD value, LPDWORD type, PVOID data, LPDWORD size)
     *reinterpret_cast<DWORD*>(data) = value;
     *size = sizeof(DWORD);
     return ERROR_SUCCESS;
+}
+
+LSTATUS ReturnRegistryBinary(const BYTE* value, DWORD length, LPDWORD type, PVOID data,
+                             LPDWORD size) {
+    if (type) *type = REG_BINARY;
+    if (!size) return ERROR_INVALID_PARAMETER;
+    if (!data) {
+        *size = length;
+        return ERROR_SUCCESS;
+    }
+    if (*size < length) {
+        *size = length;
+        return ERROR_MORE_DATA;
+    }
+    std::memcpy(data, value, length);
+    *size = length;
+    return ERROR_SUCCESS;
+}
+
+void FillEdidDescriptor(BYTE* descriptor, BYTE tag, const std::string& text) {
+    std::memset(descriptor, 0, 18);
+    descriptor[3] = tag;
+    const size_t count = text.size() < 13 ? text.size() : 12;
+    std::memcpy(descriptor + 5, text.data(), count);
+    for (size_t i = 5 + count; i < 17; ++i) descriptor[i] = 0x20;
+    descriptor[17] = 0x0A;
+}
+
+void BuildSyntheticEdid(BYTE edid[128]) {
+    static const BYTE base[128] = {
+        0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00,0x1C,0xAE,0x34,0x12,0x01,0x00,0x00,0x00,
+        0x01,0x22,0x01,0x03,0x80,0x34,0x20,0x78,0x0A,0xEE,0x95,0xA3,0x54,0x4C,0x99,0x26,
+        0x0F,0x50,0x54,0x00,0x00,0x00,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,
+        0x01,0x01,0x01,0x01,0x01,0x01,0x02,0x3A,0x80,0x18,0x71,0x38,0x2D,0x40,0x58,0x2C,
+        0x45,0x00,0x09,0x25,0x21,0x00,0x00,0x1E,0x00,0x00,0x00,0xFC,0x00,0x47,0x65,0x6E,
+        0x65,0x72,0x69,0x63,0x20,0x4D,0x6F,0x6E,0x69,0x0A,0x00,0x00,0x00,0xFF,0x00,0x53,
+        0x45,0x52,0x49,0x41,0x4C,0x20,0x20,0x20,0x20,0x20,0x20,0x0A,0x00,0x00,0x00,0x10,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,
+    };
+    std::memcpy(edid, base, sizeof(base));
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    const std::string name = identity.monitorName.size() > 12
+        ? identity.monitorName.substr(0, 12) : identity.monitorName;
+    const std::string serial = identity.monitorSerial.size() > 12
+        ? identity.monitorSerial.substr(0, 12) : identity.monitorSerial;
+    FillEdidDescriptor(edid + 72, 0xFC, name);
+    FillEdidDescriptor(edid + 90, 0xFF, serial);
+    edid[12] = static_cast<BYTE>(identity.volumeSerial);
+    edid[13] = static_cast<BYTE>(identity.volumeSerial >> 8);
+    edid[14] = static_cast<BYTE>(identity.volumeSerial >> 16);
+    edid[15] = static_cast<BYTE>(identity.volumeSerial >> 24);
+    edid[127] = 0;
+    BYTE sum = 0;
+    for (int i = 0; i < 127; ++i) sum = static_cast<BYTE>(sum + edid[i]);
+    edid[127] = static_cast<BYTE>(0x100 - sum);
 }
 
 bool IsProxyRegistryValue(const wchar_t* name, bool& dwordValue) {
@@ -467,6 +597,14 @@ BOOL WINAPI HookGetUserNameW(LPWSTR buffer, LPDWORD size) {
 
 LSTATUS WINAPI HookRegGetValueW(HKEY key, LPCWSTR subKey, LPCWSTR valueName, DWORD flags,
                                 LPDWORD type, PVOID data, LPDWORD size) {
+    if (NativeHardwareHooksEnabled() && valueName &&
+        (_wcsicmp(valueName, L"EDID") == 0 ||
+                      _wcsicmp(valueName, L"EDID_OVERRIDE") == 0)) {
+        BYTE edid[128] = {};
+        BuildSyntheticEdid(edid);
+        AuditEventRateLimited("api.reggetvalue.edid", "patched");
+        return ReturnRegistryBinary(edid, sizeof(edid), type, data, size);
+    }
     bool proxyDword = false;
     if (NativeCleanNetworkEnabled() && IsProxyRegistryValue(valueName, proxyDword)) {
         AuditEventRateLimited("api.reggetvalue.proxy", "empty");
@@ -485,6 +623,14 @@ LSTATUS WINAPI HookRegGetValueW(HKEY key, LPCWSTR subKey, LPCWSTR valueName, DWO
 
 LSTATUS WINAPI HookRegQueryValueExW(HKEY key, LPCWSTR valueName, LPDWORD reserved,
                                     LPDWORD type, LPBYTE data, LPDWORD size) {
+    if (NativeHardwareHooksEnabled() && valueName &&
+        (_wcsicmp(valueName, L"EDID") == 0 ||
+                      _wcsicmp(valueName, L"EDID_OVERRIDE") == 0)) {
+        BYTE edid[128] = {};
+        BuildSyntheticEdid(edid);
+        AuditEventRateLimited("api.regqueryvalue.edid", "patched");
+        return ReturnRegistryBinary(edid, sizeof(edid), type, data, size);
+    }
     bool proxyDword = false;
     if (NativeCleanNetworkEnabled() && IsProxyRegistryValue(valueName, proxyDword)) {
         AuditEventRateLimited("api.regqueryvalue.proxy", "empty");
@@ -618,9 +764,22 @@ DWORD WINAPI HookGetAdaptersInfo(PIP_ADAPTER_INFO info, PULONG size) {
     return result;
 }
 
+bool SetWideBuffer(LPWSTR buffer, DWORD cch, const std::wstring& value) {
+    if (!buffer || cch == 0) return false;
+    wcsncpy_s(buffer, cch, value.c_str(), _TRUNCATE);
+    return true;
+}
+
 BOOL WINAPI HookGetVolumeInformationW(LPCWSTR root, LPWSTR volumeName, DWORD volumeNameSize,
                                       LPDWORD serial, LPDWORD maxComponentLength, LPDWORD flags,
                                       LPWSTR fileSystemName, DWORD fileSystemNameSize) {
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origGetVolumeInformation
+            ? g_origGetVolumeInformation(root, volumeName, volumeNameSize, serial,
+                                         maxComponentLength, flags, fileSystemName,
+                                         fileSystemNameSize)
+            : FALSE;
+    }
     const BOOL result = g_origGetVolumeInformation
         ? g_origGetVolumeInformation(root, volumeName, volumeNameSize, serial, maxComponentLength, flags, fileSystemName, fileSystemNameSize)
         : FALSE;
@@ -629,14 +788,247 @@ BOOL WINAPI HookGetVolumeInformationW(LPCWSTR root, LPWSTR volumeName, DWORD vol
         if (volumeName && volumeNameSize > 0) volumeName[0] = L'\0';
         if (fileSystemName && fileSystemNameSize > 0) fileSystemName[0] = L'\0';
         AuditEventRateLimited("api.getvolumeinformation", "empty");
-    } else if (result && serial) {
-        *serial = ProfileIdentity::Get().volumeSerial;
+    } else if (result) {
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        if (serial) *serial = identity.volumeSerial;
+        SetWideBuffer(volumeName, volumeNameSize, Utf8ToWide(identity.volumeLabel));
+        SetWideBuffer(fileSystemName, fileSystemNameSize, Utf8ToWide(identity.fileSystem));
         AuditEventRateLimited("api.getvolumeinformation", "patched");
     }
     return result;
 }
 
+BOOL WINAPI HookGlobalMemoryStatusEx(LPMEMORYSTATUSEX status) {
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origGlobalMemoryStatusEx ? g_origGlobalMemoryStatusEx(status) : FALSE;
+    }
+    const BOOL result = g_origGlobalMemoryStatusEx ? g_origGlobalMemoryStatusEx(status) : FALSE;
+    if (result && status) {
+        if (status->dwLength < sizeof(MEMORYSTATUSEX)) {
+            AuditEventRateLimited("api.globalmemorystatusex", "small-struct");
+            return result;
+        }
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        const ULONGLONG total = identity.memoryTotalMb * 1024ULL * 1024ULL;
+        const ULONGLONG available = identity.memoryAvailableMb * 1024ULL * 1024ULL;
+        status->ullTotalPhys = total;
+        status->ullAvailPhys = available;
+        status->ullTotalPageFile = total + total / 2;
+        status->ullAvailPageFile = available + available / 2;
+        status->dwMemoryLoad = total
+            ? static_cast<DWORD>(((total - available) * 100) / total)
+            : 0;
+        AuditEventRateLimited("api.globalmemorystatusex", "patched");
+    }
+    return result;
+}
+
+BOOL WINAPI HookGetPhysicallyInstalledSystemMemory(PULONGLONG memoryInKilobytes) {
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origGetPhysicallyInstalledSystemMemory
+            ? g_origGetPhysicallyInstalledSystemMemory(memoryInKilobytes)
+            : FALSE;
+    }
+    const BOOL result = g_origGetPhysicallyInstalledSystemMemory
+        ? g_origGetPhysicallyInstalledSystemMemory(memoryInKilobytes)
+        : FALSE;
+    if (result && memoryInKilobytes) {
+        *memoryInKilobytes = ProfileIdentity::Get().memoryTotalMb * 1024ULL;
+        AuditEventRateLimited("api.physicallyinstalledmemory", "patched");
+    }
+    return result;
+}
+
+BOOL WINAPI HookGetDiskFreeSpaceExW(LPCWSTR directory, PULARGE_INTEGER freeBytesAvailable,
+                                    PULARGE_INTEGER totalBytes, PULARGE_INTEGER totalFreeBytes) {
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origGetDiskFreeSpaceExW
+            ? g_origGetDiskFreeSpaceExW(directory, freeBytesAvailable, totalBytes, totalFreeBytes)
+            : FALSE;
+    }
+    const BOOL result = g_origGetDiskFreeSpaceExW
+        ? g_origGetDiskFreeSpaceExW(directory, freeBytesAvailable, totalBytes, totalFreeBytes)
+        : FALSE;
+    if (result) {
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        const ULONGLONG total = identity.diskTotalGb * 1024ULL * 1024ULL * 1024ULL;
+        const ULONGLONG free = identity.diskFreeGb * 1024ULL * 1024ULL * 1024ULL;
+        if (freeBytesAvailable) freeBytesAvailable->QuadPart = free;
+        if (totalBytes) totalBytes->QuadPart = total;
+        if (totalFreeBytes) totalFreeBytes->QuadPart = free;
+        AuditEventRateLimited("api.getdiskfreespaceex", "patched");
+    }
+    return result;
+}
+
+BOOL WINAPI HookGetDiskFreeSpaceExA(LPCSTR directory, PULARGE_INTEGER freeBytesAvailable,
+                                    PULARGE_INTEGER totalBytes, PULARGE_INTEGER totalFreeBytes) {
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origGetDiskFreeSpaceExA
+            ? g_origGetDiskFreeSpaceExA(directory, freeBytesAvailable, totalBytes, totalFreeBytes)
+            : FALSE;
+    }
+    const BOOL result = g_origGetDiskFreeSpaceExA
+        ? g_origGetDiskFreeSpaceExA(directory, freeBytesAvailable, totalBytes, totalFreeBytes)
+        : FALSE;
+    if (result) {
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        const ULONGLONG total = identity.diskTotalGb * 1024ULL * 1024ULL * 1024ULL;
+        const ULONGLONG free = identity.diskFreeGb * 1024ULL * 1024ULL * 1024ULL;
+        if (freeBytesAvailable) freeBytesAvailable->QuadPart = free;
+        if (totalBytes) totalBytes->QuadPart = total;
+        if (totalFreeBytes) totalFreeBytes->QuadPart = free;
+        AuditEventRateLimited("api.getdiskfreespaceexa", "patched");
+    }
+    return result;
+}
+
+void WINAPI HookGetSystemInfo(LPSYSTEM_INFO info) {
+    if (!NativeHardwareHooksEnabled()) {
+        if (g_origGetSystemInfo) g_origGetSystemInfo(info);
+        return;
+    }
+    if (g_origGetSystemInfo) g_origGetSystemInfo(info);
+    if (info) {
+        info->dwNumberOfProcessors = ProfileIdentity::Get().cpuLogical;
+        info->dwActiveProcessorMask = info->dwNumberOfProcessors >= 32
+            ? 0xFFFFFFFFu
+            : ((1u << info->dwNumberOfProcessors) - 1u);
+        AuditEventRateLimited("api.getsysteminfo", "patched");
+    }
+}
+
+void WINAPI HookGetNativeSystemInfo(LPSYSTEM_INFO info) {
+    if (!NativeHardwareHooksEnabled()) {
+        if (g_origGetNativeSystemInfo) g_origGetNativeSystemInfo(info);
+        return;
+    }
+    if (g_origGetNativeSystemInfo) g_origGetNativeSystemInfo(info);
+    if (info) {
+        info->dwNumberOfProcessors = ProfileIdentity::Get().cpuLogical;
+        info->dwActiveProcessorMask = info->dwNumberOfProcessors >= 32
+            ? 0xFFFFFFFFu
+            : ((1u << info->dwNumberOfProcessors) - 1u);
+        AuditEventRateLimited("api.getnativesysteminfo", "patched");
+    }
+}
+
+BOOL WINAPI HookEnumDisplayDevicesW(LPCWSTR device, DWORD deviceIndex,
+                                    PDISPLAY_DEVICEW displayDevice, DWORD flags) {
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origEnumDisplayDevices
+            ? g_origEnumDisplayDevices(device, deviceIndex, displayDevice, flags)
+            : FALSE;
+    }
+    const BOOL result = g_origEnumDisplayDevices
+        ? g_origEnumDisplayDevices(device, deviceIndex, displayDevice, flags)
+        : FALSE;
+    if (result && displayDevice && displayDevice->cb >= sizeof(DISPLAY_DEVICEW)) {
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        const std::wstring name = deviceIndex == 0
+            ? Utf8ToWide(identity.gpuName)
+            : Utf8ToWide(identity.monitorName);
+        SetWideBuffer(displayDevice->DeviceName, _countof(displayDevice->DeviceName),
+                      L"\\\\.\\DISPLAY1");
+        SetWideBuffer(displayDevice->DeviceString, _countof(displayDevice->DeviceString), name);
+        SetWideBuffer(displayDevice->DeviceID, _countof(displayDevice->DeviceID),
+                      deviceIndex == 0 ? L"PCI\\VEN_8086&DEV_0000"
+                                       : L"MONITOR\\GEN0000");
+        SetWideBuffer(displayDevice->DeviceKey, _countof(displayDevice->DeviceKey),
+                      L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Video\\{00000000-0000-0000-0000-000000000000}\\0000");
+        AuditEventRateLimited("api.enumdisplaydevices", "patched");
+    }
+    return result;
+}
+
+BOOL WINAPI HookEnumDisplaySettingsW(LPCWSTR deviceName, DWORD modeNumber,
+                                     PDEVMODEW devMode) {
+    const BOOL result = g_origEnumDisplaySettings
+        ? g_origEnumDisplaySettings(deviceName, modeNumber, devMode)
+        : FALSE;
+    if (result && devMode) {
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        SetWideBuffer(devMode->dmDeviceName, CCHDEVICENAME, L"Generic Display");
+        devMode->dmBitsPerPel = 32;
+        devMode->dmPelsWidth = identity.displayWidth;
+        devMode->dmPelsHeight = identity.displayHeight;
+        devMode->dmDisplayFrequency = identity.displayRefresh;
+        devMode->dmDisplayFlags = 0;
+        AuditEventRateLimited("api.enumdisplaysettings", "patched");
+    }
+    return result;
+}
+
+BOOL WINAPI HookGetMonitorInfoW(HMONITOR monitor, LPMONITORINFO info) {
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origGetMonitorInfo ? g_origGetMonitorInfo(monitor, info) : FALSE;
+    }
+    const BOOL result = g_origGetMonitorInfo ? g_origGetMonitorInfo(monitor, info) : FALSE;
+    if (result && info) {
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        if (info->cbSize >= sizeof(MONITORINFO)) {
+            info->rcMonitor.left = 0;
+            info->rcMonitor.top = 0;
+            info->rcMonitor.right = static_cast<LONG>(identity.displayWidth);
+            info->rcMonitor.bottom = static_cast<LONG>(identity.displayHeight);
+            info->rcWork = info->rcMonitor;
+            info->dwFlags = MONITORINFOF_PRIMARY;
+        }
+        if (info->cbSize >= sizeof(MONITORINFOEXW)) {
+            MONITORINFOEXW* extended = reinterpret_cast<MONITORINFOEXW*>(info);
+            SetWideBuffer(extended->szDevice, CCHDEVICENAME, L"\\\\.\\DISPLAY1");
+        }
+        AuditEventRateLimited("api.getmonitorinfo", "patched");
+    }
+    return result;
+}
+
+constexpr TBS_RESULT kTpmDeviceNotFound = 0x80280000L;
+
+TBS_RESULT WINAPI HookTbsiContextCreate(PCTBS_CONTEXT_PARAMS contextParams,
+                                        PTBS_HCONTEXT context) {
+    if (!ProfileIdentity::Get().tpmPresent) {
+        if (context) *context = nullptr;
+        AuditEventRateLimited("api.tbs.context", "hidden");
+        return kTpmDeviceNotFound;
+    }
+    return g_origTbsiContextCreate
+        ? g_origTbsiContextCreate(contextParams, context)
+        : kTpmDeviceNotFound;
+}
+
+TBS_RESULT WINAPI HookTbsipSubmitCommand(TBS_HCONTEXT context, TBS_COMMAND_LOCALITY locality,
+                                         TBS_COMMAND_PRIORITY priority, PCBYTE command,
+                                         UINT32 commandSize, PBYTE result, PUINT32 resultSize) {
+    if (!ProfileIdentity::Get().tpmPresent) {
+        if (resultSize) *resultSize = 0;
+        AuditEventRateLimited("api.tbs.command", "hidden");
+        return kTpmDeviceNotFound;
+    }
+    return g_origTbsipSubmitCommand
+        ? g_origTbsipSubmitCommand(context, locality, priority, command, commandSize,
+                                   result, resultSize)
+        : kTpmDeviceNotFound;
+}
+
+TBS_RESULT WINAPI HookTbsiGetTcgLog(TBS_HCONTEXT context, PBYTE output, PUINT32 outputSize) {
+    if (!ProfileIdentity::Get().tpmPresent) {
+        if (outputSize) *outputSize = 0;
+        AuditEventRateLimited("api.tbs.log", "hidden");
+        return kTpmDeviceNotFound;
+    }
+    return g_origTbsiGetTcgLog
+        ? g_origTbsiGetTcgLog(context, output, outputSize)
+        : kTpmDeviceNotFound;
+}
+
 UINT WINAPI HookGetSystemFirmwareTable(DWORD signature, DWORD tableId, PVOID buffer, DWORD bufferSize) {
+    if (NativeHardwareHooksEnabled() && NativeFirmwareHideAcpi() &&
+        (signature == kAcpiSignature || signature == kFirmSignature)) {
+        (void)tableId; (void)buffer; (void)bufferSize;
+        AuditEventRateLimited("api.firmware.hidden", "hidden", nullptr, signature, true);
+        return 0;
+    }
     if (EmptyReadsEnabled()) {
         (void)tableId; (void)buffer; (void)bufferSize;
         AuditEventRateLimited("api.firmware", "empty", nullptr, signature, true);
@@ -645,10 +1037,44 @@ UINT WINAPI HookGetSystemFirmwareTable(DWORD signature, DWORD tableId, PVOID buf
     const UINT result = g_origGetSystemFirmwareTable
         ? g_origGetSystemFirmwareTable(signature, tableId, buffer, bufferSize)
         : 0;
-    if (result > 0 && buffer && result <= bufferSize && signature == kRsmbSignature) {
+    if (result > 0 && buffer && result <= bufferSize && signature == kRsmbSignature &&
+        NativeSmbiosPatchEnabled()) {
         PatchSmbiosAndAudit(static_cast<BYTE*>(buffer), result);
     }
     return result;
+}
+
+UINT WINAPI HookEnumSystemFirmwareTables(DWORD provider, PVOID buffer, DWORD size) {
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origEnumSystemFirmwareTables
+            ? g_origEnumSystemFirmwareTables(provider, buffer, size)
+            : 0;
+    }
+    if (!g_origEnumSystemFirmwareTables) return 0;
+    if (NativeFirmwareHideAcpi() && (provider == kAcpiSignature || provider == kFirmSignature)) {
+        AuditEventRateLimited("api.enumfirmware.hidden", "hidden", nullptr, provider, true);
+        return 0;
+    }
+    const UINT needed = g_origEnumSystemFirmwareTables(provider, nullptr, 0);
+    if (needed == 0) return 0;
+    std::vector<DWORD> signatures(needed / sizeof(DWORD));
+    const UINT read = g_origEnumSystemFirmwareTables(provider, signatures.data(), needed);
+    if (read == 0) return 0;
+    UINT kept = 0;
+    for (UINT i = 0; i < read / sizeof(DWORD); ++i) {
+        const DWORD signature = signatures[i];
+        if (NativeFirmwareHideAcpi() &&
+            (signature == kAcpiSignature || signature == kFirmSignature)) {
+            continue;
+        }
+        signatures[kept++] = signature;
+    }
+    const UINT bytes = kept * sizeof(DWORD);
+    if (!buffer) return bytes;
+    if (size < bytes) return bytes;
+    std::memcpy(buffer, signatures.data(), bytes);
+    AuditEventRateLimited("api.enumfirmware", "filtered", nullptr, bytes, true);
+    return bytes;
 }
 
 NTSTATUS NTAPI HookNtQuerySystemInformation(ULONG infoClass, PVOID info, ULONG length, PULONG returnLength) {
@@ -667,7 +1093,42 @@ NTSTATUS NTAPI HookNtQuerySystemInformation(ULONG infoClass, PVOID info, ULONG l
     const NTSTATUS status = g_origNtQuerySystemInformation
         ? g_origNtQuerySystemInformation(infoClass, info, length, returnLength)
         : static_cast<NTSTATUS>(0xC0000002L);
-    if (status >= 0 && infoClass == 76 && info && length >= sizeof(FirmwareTableInfo)) {
+    if (status >= 0 && infoClass == 11 && info && length > sizeof(ULONG) &&
+        NativeModuleFilterEnabled() &&
+        !ProfileIdentity::Get().hypervisorPresent) {
+        SystemModuleInformation* modules = static_cast<SystemModuleInformation*>(info);
+        const size_t header = offsetof(SystemModuleInformation, Modules);
+        const size_t capacity = length > header ? (length - header) / sizeof(SystemModuleEntry) : 0;
+        ULONG count = modules->Count;
+        if (count > capacity) count = static_cast<ULONG>(capacity);
+        ULONG kept = 0;
+        char filtered[192] = {};
+        for (ULONG i = 0; i < count; ++i) {
+            SystemModuleEntry& entry = modules->Modules[i];
+            const char* name = nullptr;
+            if (entry.OffsetToFileName < sizeof(entry.FullPathName)) {
+                name = reinterpret_cast<const char*>(entry.FullPathName + entry.OffsetToFileName);
+            }
+            if (name && NativeIsVirtualDriverName(name)) {
+                if (std::strlen(filtered) < sizeof(filtered) - 2) {
+                    strncat_s(filtered, sizeof(filtered), name, _TRUNCATE);
+                    strncat_s(filtered, sizeof(filtered), ",", _TRUNCATE);
+                }
+                continue;
+            }
+            if (kept != i) {
+                std::memmove(&modules->Modules[kept], &entry, sizeof(SystemModuleEntry));
+            }
+            ++kept;
+        }
+        modules->Count = kept;
+        if (returnLength) {
+            *returnLength = static_cast<ULONG>(header + kept * sizeof(SystemModuleEntry));
+        }
+        AuditEventRateLimited("api.ntquerysysteminformation.modules", "filtered", filtered, kept, true);
+    }
+    if (status >= 0 && infoClass == 76 && info && length >= sizeof(FirmwareTableInfo) &&
+        NativeSmbiosPatchEnabled()) {
         FirmwareTableInfo* table = static_cast<FirmwareTableInfo*>(info);
         if (table->Action == 0 && table->ProviderSignature == kRsmbSignature &&
             table->TableBufferLength > 0 && table->TableBufferLength <= length - sizeof(FirmwareTableInfo)) {
@@ -885,6 +1346,13 @@ BOOL WINAPI HookGetQueuedCompletionStatusEx(HANDLE port, LPOVERLAPPED_ENTRY entr
 BOOL WINAPI HookGetVolumeInformationByHandleW(HANDLE handle, LPWSTR volumeName, DWORD volumeNameSize,
                                               LPDWORD serial, LPDWORD maxComponentLength, LPDWORD flags,
                                               LPWSTR fileSystemName, DWORD fileSystemNameSize) {
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origGetVolumeInformationByHandle
+            ? g_origGetVolumeInformationByHandle(handle, volumeName, volumeNameSize, serial,
+                                                 maxComponentLength, flags, fileSystemName,
+                                                 fileSystemNameSize)
+            : FALSE;
+    }
     const BOOL result = g_origGetVolumeInformationByHandle
         ? g_origGetVolumeInformationByHandle(handle, volumeName, volumeNameSize, serial,
                                              maxComponentLength, flags, fileSystemName, fileSystemNameSize)
@@ -894,8 +1362,11 @@ BOOL WINAPI HookGetVolumeInformationByHandleW(HANDLE handle, LPWSTR volumeName, 
         if (volumeName && volumeNameSize > 0) volumeName[0] = L'\0';
         if (fileSystemName && fileSystemNameSize > 0) fileSystemName[0] = L'\0';
         AuditEventRateLimited("api.getvolumeinformationbyhandle", "empty");
-    } else if (result && serial) {
-        *serial = ProfileIdentity::Get().volumeSerial;
+    } else if (result) {
+        const ProfileIdentity& identity = ProfileIdentity::Get();
+        if (serial) *serial = identity.volumeSerial;
+        SetWideBuffer(volumeName, volumeNameSize, Utf8ToWide(identity.volumeLabel));
+        SetWideBuffer(fileSystemName, fileSystemNameSize, Utf8ToWide(identity.fileSystem));
         AuditEventRateLimited("api.getvolumeinformationbyhandle", "patched");
     }
     return result;
@@ -1091,7 +1562,36 @@ BOOL WINAPI HookEnumDeviceDrivers(LPVOID* imageBase, DWORD size, LPDWORD needed)
         AuditEventRateLimited("api.enumdevicedrivers", "empty");
         return TRUE;
     }
-    return g_origEnumDeviceDrivers ? g_origEnumDeviceDrivers(imageBase, size, needed) : FALSE;
+    const BOOL result = g_origEnumDeviceDrivers
+        ? g_origEnumDeviceDrivers(imageBase, size, needed)
+        : FALSE;
+    if (!result || !imageBase || !needed || !g_getDeviceDriverBaseName ||
+        !NativeModuleFilterEnabled() ||
+        ProfileIdentity::Get().hypervisorPresent) {
+        return result;
+    }
+    const DWORD required = *needed;
+    if (required == 0 || required > size || required % sizeof(LPVOID) != 0) return result;
+    const DWORD count = required / static_cast<DWORD>(sizeof(LPVOID));
+    DWORD kept = 0;
+    char filtered[192] = {};
+    for (DWORD i = 0; i < count; ++i) {
+        wchar_t name[260] = {};
+        g_getDeviceDriverBaseName(imageBase[i], name, _countof(name));
+        char narrow[260] = {};
+        WideCharToMultiByte(CP_UTF8, 0, name, -1, narrow, sizeof(narrow), nullptr, nullptr);
+        if (NativeIsVirtualDriverName(narrow)) {
+            if (std::strlen(filtered) < sizeof(filtered) - 2) {
+                strncat_s(filtered, sizeof(filtered), narrow, _TRUNCATE);
+                strncat_s(filtered, sizeof(filtered), ",", _TRUNCATE);
+            }
+            continue;
+        }
+        imageBase[kept++] = imageBase[i];
+    }
+    *needed = kept * static_cast<DWORD>(sizeof(LPVOID));
+    AuditEventRateLimited("api.enumdevicedrivers", "filtered", filtered, kept, true);
+    return result;
 }
 
 bool IsBlockedDeviceClass(const GUID* classGuid) {
@@ -1564,6 +2064,63 @@ void InstallInlineThenIat(const char* dllName, const char* functionName, void* d
     }
 }
 
+void InstallOptionalInline(const char* dllName, const char* functionName, void* detour,
+                           void** original) {
+    void* target = ResolveExport(dllName, functionName);
+    if (!target) {
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
+        AuditEvent("api.install", "optional-missing", detail);
+        return;
+    }
+    if (void* existing = HookEngine::FindTrampoline(target)) {
+        if (original) *original = existing;
+        return;
+    }
+    void* trampoline = nullptr;
+    std::string error;
+    if (HookEngine::Install(target, detour, &trampoline, &error)) {
+        if (original) *original = trampoline;
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s", dllName, functionName);
+        AuditEvent("api.install", "optional-inline", detail);
+    } else {
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s: %s", dllName, functionName, error.c_str());
+        AuditEvent("api.install", "optional-refused", detail);
+    }
+}
+
+void InstallOptionalInlineThenIat(const char* dllName, const char* functionName, void* detour,
+                                  void** original) {
+    void* target = ResolveExport(dllName, functionName);
+    if (target) {
+        if (void* existing = HookEngine::FindTrampoline(target)) {
+            if (original) *original = existing;
+        } else {
+            void* trampoline = nullptr;
+            std::string error;
+            if (HookEngine::Install(target, detour, &trampoline, &error)) {
+                if (original) *original = trampoline;
+            } else {
+                char detail[256] = {};
+                std::snprintf(detail, sizeof(detail), "%s!%s: %s", dllName, functionName,
+                              error.c_str());
+                AuditEvent("api.install", "optional-refused", detail);
+            }
+        }
+    }
+    const int iatCount = PatchAllModules(dllName, functionName, detour, original);
+    const int delayCount = PatchDelayAllModules(dllName, functionName, detour, original);
+    if (iatCount + delayCount > 0) {
+        char detail[256] = {};
+        std::snprintf(detail, sizeof(detail), "%s!%s iat=%d delay=%d", dllName, functionName,
+                      iatCount, delayCount);
+        AuditEvent("api.install", "optional-iat", detail,
+                   static_cast<unsigned long long>(iatCount + delayCount), true);
+    }
+}
+
 bool ReadManifestLines(const std::wstring& path, std::vector<std::string>& lines) {
     HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -1662,6 +2219,13 @@ bool GetCachedFileSha256(const std::wstring& path, std::string& hex) {
 }
 
 HMODULE FindModuleByPath(const std::wstring& path) {
+    wchar_t mainPath[32768] = {};
+    const DWORD mainLength =
+        GetModuleFileNameW(nullptr, mainPath, static_cast<DWORD>(_countof(mainPath)));
+    if (mainLength > 0 && mainLength < _countof(mainPath) &&
+        _wcsicmp(mainPath, path.c_str()) == 0) {
+        return GetModuleHandleW(nullptr);
+    }
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, GetCurrentProcessId());
     if (snapshot == INVALID_HANDLE_VALUE) return nullptr;
     MODULEENTRY32W entry = {};
@@ -2056,6 +2620,22 @@ bool NativeIsVirtualAdapterName(const wchar_t* name) {
     return false;
 }
 
+bool NativeIsVirtualDriverName(const char* name) {
+    if (!name || !*name) return false;
+    static const char* const markers[] = {
+        "vmcompute", "vmbus", "hvservice", "hvix64", "hvax64", "winhvr",
+        "vmbusr", "storvsp", "netvsc", "hidvsp", "vpci", "hyperkbd",
+        "vsmb", "vhdmp", "wsl", "lxss", "vmms", "vmswitch", "vmsif",
+        "vmsproxy", "vid", "vmprox",
+    };
+    std::string lower(name);
+    for (char& c : lower) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    for (const char* marker : markers) {
+        if (lower.find(marker) != std::string::npos) return true;
+    }
+    return false;
+}
+
 bool NativeCleanNetworkEnabled() {
     if (EmptyReadsEnabled()) return true;
     static int cached = -1;
@@ -2069,6 +2649,51 @@ bool NativeCleanNetworkEnabled() {
     return cached == 1;
 }
 
+bool NativeFirmwareHideAcpi() {
+    static int cached = -1;
+    if (cached < 0) {
+        char value[32] = {};
+        const DWORD size = GetEnvironmentVariableA("CAC_NATIVE_FIRMWARE_MODE", value,
+                                                   static_cast<DWORD>(sizeof(value)));
+        cached = (size > 0 && size < sizeof(value) &&
+                  (_stricmp(value, "hide-acpi") == 0 || _stricmp(value, "empty") == 0)) ? 1 : 0;
+    }
+    return cached == 1;
+}
+
+bool NativeModuleFilterEnabled() {
+    static int cached = -1;
+    if (cached < 0) {
+        char value[8] = {};
+        const DWORD size = GetEnvironmentVariableA("CAC_NATIVE_MODULE_FILTER", value,
+                                                   static_cast<DWORD>(sizeof(value)));
+        cached = (size > 0 && size < sizeof(value) && value[0] == '0') ? 0 : 1;
+    }
+    return cached == 1;
+}
+
+bool NativeSmbiosPatchEnabled() {
+    static int cached = -1;
+    if (cached < 0) {
+        char value[8] = {};
+        const DWORD size = GetEnvironmentVariableA("CAC_NATIVE_SMBIOS_DISABLE", value,
+                                                   static_cast<DWORD>(sizeof(value)));
+        cached = (size > 0 && size < sizeof(value) && value[0] == '1') ? 0 : 1;
+    }
+    return cached == 1;
+}
+
+bool NativeHardwareHooksEnabled() {
+    static int cached = -1;
+    if (cached < 0) {
+        char value[8] = {};
+        const DWORD size = GetEnvironmentVariableA("CAC_NATIVE_HARDWARE_DISABLE", value,
+                                                   static_cast<DWORD>(sizeof(value)));
+        cached = (size > 0 && size < sizeof(value) && value[0] == '1') ? 0 : 1;
+    }
+    return cached == 1;
+}
+
 bool NativeProxyRedirectEnabled() {
     char value[2048] = {};
     const DWORD size = GetEnvironmentVariableA("CAC_HTTP_PROXY_LOCAL", value,
@@ -2078,14 +2703,59 @@ bool NativeProxyRedirectEnabled() {
 
 bool InstallApiHooks() {
     g_hookInstallFailures.store(0);
+    HMODULE psapi = GetModuleHandleW(L"psapi.dll");
+    if (!psapi) psapi = LoadLibraryW(L"psapi.dll");
+    if (psapi) {
+        g_getDeviceDriverBaseName = reinterpret_cast<PFN_GetDeviceDriverBaseNameW>(
+            GetProcAddress(psapi, "GetDeviceDriverBaseNameW"));
+    }
+    if (!g_getDeviceDriverBaseName) {
+        HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+        if (kernel) {
+            g_getDeviceDriverBaseName = reinterpret_cast<PFN_GetDeviceDriverBaseNameW>(
+                GetProcAddress(kernel, "K32GetDeviceDriverBaseNameW"));
+        }
+    }
     InstallInlineThenIat("iphlpapi.dll", "GetAdaptersAddresses", reinterpret_cast<void*>(&HookGetAdaptersAddresses),
                          reinterpret_cast<void**>(&g_origGetAdaptersAddresses));
     InstallInlineThenIat("iphlpapi.dll", "GetAdaptersInfo", reinterpret_cast<void*>(&HookGetAdaptersInfo),
                          reinterpret_cast<void**>(&g_origGetAdaptersInfo));
     InstallInlineThenIat("kernel32.dll", "GetVolumeInformationW", reinterpret_cast<void*>(&HookGetVolumeInformationW),
                          reinterpret_cast<void**>(&g_origGetVolumeInformation));
+    InstallInlineThenIat("kernel32.dll", "GlobalMemoryStatusEx",
+                         reinterpret_cast<void*>(&HookGlobalMemoryStatusEx),
+                         reinterpret_cast<void**>(&g_origGlobalMemoryStatusEx));
+    InstallInlineThenIat("kernel32.dll", "GetPhysicallyInstalledSystemMemory",
+                         reinterpret_cast<void*>(&HookGetPhysicallyInstalledSystemMemory),
+                         reinterpret_cast<void**>(&g_origGetPhysicallyInstalledSystemMemory));
+    InstallInlineThenIat("kernel32.dll", "GetDiskFreeSpaceExW",
+                         reinterpret_cast<void*>(&HookGetDiskFreeSpaceExW),
+                         reinterpret_cast<void**>(&g_origGetDiskFreeSpaceExW));
+    InstallInlineThenIat("kernel32.dll", "GetDiskFreeSpaceExA",
+                         reinterpret_cast<void*>(&HookGetDiskFreeSpaceExA),
+                         reinterpret_cast<void**>(&g_origGetDiskFreeSpaceExA));
+    InstallInlineThenIat("kernel32.dll", "GetSystemInfo",
+                         reinterpret_cast<void*>(&HookGetSystemInfo),
+                         reinterpret_cast<void**>(&g_origGetSystemInfo));
+    InstallInlineThenIat("kernel32.dll", "GetNativeSystemInfo",
+                         reinterpret_cast<void*>(&HookGetNativeSystemInfo),
+                         reinterpret_cast<void**>(&g_origGetNativeSystemInfo));
+    if (NativeHardwareHooksEnabled()) {
+        InstallOptionalInlineThenIat("user32.dll", "EnumDisplayDevicesW",
+                             reinterpret_cast<void*>(&HookEnumDisplayDevicesW),
+                             reinterpret_cast<void**>(&g_origEnumDisplayDevices));
+        InstallOptionalInlineThenIat("user32.dll", "EnumDisplaySettingsW",
+                             reinterpret_cast<void*>(&HookEnumDisplaySettingsW),
+                             reinterpret_cast<void**>(&g_origEnumDisplaySettings));
+        InstallOptionalInlineThenIat("user32.dll", "GetMonitorInfoW",
+                             reinterpret_cast<void*>(&HookGetMonitorInfoW),
+                             reinterpret_cast<void**>(&g_origGetMonitorInfo));
+    }
     InstallInlineThenIat("kernel32.dll", "GetSystemFirmwareTable", reinterpret_cast<void*>(&HookGetSystemFirmwareTable),
                          reinterpret_cast<void**>(&g_origGetSystemFirmwareTable));
+    InstallInlineThenIat("kernel32.dll", "EnumSystemFirmwareTables",
+                         reinterpret_cast<void*>(&HookEnumSystemFirmwareTables),
+                         reinterpret_cast<void**>(&g_origEnumSystemFirmwareTables));
     InstallInlineThenIat("ntdll.dll", "NtQuerySystemInformation",
                          reinterpret_cast<void*>(&HookNtQuerySystemInformation),
                          reinterpret_cast<void**>(&g_origNtQuerySystemInformation));
@@ -2154,6 +2824,17 @@ bool InstallApiHooks() {
                          reinterpret_cast<void**>(&g_origGetQueuedCompletionStatus));
     InstallInlineThenIat("kernel32.dll", "GetQueuedCompletionStatusEx", reinterpret_cast<void*>(&HookGetQueuedCompletionStatusEx),
                          reinterpret_cast<void**>(&g_origGetQueuedCompletionStatusEx));
+    if (NativeHardwareHooksEnabled()) {
+        InstallOptionalInlineThenIat("tbs.dll", "Tbsi_Context_Create",
+                              reinterpret_cast<void*>(&HookTbsiContextCreate),
+                              reinterpret_cast<void**>(&g_origTbsiContextCreate));
+        InstallOptionalInlineThenIat("tbs.dll", "Tbsip_Submit_Command",
+                              reinterpret_cast<void*>(&HookTbsipSubmitCommand),
+                              reinterpret_cast<void**>(&g_origTbsipSubmitCommand));
+        InstallOptionalInlineThenIat("tbs.dll", "Tbsi_Get_TCG_Log",
+                              reinterpret_cast<void*>(&HookTbsiGetTcgLog),
+                              reinterpret_cast<void**>(&g_origTbsiGetTcgLog));
+    }
     const unsigned int failures = g_hookInstallFailures.load();
     char detail[64] = {};
     std::snprintf(detail, sizeof(detail), "failures=%u", failures);

@@ -1,0 +1,32 @@
+memory_total_mb=16384 available_mb=12288 load=25
+physically_installed_mb=16384
+disk_total_gb=512 free_gb=256
+volume_label=System filesystem=NTFS serial=18e541cf
+processors=8
+display0_name=\\.\DISPLAY1 string=Generic Display Adapter id=PCI\VEN_8086&DEV_0000
+display_mode=1920x1080@60
+monitor_name=\\.\DISPLAY1 primary=1
+smbios_size=4496
+smbios_type1_serial=SYS674a560b11 
+smbios_type17_serial=SYS674a5 part=Generic DDR        size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a5 part=Generic DDR        size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type17_serial=SYS674a part=Generic size=8192
+smbios_type4_version=Generic x64 Processor                    
+firmware_table_signatures=0
+acpi_size=0
+drivers=190 virtual=0 names=
+modules=190 virtual=0 names=
+edid_status=0 type=3 size=128 head=00ffffffffffff00

@@ -49,6 +49,7 @@ $lines = @(
     'read_policy=profile'
     'cpuid_mode=neutral'
     'redirect_ant_did=1'
+    'firmware_mode=hide-acpi'
     "audit=$nativeAudit"
 )
 if ($manifestLine) { $lines += $manifestLine }

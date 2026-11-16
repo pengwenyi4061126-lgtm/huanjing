@@ -86,11 +86,24 @@ C:\ProgramData\CAC\active-profile.ini
    - 当前版本实测在进程启动后约 19 ms 完成中和；
    - NativeBridge 的 `NeutralizeGoCpuFlags()` 再做一次兜底。
 
+8. 硬件画像扩展
+   - `GlobalMemoryStatusEx`、`GetPhysicallyInstalledSystemMemory`、
+     `GetDiskFreeSpaceExW/A`、`GetSystemInfo/GetNativeSystemInfo`；
+   - `GetVolumeInformationW/ByHandle` 的卷标、文件系统和序列号；
+   - WMI 数值/布尔字段：内存、磁盘、CPU 拓扑、GPU、显示器、
+     `HypervisorPresent`、`Win32_Tpm`；
+   - SMBIOS Type 1/2/3/4/9/10/11/12/13/16/17/39/41/42/43；
+   - `EnumSystemFirmwareTables` + ACPI/FIRM 隐藏；
+   - `EnumDisplayDevicesW/EnumDisplaySettingsW/GetMonitorInfoW` 和 EDID；
+   - `EnumDeviceDrivers` / `NtQuerySystemInformation class 11` 的
+     虚拟化驱动/模块过滤；
+   - `Win32_NetworkAdapter.Name/Description/AdapterType` 泛化。
+
 ## 实测结果
 
 ```text
 注入器服务: CacServiceInjector RUNNING
-目标进程:   cowork-svc.exe PID 13508
+目标进程:   cowork-svc.exe PID 6880
 模块:       NativeBridge.dll
 审计:       native.bridge ready
 身份:       mac=02:2a:09:f6:66:f2
@@ -99,6 +112,7 @@ C:\ProgramData\CAC\active-profile.ini
             disk=WD-84490e004894
 CPU:        cpu.manifest complete entries=4 installed=4
 CPU flags:  internal HasOSXSAVE=1 / vendor HasSSE2=1，其余 optional=false
+硬件画像:  memory/disk/CPU/GPU/display/WMI/SMBIOS/ACPI/EDID 已按 Profile
 内核策略:   kernel.policy verified
 ```
 

@@ -123,6 +123,18 @@ try {
     $probePath = Join-Path $dist "cac-cpu-probe.exe"
     $probeHash = Get-CacSha256 $probePath
     Set-Content -LiteralPath (Join-Path $dist "cac-cpu-probe.sha256") -Value $probeHash -Encoding ASCII
+
+    Write-Host "Building cac-hardware-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "HardwareProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-hardware-probe.exe" `
+        /link /guard:cf /Brepro psapi.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-hardware-probe.exe build failed ($LASTEXITCODE)" }
+
+    $hardwareProbePath = Join-Path $dist "cac-hardware-probe.exe"
+    $hardwareProbeHash = Get-CacSha256 $hardwareProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-hardware-probe.sha256") -Value $hardwareProbeHash -Encoding ASCII
 } finally {
     Pop-Location
 }

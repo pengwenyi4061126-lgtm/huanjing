@@ -1,0 +1,32 @@
+memory_total_mb=32589 available_mb=16714 load=48
+physically_installed_mb=32768
+disk_total_gb=80 free_gb=16
+volume_label=Win10EntNLTSC2019 X64 filesystem=NTFS serial=186a3a24
+processors=24
+display0_name=\\.\DISPLAY1 string=NVIDIA GeForce GTX 1050 Ti id=PCI\VEN_10DE&DEV_1C82&SUBSYS_11BF10DE&REV_A1
+display_mode=1440x900@75
+monitor_name=\\.\DISPLAY1 primary=1
+smbios_size=4496
+smbios_type1_serial=Default string
+smbios_type17_serial=144F4681 part=M393B2G70QH0-YK0   size=16384
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=144F4692 part=M393B2G70QH0-YK0   size=16384
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type17_serial=NO DIMM part=NO DIMM size=0
+smbios_type4_version=Intel(R) Xeon(R) CPU E5-2678 v3 @ 2.50GHz
+firmware_table_signatures=0
+acpi_size=268
+drivers=191 virtual=0 names=
+modules=191 virtual=0 names=
+edid_status=2 type=0 size=256 head=0000000000000000

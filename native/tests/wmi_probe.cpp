@@ -5,6 +5,7 @@
 #include <oleauto.h>
 
 #include <cstdio>
+#include <cwchar>
 #include <string>
 
 #pragma comment(lib, "wbemuuid.lib")
@@ -24,6 +25,33 @@ std::string WideToUtf8(const std::wstring& value) {
     return result;
 }
 
+std::wstring VariantToString(const VARIANT& value) {
+    wchar_t buffer[128] = {};
+    switch (value.vt) {
+        case VT_BSTR:
+            return value.bstrVal ? std::wstring(value.bstrVal, SysStringLen(value.bstrVal))
+                                 : std::wstring();
+        case VT_UI8:
+            std::swprintf(buffer, _countof(buffer), L"%llu",
+                          static_cast<unsigned long long>(value.ullVal));
+            return buffer;
+        case VT_UI4:
+            std::swprintf(buffer, _countof(buffer), L"%lu",
+                          static_cast<unsigned long>(value.ulVal));
+            return buffer;
+        case VT_I4:
+            std::swprintf(buffer, _countof(buffer), L"%ld",
+                          static_cast<long>(value.lVal));
+            return buffer;
+        case VT_BOOL:
+            return value.boolVal == VARIANT_TRUE ? L"true" : L"false";
+        case VT_NULL:
+            return L"<null>";
+        default:
+            return L"<unsupported>";
+    }
+}
+
 std::wstring QueryFirst(IWbemServices* service, const wchar_t* query, const wchar_t* property) {
     IEnumWbemClassObject* enumerator = nullptr;
     const HRESULT queryResult = service->ExecQuery(
@@ -38,11 +66,7 @@ std::wstring QueryFirst(IWbemServices* service, const wchar_t* query, const wcha
         VARIANT value;
         VariantInit(&value);
         if (SUCCEEDED(object->Get(property, 0, &value, nullptr, nullptr))) {
-            if (value.vt == VT_BSTR && value.bstrVal) {
-                result.assign(value.bstrVal, SysStringLen(value.bstrVal));
-            } else if (value.vt == VT_NULL) {
-                result = L"<null>";
-            }
+            result = VariantToString(value);
         }
         VariantClear(&value);
         object->Release();
@@ -224,6 +248,47 @@ int wmain() {
                 WideToUtf8(QueryFirst(service,
                                       L"SELECT VolumeSerialNumber FROM Win32_LogicalDisk WHERE DeviceID = 'C:'",
                                       L"VolumeSerialNumber")).c_str());
+    std::printf("wmi_total_physical=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT TotalPhysicalMemory FROM Win32_ComputerSystem",
+                                      L"TotalPhysicalMemory")).c_str());
+    std::printf("wmi_hypervisor=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT HypervisorPresent FROM Win32_ComputerSystem",
+                                      L"HypervisorPresent")).c_str());
+    std::printf("wmi_os_total_kb=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT TotalVisibleMemorySize FROM Win32_OperatingSystem",
+                                      L"TotalVisibleMemorySize")).c_str());
+    std::printf("wmi_os_free_kb=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT FreePhysicalMemory FROM Win32_OperatingSystem",
+                                      L"FreePhysicalMemory")).c_str());
+    std::printf("wmi_disk_size=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT Size FROM Win32_LogicalDisk WHERE DeviceID = 'C:'",
+                                      L"Size")).c_str());
+    std::printf("wmi_disk_free=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT FreeSpace FROM Win32_LogicalDisk WHERE DeviceID = 'C:'",
+                                      L"FreeSpace")).c_str());
+    std::printf("wmi_disk_label=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT VolumeName FROM Win32_LogicalDisk WHERE DeviceID = 'C:'",
+                                      L"VolumeName")).c_str());
+    std::printf("wmi_drive_size=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT Size FROM Win32_DiskDrive", L"Size")).c_str());
+    std::printf("wmi_mem_capacity=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT Capacity FROM Win32_PhysicalMemory", L"Capacity")).c_str());
+    std::printf("wmi_mem_speed=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT Speed FROM Win32_PhysicalMemory", L"Speed")).c_str());
+    std::printf("wmi_cpu_cores=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT NumberOfCores FROM Win32_Processor", L"NumberOfCores")).c_str());
+    std::printf("wmi_cpu_logical=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT NumberOfLogicalProcessors FROM Win32_Processor",
+                                      L"NumberOfLogicalProcessors")).c_str());
+    std::printf("wmi_cpu_max=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT MaxClockSpeed FROM Win32_Processor", L"MaxClockSpeed")).c_str());
+    std::printf("wmi_gpu_name=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT Name FROM Win32_VideoController", L"Name")).c_str());
+    std::printf("wmi_gpu_ram=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT AdapterRAM FROM Win32_VideoController", L"AdapterRAM")).c_str());
+    std::printf("wmi_gpu_driver=%s\n",
+                WideToUtf8(QueryFirst(service, L"SELECT DriverVersion FROM Win32_VideoController",
+                                      L"DriverVersion")).c_str());
     ProbeAsync(service);
 
     service->Release();

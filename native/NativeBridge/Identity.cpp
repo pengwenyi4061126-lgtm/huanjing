@@ -71,6 +71,39 @@ bool JsonString(const std::string& text, const char* key, std::string& value) {
     return !value.empty();
 }
 
+bool JsonU64(const std::string& text, const char* key, uint64_t& value) {
+    std::string raw;
+    if (!JsonString(text, key, raw)) return false;
+    char* end = nullptr;
+    const unsigned long long parsed = _strtoui64(raw.c_str(), &end, 0);
+    if (!end || *end != 0) return false;
+    value = parsed;
+    return true;
+}
+
+bool JsonU32(const std::string& text, const char* key, uint32_t& value) {
+    uint64_t parsed = 0;
+    if (!JsonU64(text, key, parsed)) return false;
+    value = static_cast<uint32_t>(parsed);
+    return true;
+}
+
+bool JsonBool(const std::string& text, const char* key, bool& value) {
+    std::string raw;
+    if (!JsonString(text, key, raw)) return false;
+    if (_stricmp(raw.c_str(), "true") == 0 || _stricmp(raw.c_str(), "yes") == 0 ||
+        raw == "1") {
+        value = true;
+        return true;
+    }
+    if (_stricmp(raw.c_str(), "false") == 0 || _stricmp(raw.c_str(), "no") == 0 ||
+        raw == "0") {
+        value = false;
+        return true;
+    }
+    return false;
+}
+
 uint64_t Fnv1a(const std::string& value) {
     uint64_t hash = 1469598103934665603ULL;
     for (unsigned char c : value) {
@@ -126,6 +159,45 @@ bool ProfileIdentity::Load() {
     JsonString(document, "processor_id", processorId);
     JsonString(document, "hid_serial", hidSerial);
     JsonString(document, "volume_serial", volumeSerialHex_);
+    JsonU64(document, "memory_total_mb", memoryTotalMb);
+    JsonU64(document, "memory_available_mb", memoryAvailableMb);
+    JsonU64(document, "memory_module_mb", memoryModuleMb);
+    JsonU32(document, "memory_speed_mhz", memorySpeedMhz);
+    JsonU64(document, "disk_total_gb", diskTotalGb);
+    JsonU64(document, "disk_free_gb", diskFreeGb);
+    JsonU32(document, "cpu_cores", cpuCores);
+    JsonU32(document, "cpu_logical", cpuLogical);
+    JsonU32(document, "cpu_max_mhz", cpuMaxMhz);
+    JsonU32(document, "l2_cache_kb", l2CacheKb);
+    JsonU32(document, "l3_cache_kb", l3CacheKb);
+    JsonU32(document, "display_width", displayWidth);
+    JsonU32(document, "display_height", displayHeight);
+    JsonU32(document, "display_refresh", displayRefresh);
+    JsonU32(document, "gpu_memory_mb", gpuMemoryMb);
+    JsonBool(document, "hypervisor_present", hypervisorPresent);
+    JsonBool(document, "tpm_present", tpmPresent);
+    JsonString(document, "volume_label", volumeLabel);
+    JsonString(document, "filesystem", fileSystem);
+    JsonString(document, "gpu_name", gpuName);
+    JsonString(document, "gpu_vendor", gpuVendor);
+    JsonString(document, "gpu_driver_version", gpuDriverVersion);
+    JsonString(document, "monitor_name", monitorName);
+    JsonString(document, "monitor_serial", monitorSerial);
+    JsonString(document, "monitor_edid_hex", monitorEdidHex);
+    JsonString(document, "tpm_vendor", tpmVendor);
+    JsonString(document, "tpm_version", tpmVersion);
+    JsonString(document, "system_manufacturer", systemManufacturer);
+    JsonString(document, "system_product", systemProduct);
+    JsonString(document, "system_version", systemVersion);
+    JsonString(document, "board_manufacturer", boardManufacturer);
+    JsonString(document, "board_product", boardProduct);
+    JsonString(document, "board_version", boardVersion);
+    JsonString(document, "bios_vendor", biosVendor);
+    JsonString(document, "bios_version", biosVersion);
+    JsonString(document, "bios_release_date", biosReleaseDate);
+    JsonString(document, "processor_name", processorName);
+    JsonString(document, "chassis_asset_tag", chassisAssetTag);
+    JsonString(document, "board_asset_tag", boardAssetTag);
 
     const std::string envHost = GetEnvA("CAC_HOSTNAME");
     const std::string envMachine = GetEnvA("CAC_MACHINE_ID");
@@ -156,6 +228,25 @@ bool ProfileIdentity::Load() {
     if (processorId.empty()) processorId = ToUpperHex(HexFromHash(machineId + "|cpu", 16));
     if (hidSerial.empty()) hidSerial = "HID" + ToUpperHex(HexFromHash(machineId + "|hid", 10));
     if (volumeSerialHex_.empty()) volumeSerialHex_ = ToUpperHex(HexFromHash(machineId + "|volume", 8));
+    if (monitorSerial.empty()) monitorSerial = "MON-" + HexFromHash(machineId + "|monitor", 10);
+    if (chassisAssetTag.empty()) chassisAssetTag = "ASSET-" + HexFromHash(machineId + "|chassis", 8);
+    if (boardAssetTag.empty()) boardAssetTag = "ASSET-" + HexFromHash(machineId + "|board", 8);
+    if (memoryTotalMb < 1024) memoryTotalMb = 16384;
+    if (memoryModuleMb == 0 || memoryModuleMb > memoryTotalMb) memoryModuleMb = memoryTotalMb / 2;
+    if (memoryAvailableMb == 0 || memoryAvailableMb > memoryTotalMb) {
+        memoryAvailableMb = memoryTotalMb * 3 / 4;
+    }
+    if (diskTotalGb < 64) diskTotalGb = 512;
+    if (diskFreeGb == 0 || diskFreeGb > diskTotalGb) diskFreeGb = diskTotalGb / 2;
+    if (cpuCores == 0) cpuCores = 4;
+    if (cpuLogical < cpuCores) cpuLogical = cpuCores * 2;
+    if (cpuMaxMhz == 0) cpuMaxMhz = 3000;
+    if (l2CacheKb == 0) l2CacheKb = 512;
+    if (l3CacheKb == 0) l3CacheKb = 8192;
+    if (displayWidth < 640) displayWidth = 1920;
+    if (displayHeight < 480) displayHeight = 1080;
+    if (displayRefresh < 30) displayRefresh = 60;
+    if (gpuMemoryMb == 0) gpuMemoryMb = 128;
 
     // MAC: only a syntactically valid unicast address is applied.
     unsigned int b[6] = {};

@@ -1,0 +1,32 @@
+memory_total_mb=32768 available_mb=24576 load=25
+physically_installed_mb=32768
+disk_total_gb=1024 free_gb=768
+volume_label=SystemB filesystem=NTFS serial=bbbbbbbb
+processors=16
+display0_name=\\.\DISPLAY1 string=Generic GPU B id=PCI\VEN_8086&DEV_0000
+display_mode=2560x1440@144
+monitor_name=\\.\DISPLAY1 primary=1
+smbios_size=4496
+smbios_type1_serial=SYSbbbbbbbbbb 
+smbios_type17_serial=SYSbbbbb part=Generic DDR        size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbbb part=Generic DDR        size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type17_serial=SYSbbbb part=Generic size=16384
+smbios_type4_version=Generic B Processor                      
+firmware_table_signatures=0
+acpi_size=0
+drivers=190 virtual=0 names=
+modules=190 virtual=0 names=
+edid_status=0 type=3 size=128 head=00ffffffffffff00

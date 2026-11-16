@@ -16,8 +16,13 @@ replacement process by name. Profile handoff uses
 |---|---|---|
 | `GetAdaptersAddresses` / `GetAdaptersInfo` | inline-primary + IAT/delay patch | on |
 | `GetVolumeInformationW` | inline-primary + IAT/delay patch | on |
+| `GlobalMemoryStatusEx` / `GetPhysicallyInstalledSystemMemory` | inline-primary + IAT/delay patch; profile memory size | on |
+| `GetDiskFreeSpaceExW` / `GetDiskFreeSpaceExA` | inline-primary + IAT/delay patch; profile disk size/free | on |
+| `GetSystemInfo` / `GetNativeSystemInfo` | inline-primary + IAT/delay patch; profile logical CPU count and mask | on |
 | `GetSystemFirmwareTable('RSMB')` | inline-primary + IAT/delay patch + in-place SMBIOS rewrite | on |
+| `GetSystemFirmwareTable('ACPI'/'FIRM')` / `EnumSystemFirmwareTables` | inline-primary + IAT/delay patch; ACPI/FIRM hidden by `firmware_mode=hide-acpi` | service |
 | `NtQuerySystemInformation` class 76 | inline-primary + IAT/delay patch + SMBIOS rewrite | on |
+| `NtQuerySystemInformation` class 11 | profile-mode virtualization module filtering | on |
 | `DeviceIoControl` `IOCTL_STORAGE_QUERY_PROPERTY` | IAT/inline; immediate serial rewrite; pending requests tracked for completion | on |
 | `NtDeviceIoControlFile` | inline + IAT; storage serial rewrite, SMART/firmware cleared; `STATUS_PENDING` is audited as unhandled | on |
 | `GetVolumeInformationByHandleW` / `GetFileInformationByHandle` / `NtQueryVolumeInformationFile` | inline-primary + IAT/delay patch + volume serial rewrite | on |
@@ -28,13 +33,18 @@ replacement process by name. Profile handoff uses
 | `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | inline-primary with IAT/delay fallback; profile pass-through, empty policy clears output | profile |
 | `GetIfTable2` / `GetIfEntry2` / `GetIfTable` | inline-primary + IAT/delay patch + MAC rewrite | on |
 | `RegEnumValueW` | inline-primary + IAT/delay patch + value rewrite | on |
-| `EnumDeviceDrivers` / `K32EnumDeviceDrivers` | inline-primary + IAT/delay patch; empty policy hides the list | on |
+| `EnumDeviceDrivers` / `K32EnumDeviceDrivers` | inline-primary + IAT/delay patch; empty policy hides the list; profile mode filters virtualization drivers | on |
 | `SetupDiGetClassDevsW` | inline-primary + IAT/delay patch; empty policy hides disk/display/net/system classes | on |
 | `CreateFileW` / `CreateFileA` / `CreateFile2` raw device paths | inline-primary + IAT/delay patch; empty policy denies `\\.\PhysicalDrive*` and related native paths | on |
 | `NtCreateFile` raw native paths | inline + IAT; empty policy denies physical-disk, volume and firmware device paths | on |
 | `GetOverlappedResult*` / `GetQueuedCompletionStatus*` | completion evidence and tracked storage-buffer sanitization | on |
 | `CreateProcessW` / `CreateProcessInternalW` / `NtCreateUserProcess` | inline + IAT; inject same-image children at creation | on |
 | WMI COM (`CLSID_WbemLocator`) | in-process `IWbemLocator`/`IWbemServices`/`IWbemClassObject` wrappers; async sink and callback evidence | on |
+| WMI hardware fields (memory/disk/CPU/GPU/display/TPM/hypervisor/network) | numeric/boolean/string VARIANT rewrite | on |
+| `EnumDisplayDevicesW` / `EnumDisplaySettingsW` / `GetMonitorInfoW` | optional inline/IAT; profile GPU/monitor/resolution | on |
+| `RegQueryValueExW` / `RegGetValueW` (`EDID`) | profile-generated 128-byte EDID | on |
+| SMBIOS Type 1/2/3/4/9/10/11/12/13/16/17/39/41/42/43 | in-place string/field rewrite | on |
+| TBS `Tbsi_Context_Create` / `Tbsip_Submit_Command` / `Tbsi_Get_TCG_Log` | optional inline/IAT; hidden when `tpm_present=false` | optional |
 | `GetAdaptersAddresses` / `GetAdaptersInfo` / `GetIfTable2` / `GetIfEntry2` / `GetIfTable` / `GetInterfaceInfo` | virtual-adapter filtering in clean mode | clean |
 | `ConvertInterfaceLuidToNameW/ToAlias` / `ConvertInterfaceNameToLuidW` | virtual-adapter name lookup refused in clean mode | clean |
 | `WinHttpGetIEProxyConfigForCurrentUser` / `WinHttpGetProxyForUrl` / `WinHttpGetDefaultProxyConfiguration` / `WinHttpOpen` | forced DIRECT in clean mode | clean |

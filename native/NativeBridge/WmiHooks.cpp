@@ -6,6 +6,7 @@
 #include <wbemidl.h>
 #include <oleauto.h>
 
+#include <cstdint>
 #include <cwchar>
 #include <new>
 #include <string>
@@ -44,15 +45,116 @@ std::wstring FormatUuid(const std::string& hex) {
            upper.substr(16, 4) + L"-" + upper.substr(20, 12);
 }
 
+enum class WmiValueType {
+    String,
+    UInt32,
+    UInt64,
+    Bool,
+};
+
+struct WmiSpoof {
+    WmiValueType type = WmiValueType::String;
+    std::wstring text;
+    uint64_t number = 0;
+    bool boolean = false;
+};
+
 struct Rule {
     const wchar_t* cls;
     const wchar_t* prop;
     int kind;
+    WmiValueType type = WmiValueType::String;
 };
 
 // kind: 0 blank, 1 system serial, 2 system UUID, 3 processor id, 4 MAC,
 //       5 volume serial, 6 hostname, 7 BIOS serial, 8 board serial, 9 disk serial.
 const Rule kRules[] = {
+    { L"Win32_BIOS", L"Manufacturer", 44 },
+    { L"Win32_BIOS", L"SMBIOSBIOSVersion", 45 },
+    { L"Win32_BIOS", L"ReleaseDate", 46 },
+    { L"Win32_BaseBoard", L"Manufacturer", 47 },
+    { L"Win32_BaseBoard", L"Product", 48 },
+    { L"Win32_BaseBoard", L"Version", 49 },
+    { L"Win32_ComputerSystem", L"Manufacturer", 47 },
+    { L"Win32_ComputerSystem", L"Model", 48 },
+    { L"Win32_ComputerSystemProduct", L"Vendor", 47 },
+    { L"Win32_ComputerSystemProduct", L"Name", 48 },
+    { L"Win32_ComputerSystemProduct", L"Version", 49 },
+    { L"Win32_ComputerSystem", L"TotalPhysicalMemory", 10, WmiValueType::UInt64 },
+    { L"Win32_ComputerSystem", L"HypervisorPresent", 20, WmiValueType::Bool },
+    { L"Win32_OperatingSystem", L"TotalVisibleMemorySize", 28, WmiValueType::UInt64 },
+    { L"Win32_OperatingSystem", L"FreePhysicalMemory", 29, WmiValueType::UInt64 },
+    { L"Win32_LogicalDisk", L"Size", 12, WmiValueType::UInt64 },
+    { L"Win32_LogicalDisk", L"FreeSpace", 13, WmiValueType::UInt64 },
+    { L"Win32_LogicalDisk", L"VolumeName", 30 },
+    { L"Win32_LogicalDisk", L"FileSystem", 31 },
+    { L"Win32_DiskDrive", L"Size", 12, WmiValueType::UInt64 },
+    { L"Win32_DiskDrive", L"Partitions", 32, WmiValueType::UInt32 },
+    { L"Win32_DiskDrive", L"InterfaceType", 33 },
+    { L"Win32_DiskDrive", L"MediaType", 34 },
+    { L"Win32_DiskDrive", L"Model", 35 },
+    { L"Win32_DiskDrive", L"FirmwareRevision", 36 },
+    { L"Win32_PhysicalMemory", L"Capacity", 22, WmiValueType::UInt64 },
+    { L"Win32_PhysicalMemory", L"Speed", 23, WmiValueType::UInt32 },
+    { L"Win32_PhysicalMemory", L"ConfiguredClockSpeed", 23, WmiValueType::UInt32 },
+    { L"Win32_PhysicalMemory", L"DeviceLocator", 37 },
+    { L"Win32_PhysicalMemory", L"BankLabel", 38 },
+    { L"Win32_Processor", L"NumberOfCores", 15, WmiValueType::UInt32 },
+    { L"Win32_Processor", L"NumberOfLogicalProcessors", 16, WmiValueType::UInt32 },
+    { L"Win32_Processor", L"MaxClockSpeed", 17, WmiValueType::UInt32 },
+    { L"Win32_Processor", L"L2CacheSize", 18, WmiValueType::UInt32 },
+    { L"Win32_Processor", L"L3CacheSize", 19, WmiValueType::UInt32 },
+    { L"Win32_Processor", L"VirtualizationFirmwareEnabled", 20, WmiValueType::Bool },
+    { L"Win32_Processor", L"VMMonitorModeExtensions", 20, WmiValueType::Bool },
+    { L"Win32_Processor", L"SecondLevelAddressTranslationExtensions", 20, WmiValueType::Bool },
+    { L"Win32_Processor", L"Name", 51 },
+    { L"Win32_Processor", L"Manufacturer", 52 },
+    { L"Win32_Processor", L"Version", 53 },
+    { L"Win32_VideoController", L"Name", 39 },
+    { L"Win32_VideoController", L"VideoProcessor", 39 },
+    { L"Win32_VideoController", L"DriverVersion", 40 },
+    { L"Win32_VideoController", L"AdapterRAM", 14, WmiValueType::UInt32 },
+    { L"Win32_VideoController", L"PNPDeviceID", 41 },
+    { L"Win32_VideoController", L"DeviceID", 41 },
+    { L"Win32_VideoController", L"AdapterCompatibility", 42 },
+    { L"Win32_DesktopMonitor", L"Name", 43 },
+    { L"Win32_DesktopMonitor", L"MonitorID", 41 },
+    { L"Win32_DesktopMonitor", L"PNPDeviceID", 41 },
+    { L"Win32_SystemEnclosure", L"SMBIOSAssetTag", 50 },
+    { L"Win32_NetworkAdapter", L"Name", 56 },
+    { L"Win32_NetworkAdapter", L"Description", 56 },
+    { L"Win32_NetworkAdapter", L"AdapterType", 57 },
+    { L"Win32_NetworkAdapter", L"PNPDeviceID", 41 },
+    { L"Win32_NetworkAdapterConfiguration", L"Description", 56 },
+    { L"MSFT_NetAdapter", L"InterfaceDescription", 56 },
+    { L"MSFT_NetAdapter", L"DriverDescription", 56 },
+    { L"MSFT_NetAdapter", L"PNPDeviceID", 41 },
+    { L"MSFT_NetAdapter", L"DeviceID", 41 },
+    { L"Win32_PnPEntity", L"Name", 58 },
+    { L"Win32_PnPEntity", L"DeviceID", 41 },
+    { L"Win32_PnPEntity", L"PNPDeviceID", 41 },
+    { L"Win32_Battery", L"Name", 58 },
+    { L"Win32_Battery", L"DeviceID", 41 },
+    { L"Win32_Battery", L"SerialNumber", 1 },
+    { L"Win32_SoundDevice", L"Name", 58 },
+    { L"Win32_SoundDevice", L"DeviceID", 41 },
+    { L"Win32_Printer", L"Name", 58 },
+    { L"Win32_Printer", L"PortName", 0 },
+    { L"Win32_SerialPort", L"Name", 58 },
+    { L"Win32_SerialPort", L"DeviceID", 41 },
+    { L"Win32_Camera", L"Name", 58 },
+    { L"Win32_Camera", L"DeviceID", 41 },
+    { L"Win32_Keyboard", L"Name", 58 },
+    { L"Win32_Keyboard", L"DeviceID", 41 },
+    { L"Win32_PointingDevice", L"Name", 58 },
+    { L"Win32_PointingDevice", L"DeviceID", 41 },
+    { L"Win32_Tpm", L"ManufacturerId", 54 },
+    { L"Win32_Tpm", L"ManufacturerVersion", 55 },
+    { L"Win32_Tpm", L"SpecVersion", 55 },
+    { L"Win32_Tpm", L"PhysicalPresenceVersionInfo", 55 },
+    { L"Win32_Tpm", L"IsEnabled_InitialValue", 20, WmiValueType::Bool },
+    { L"Win32_Tpm", L"IsActivated_InitialValue", 20, WmiValueType::Bool },
+    { L"Win32_Tpm", L"IsOwned_InitialValue", 20, WmiValueType::Bool },
     { L"Win32_BIOS", L"SerialNumber", 1 },
     { L"Win32_BIOS", L"SMBIOSBIOSVersion", 7 },
     { L"Win32_BIOS", L"Manufacturer", 0 },
@@ -110,28 +212,110 @@ const Rule kRules[] = {
     { nullptr, L"PartNumber", 0 },
 };
 
-std::wstring ValueForKind(int kind) {
+WmiSpoof ValueForKind(int kind) {
     const ProfileIdentity& identity = ProfileIdentity::Get();
+    WmiSpoof spoof;
     switch (kind) {
-        case 1: return ToWide(identity.systemSerial);
-        case 2: return FormatUuid(identity.systemUuid);
-        case 3: return ToWide(identity.processorId);
-        case 4: return ToWide(identity.mac);
-        case 5: return ToWide(identity.volumeSerialHex_);
-        case 6: return ToWide(identity.hostname);
-        case 7: return ToWide(identity.biosSerial);
-        case 8: return ToWide(identity.boardSerial);
-        case 9: return ToWide(identity.diskSerial);
-        default: return std::wstring();
+        case 1: spoof.text = ToWide(identity.systemSerial); break;
+        case 2: spoof.text = FormatUuid(identity.systemUuid); break;
+        case 3: spoof.text = ToWide(identity.processorId); break;
+        case 4: spoof.text = ToWide(identity.mac); break;
+        case 5: spoof.text = ToWide(identity.volumeSerialHex_); break;
+        case 6: spoof.text = ToWide(identity.hostname); break;
+        case 7: spoof.text = ToWide(identity.biosSerial); break;
+        case 8: spoof.text = ToWide(identity.boardSerial); break;
+        case 9: spoof.text = ToWide(identity.diskSerial); break;
+        case 10:
+            spoof.type = WmiValueType::UInt64;
+            spoof.number = identity.memoryTotalMb * 1024ULL * 1024ULL;
+            break;
+        case 12:
+            spoof.type = WmiValueType::UInt64;
+            spoof.number = identity.diskTotalGb * 1024ULL * 1024ULL * 1024ULL;
+            break;
+        case 13:
+            spoof.type = WmiValueType::UInt64;
+            spoof.number = identity.diskFreeGb * 1024ULL * 1024ULL * 1024ULL;
+            break;
+        case 14:
+            spoof.type = WmiValueType::UInt32;
+            spoof.number = identity.gpuMemoryMb * 1024ULL * 1024ULL;
+            if (spoof.number > 0xFFFFFFFFULL) spoof.number = 0xFFFFFFFFULL;
+            break;
+        case 15: spoof.type = WmiValueType::UInt32; spoof.number = identity.cpuCores; break;
+        case 16: spoof.type = WmiValueType::UInt32; spoof.number = identity.cpuLogical; break;
+        case 17: spoof.type = WmiValueType::UInt32; spoof.number = identity.cpuMaxMhz; break;
+        case 18: spoof.type = WmiValueType::UInt32; spoof.number = identity.l2CacheKb; break;
+        case 19: spoof.type = WmiValueType::UInt32; spoof.number = identity.l3CacheKb; break;
+        case 20: spoof.type = WmiValueType::Bool; spoof.boolean = identity.hypervisorPresent; break;
+        case 22:
+            spoof.type = WmiValueType::UInt64;
+            spoof.number = identity.memoryModuleMb * 1024ULL * 1024ULL;
+            break;
+        case 23: spoof.type = WmiValueType::UInt32; spoof.number = identity.memorySpeedMhz; break;
+        case 28:
+            spoof.type = WmiValueType::UInt64;
+            spoof.number = identity.memoryTotalMb * 1024ULL;
+            break;
+        case 29:
+            spoof.type = WmiValueType::UInt64;
+            spoof.number = identity.memoryAvailableMb * 1024ULL;
+            break;
+        case 30: spoof.text = ToWide(identity.volumeLabel); break;
+        case 31: spoof.text = ToWide(identity.fileSystem); break;
+        case 32: spoof.type = WmiValueType::UInt32; spoof.number = 1; break;
+        case 33: spoof.text = L"SCSI"; break;
+        case 34: spoof.text = L"Fixed hard disk media"; break;
+        case 35: spoof.text = L"Generic Disk"; break;
+        case 36: spoof.text = L"1.0"; break;
+        case 37: spoof.text = L"DIMM 0"; break;
+        case 38: spoof.text = L"BANK 0"; break;
+        case 39: spoof.text = ToWide(identity.gpuName); break;
+        case 40: spoof.text = ToWide(identity.gpuDriverVersion); break;
+        case 41: spoof.text = L"PCI\\VEN_8086&DEV_0000"; break;
+        case 42: spoof.text = ToWide(identity.gpuVendor); break;
+        case 43: spoof.text = ToWide(identity.monitorName); break;
+        case 44: spoof.text = ToWide(identity.biosVendor); break;
+        case 45: spoof.text = ToWide(identity.biosVersion); break;
+        case 46: spoof.text = ToWide(identity.biosReleaseDate); break;
+        case 47: spoof.text = ToWide(identity.systemManufacturer); break;
+        case 48: spoof.text = ToWide(identity.systemProduct); break;
+        case 49: spoof.text = ToWide(identity.systemVersion); break;
+        case 50: spoof.text = ToWide(identity.chassisAssetTag); break;
+        case 51: spoof.text = ToWide(identity.processorName); break;
+        case 52: spoof.text = L"GenuineIntel"; break;
+        case 53: spoof.text = L"x86 Family 6 Model 0 Stepping 0"; break;
+        case 54: spoof.text = ToWide(identity.tpmVendor); break;
+        case 55: spoof.text = ToWide(identity.tpmVersion); break;
+        case 56: spoof.text = L"Generic Ethernet Adapter"; break;
+        case 57: spoof.text = L"Ethernet 802.3"; break;
+        case 58: spoof.text = L"Generic Device"; break;
+        default: break;
     }
+    return spoof;
 }
 
-bool SpoofWmiValue(const std::wstring& cls, const std::wstring& prop, std::wstring& out) {
+bool SpoofWmiValue(const std::wstring& cls, const std::wstring& prop, WmiSpoof& out) {
+    static int disabled = -1;
+    if (disabled < 0) {
+        char value[8] = {};
+        disabled = GetEnvironmentVariableA("CAC_NATIVE_WMI_DISABLE", value,
+                                           static_cast<DWORD>(sizeof(value))) > 0 &&
+                   value[0] == '1' ? 1 : 0;
+    }
+    if (disabled) return false;
     for (const Rule& rule : kRules) {
         if (_wcsicmp(prop.c_str(), rule.prop) != 0) continue;
         if (rule.cls && _wcsicmp(cls.c_str(), rule.cls) != 0) continue;
-        out.clear();
-        if (!NativeEmptyReadsEnabled()) out = ValueForKind(rule.kind);
+        if (NativeCleanNetworkEnabled() && (rule.kind == 56 || rule.kind == 57)) continue;
+        out = ValueForKind(rule.kind);
+        out.type = rule.type;
+        if (rule.type == WmiValueType::String && out.text.empty()) out.text.clear();
+        if (NativeEmptyReadsEnabled()) {
+            if (rule.type == WmiValueType::String) out.text.clear();
+            else out.number = 0;
+            out.boolean = false;
+        }
         AuditEventRateLimited("wmi.get", NativeEmptyReadsEnabled() ? "empty" : "spoofed");
         return true;
     }
@@ -188,6 +372,38 @@ private:
     LONG refs_;
 };
 
+CIMTYPE CimTypeFor(WmiValueType type) {
+    switch (type) {
+        case WmiValueType::UInt32: return CIM_UINT32;
+        case WmiValueType::UInt64: return CIM_UINT64;
+        case WmiValueType::Bool: return CIM_BOOLEAN;
+        default: return CIM_STRING;
+    }
+}
+
+bool SetSpoofVariant(VARIANT* value, const WmiSpoof& spoof) {
+    if (!value) return false;
+    VariantInit(value);
+    switch (spoof.type) {
+        case WmiValueType::UInt32:
+            value->vt = VT_UI4;
+            value->ulVal = static_cast<ULONG>(spoof.number);
+            return true;
+        case WmiValueType::UInt64:
+            value->vt = VT_UI8;
+            value->ullVal = spoof.number;
+            return true;
+        case WmiValueType::Bool:
+            value->vt = VT_BOOL;
+            value->boolVal = spoof.boolean ? VARIANT_TRUE : VARIANT_FALSE;
+            return true;
+        default:
+            value->vt = VT_BSTR;
+            value->bstrVal = SysAllocString(spoof.text.c_str());
+            return value->bstrVal != nullptr;
+    }
+}
+
 class WmiObject : public IWbemClassObject, public RefCounted {
 public:
     explicit WmiObject(IWbemClassObject* inner) : inner_(inner) {}
@@ -211,13 +427,10 @@ public:
     HRESULT STDMETHODCALLTYPE Get(LPCWSTR name, long flags, VARIANT* value, CIMTYPE* type,
                                   long* flavor) override {
         if (name && value) {
-            std::wstring spoof;
+            WmiSpoof spoof;
             if (SpoofWmiValue(ClassName(), name, spoof)) {
-                VariantInit(value);
-                value->vt = VT_BSTR;
-                value->bstrVal = SysAllocString(spoof.c_str());
-                if (!value->bstrVal) return E_OUTOFMEMORY;
-                if (type) *type = CIM_STRING;
+                if (!SetSpoofVariant(value, spoof)) return E_OUTOFMEMORY;
+                if (type) *type = CimTypeFor(spoof.type);
                 if (flavor) *flavor = 0;
                 return S_OK;
             }
@@ -239,15 +452,11 @@ public:
                                    long* flavor) override {
         const HRESULT hr = inner_->Next(flags, name, value, type, flavor);
         if (FAILED(hr) || !name || !*name || !value) return hr;
-        std::wstring spoof;
+        WmiSpoof spoof;
         if (!SpoofWmiValue(ClassName(), *name, spoof)) return hr;
-        BSTR replacement = SysAllocString(spoof.c_str());
-        if (!replacement) return E_OUTOFMEMORY;
         VariantClear(value);
-        VariantInit(value);
-        value->vt = VT_BSTR;
-        value->bstrVal = replacement;
-        if (type) *type = CIM_STRING;
+        if (!SetSpoofVariant(value, spoof)) return E_OUTOFMEMORY;
+        if (type) *type = CimTypeFor(spoof.type);
         if (flavor) *flavor = 0;
         return hr;
     }
