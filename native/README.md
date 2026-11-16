@@ -30,7 +30,7 @@ replacement process by name. Profile handoff uses
 | `GetUserNameW` | inline-primary + IAT/delay patch | on |
 | `RegGetValueW` / `RegQueryValueExW` (MachineGuid/BIOS/CPU values) | inline-primary + IAT/delay patch | on |
 | `HidD_GetSerialNumberString` | inline-primary + IAT/delay patch | on |
-| `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | inline-primary with IAT/delay fallback; profile pass-through, empty policy clears output | profile |
+| `SetupDiGetDevicePropertyW` / `SetupDiGetDeviceRegistryPropertyW` / `SetupDiGetDeviceInstanceIdW` | inline-primary with IAT/delay fallback; profile mode hides virtual device IDs/properties, empty policy clears output | profile |
 | `GetIfTable2` / `GetIfEntry2` / `GetIfTable` | inline-primary + IAT/delay patch + MAC rewrite | on |
 | `RegEnumValueW` | inline-primary + IAT/delay patch + value rewrite | on |
 | `EnumDeviceDrivers` / `K32EnumDeviceDrivers` | inline-primary + IAT/delay patch; empty policy hides the list; profile mode filters virtualization drivers | on |

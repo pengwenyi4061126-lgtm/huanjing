@@ -46,6 +46,7 @@ bool NativeIsVirtualDriverName(const char* name);
 bool NativeModuleFilterEnabled();
 bool NativeSmbiosPatchEnabled();
 bool NativeHardwareHooksEnabled();
+bool NativeIsVirtualDeviceName(const wchar_t* name);
 
 namespace {
 
@@ -671,6 +672,18 @@ BOOL WINAPI HookSetupDiGetDevicePropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, c
         AuditEventRateLimited("api.setupdi.property", "empty");
         return FALSE;
     }
+    if (!ProfileIdentity::Get().hypervisorPresent && g_origSetupDiGetInstanceId) {
+        wchar_t instance[512] = {};
+        DWORD instanceNeeded = 0;
+        if (g_origSetupDiGetInstanceId(set, info, instance, _countof(instance), &instanceNeeded) &&
+            NativeIsVirtualDeviceName(instance)) {
+            if (type) *type = DEVPROP_TYPE_EMPTY;
+            if (required) *required = 0;
+            SetLastError(ERROR_NOT_FOUND);
+            AuditEventRateLimited("api.setupdi.property", "virtual-hidden");
+            return FALSE;
+        }
+    }
     const BOOL result = g_origSetupDiGetDeviceProperty
         ? g_origSetupDiGetDeviceProperty(set, info, key, type, buffer, bufferSize, required, flags)
         : FALSE;
@@ -692,6 +705,18 @@ BOOL WINAPI HookSetupDiGetDeviceRegistryPropertyW(HDEVINFO set, PSP_DEVINFO_DATA
         AuditEventRateLimited("api.setupdi.registry", "empty");
         return FALSE;
     }
+    if (!ProfileIdentity::Get().hypervisorPresent && g_origSetupDiGetInstanceId) {
+        wchar_t instance[512] = {};
+        DWORD instanceNeeded = 0;
+        if (g_origSetupDiGetInstanceId(set, info, instance, _countof(instance), &instanceNeeded) &&
+            NativeIsVirtualDeviceName(instance)) {
+            if (type) *type = 0;
+            if (required) *required = 0;
+            SetLastError(ERROR_NOT_FOUND);
+            AuditEventRateLimited("api.setupdi.registry", "virtual-hidden");
+            return FALSE;
+        }
+    }
     const BOOL result = g_origSetupDiGetRegistryProperty
         ? g_origSetupDiGetRegistryProperty(set, info, property, type, buffer, bufferSize, required)
         : FALSE;
@@ -712,6 +737,14 @@ BOOL WINAPI HookSetupDiGetDeviceInstanceIdW(HDEVINFO set, PSP_DEVINFO_DATA info,
     const BOOL result = g_origSetupDiGetInstanceId
         ? g_origSetupDiGetInstanceId(set, info, instanceId, instanceIdSize, required)
         : FALSE;
+    if (result && instanceId && !ProfileIdentity::Get().hypervisorPresent &&
+        NativeIsVirtualDeviceName(instanceId)) {
+        instanceId[0] = L'\0';
+        if (required) *required = 1;
+        SetLastError(ERROR_NOT_FOUND);
+        AuditEventRateLimited("api.setupdi.instanceid", "virtual-hidden");
+        return FALSE;
+    }
     AuditEventRateLimited("api.setupdi.instanceid", result ? "observed" : "error");
     return result;
 }
@@ -2632,6 +2665,18 @@ bool NativeIsVirtualDriverName(const char* name) {
     for (char& c : lower) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
     for (const char* marker : markers) {
         if (lower.find(marker) != std::string::npos) return true;
+    }
+    return false;
+}
+
+bool NativeIsVirtualDeviceName(const wchar_t* name) {
+    if (!name || !*name) return false;
+    static const wchar_t* const markers[] = {
+        L"vmbus", L"ven_1414", L"hyper-v", L"virtual", L"vmware",
+        L"vbox", L"qemu", L"xen", L"wsl", L"lxss", L"vmsif",
+    };
+    for (const wchar_t* marker : markers) {
+        if (ContainsNoCase(name, marker)) return true;
     }
     return false;
 }

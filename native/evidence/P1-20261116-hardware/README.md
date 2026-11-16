@@ -109,7 +109,7 @@ drivers=190          # 基线 191，过滤 1 个虚拟化驱动
 modules=190          # 基线 191，过滤 1 个虚拟化模块
 ```
 
-`service-install-audit.jsonl` 证明服务 PID 6880 内：
+`service-install-audit.jsonl` 证明服务 PID 25236 内：
 
 ```text
 api.install complete failures=0
@@ -126,8 +126,9 @@ native.bridge ready
 - **TPM**：WMI `Win32_Tpm` 规则和 TBS 可选 Hook 已接入；本机没有 TPM
   实例，未取得 live A/B。真实 TPM quote 是密码学证明，用户态 Hook
   不能伪造，只能隐藏/拒绝查询；完整等价需要 vTPM。
-- **SetupDi/PNP**：`SetupDiGetDevicePropertyW` 等仍以 `profile`
-  透传真实设备属性；`empty` 模式才清空，尚未生成完整合成 PnP 图。
+- **SetupDi/PNP**：虚拟设备（VMBUS/VEN_1414/Hyper-V/WSL 等）在
+  `profile` 下隐藏实例 ID/属性；真实 PCI/GPU/显示器属性仍透传，
+  尚未生成完整合成 PnP 图。
 - **网络适配器名称**：WMI 名称已泛化，但 `GetAdaptersAddresses`
   的 `FriendlyName/Description` 仍可能返回真实网卡名。
 - **GPU 深层接口**：DXGI `GetDesc`、NVAPI/ADL、DisplayConfig EDID

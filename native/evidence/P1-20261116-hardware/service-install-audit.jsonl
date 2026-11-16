@@ -1,23 +1,23 @@
-{"utc":"2026-11-16T04:32:31.946Z","surface":"service.injector","action":"target-found","pid":6880,"detail":""}
-{"utc":"2026-11-16T04:32:31.947Z","surface":"service.injector","action":"cpu-flags","pid":6880,"detail":"internal=14/21 vendor=0/45 hash=cache"}
-{"utc":"2026-11-16T04:32:32.034Z","surface":"service.injector","action":"injected","pid":6880,"detail":""}
-{"utc":"2026-11-16T04:32:31.951Z","pid":6880,"surface":"native.bridge","action":"attach","detail":"process=main"}
-{"utc":"2026-11-16T04:32:31.951Z","pid":6880,"surface":"native.identity","action":"loaded","detail":"mac=02:2a:09:f6:66:f2 host=host-7105ecbc machine=7105ecbcb4a642a685ea9848ddd5d3ba disk=WD-84490e004894"}
-{"utc":"2026-11-16T04:32:31.954Z","pid":6880,"surface":"cpu.manifest","action":"complete","detail":"entries=4 installed=4"}
-{"utc":"2026-11-16T04:32:31.954Z","pid":6880,"surface":"cpu.flags","action":"neutralized","detail":"internal=0/21 vendor=0/45 osxsave-kept sse2-kept"}
-{"utc":"2026-11-16T04:32:31.957Z","pid":6880,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GlobalMemoryStatusEx"}
-{"utc":"2026-11-16T04:32:31.958Z","pid":6880,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetPhysicallyInstalledSystemMemory"}
-{"utc":"2026-11-16T04:32:31.959Z","pid":6880,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetDiskFreeSpaceExW"}
-{"utc":"2026-11-16T04:32:31.961Z","pid":6880,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetDiskFreeSpaceExA"}
-{"utc":"2026-11-16T04:32:31.962Z","pid":6880,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetSystemInfo"}
-{"utc":"2026-11-16T04:32:31.962Z","pid":6880,"surface":"api.install","action":"iat+delay","detail":"kernel32.dll!GetSystemInfo iat=2 delay=0","value":"2"}
-{"utc":"2026-11-16T04:32:31.963Z","pid":6880,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetNativeSystemInfo"}
-{"utc":"2026-11-16T04:32:31.966Z","pid":6880,"surface":"api.install","action":"optional-refused","detail":"user32.dll!EnumDisplaySettingsW: unsupported prologue instruction"}
-{"utc":"2026-11-16T04:32:31.968Z","pid":6880,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetSystemFirmwareTable"}
-{"utc":"2026-11-16T04:32:31.969Z","pid":6880,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!EnumSystemFirmwareTables"}
-{"utc":"2026-11-16T04:32:31.971Z","pid":6880,"surface":"api.install","action":"inline-primary","detail":"ntdll.dll!NtQuerySystemInformation"}
-{"utc":"2026-11-16T04:32:31.972Z","pid":6880,"surface":"api.install","action":"iat+delay","detail":"ntdll.dll!NtQuerySystemInformation iat=11 delay=0","value":"11"}
-{"utc":"2026-11-16T04:32:31.992Z","pid":6880,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!K32EnumDeviceDrivers"}
-{"utc":"2026-11-16T04:32:31.993Z","pid":6880,"surface":"api.install","action":"alias","detail":"psapi.dll!EnumDeviceDrivers -> existing target"}
-{"utc":"2026-11-16T04:32:32.007Z","pid":6880,"surface":"api.install","action":"complete","detail":"failures=0","value":"0"}
-{"utc":"2026-11-16T04:32:32.032Z","pid":6880,"surface":"native.bridge","action":"ready"}
+{"utc":"2026-11-16T04:35:12.745Z","surface":"service.injector","action":"target-found","pid":25236,"detail":""}
+{"utc":"2026-11-16T04:35:12.757Z","surface":"service.injector","action":"cpu-flags","pid":25236,"detail":"internal=14/21 vendor=0/45 hash=cache"}
+{"utc":"2026-11-16T04:35:12.840Z","surface":"service.injector","action":"injected","pid":25236,"detail":""}
+{"utc":"2026-11-16T04:35:12.760Z","pid":25236,"surface":"native.bridge","action":"attach","detail":"process=main"}
+{"utc":"2026-11-16T04:35:12.761Z","pid":25236,"surface":"native.identity","action":"loaded","detail":"mac=02:2a:09:f6:66:f2 host=host-7105ecbc machine=7105ecbcb4a642a685ea9848ddd5d3ba disk=WD-84490e004894"}
+{"utc":"2026-11-16T04:35:12.763Z","pid":25236,"surface":"cpu.manifest","action":"complete","detail":"entries=4 installed=4"}
+{"utc":"2026-11-16T04:35:12.764Z","pid":25236,"surface":"cpu.flags","action":"neutralized","detail":"internal=0/21 vendor=0/45 osxsave-kept sse2-kept"}
+{"utc":"2026-11-16T04:35:12.766Z","pid":25236,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GlobalMemoryStatusEx"}
+{"utc":"2026-11-16T04:35:12.767Z","pid":25236,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetPhysicallyInstalledSystemMemory"}
+{"utc":"2026-11-16T04:35:12.768Z","pid":25236,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetDiskFreeSpaceExW"}
+{"utc":"2026-11-16T04:35:12.769Z","pid":25236,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetDiskFreeSpaceExA"}
+{"utc":"2026-11-16T04:35:12.770Z","pid":25236,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetSystemInfo"}
+{"utc":"2026-11-16T04:35:12.770Z","pid":25236,"surface":"api.install","action":"iat+delay","detail":"kernel32.dll!GetSystemInfo iat=2 delay=0","value":"2"}
+{"utc":"2026-11-16T04:35:12.771Z","pid":25236,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetNativeSystemInfo"}
+{"utc":"2026-11-16T04:35:12.774Z","pid":25236,"surface":"api.install","action":"optional-refused","detail":"user32.dll!EnumDisplaySettingsW: unsupported prologue instruction"}
+{"utc":"2026-11-16T04:35:12.775Z","pid":25236,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!GetSystemFirmwareTable"}
+{"utc":"2026-11-16T04:35:12.778Z","pid":25236,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!EnumSystemFirmwareTables"}
+{"utc":"2026-11-16T04:35:12.779Z","pid":25236,"surface":"api.install","action":"inline-primary","detail":"ntdll.dll!NtQuerySystemInformation"}
+{"utc":"2026-11-16T04:35:12.780Z","pid":25236,"surface":"api.install","action":"iat+delay","detail":"ntdll.dll!NtQuerySystemInformation iat=11 delay=0","value":"11"}
+{"utc":"2026-11-16T04:35:12.799Z","pid":25236,"surface":"api.install","action":"inline-primary","detail":"kernel32.dll!K32EnumDeviceDrivers"}
+{"utc":"2026-11-16T04:35:12.800Z","pid":25236,"surface":"api.install","action":"alias","detail":"psapi.dll!EnumDeviceDrivers -> existing target"}
+{"utc":"2026-11-16T04:35:12.816Z","pid":25236,"surface":"api.install","action":"complete","detail":"failures=0","value":"0"}
+{"utc":"2026-11-16T04:35:12.839Z","pid":25236,"surface":"native.bridge","action":"ready"}
