@@ -78,7 +78,7 @@ failures = []
 每次重启后执行：
 
 ```powershell
-.\run-macfilter-soak.ps1 -RecordBoot
+.\run-macfilter-soak.ps1 -RecordBoot -AdapterName Ethernet0
 ```
 
 共 5 次；每次记录 `boot` 事件。若任意一次出现 `0x1E`，停止并收集：

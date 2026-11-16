@@ -188,6 +188,16 @@ $binding = @(Get-NetAdapterBinding -ComponentID $component -ErrorAction Silently
 if (-not $AdapterName) {
     $AdapterName = ($binding | Select-Object -First 1 -ExpandProperty Name)
 }
+if (-not $AdapterName -and $RecordBoot) {
+    # Hidden LWF filters do not appear in Get-NetAdapterBinding; fall back to
+    # the active adapter so a boot record can still be captured.
+    $AdapterName = (Get-NetAdapter -ErrorAction SilentlyContinue |
+        Where-Object { $_.Status -eq 'Up' } |
+        Select-Object -First 1 -ExpandProperty Name)
+    if ($AdapterName) {
+        Write-Warning "Filter binding is hidden; recording boot against $AdapterName."
+    }
+}
 if (-not $AdapterName) {
     if ($DryRun) {
         $AdapterName = '(unbound)'

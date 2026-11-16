@@ -17,12 +17,13 @@
 | 安装 | 卸载 stop/delete/unbind/cleanup | DONE | `install-macfilter.ps1 -Uninstall` |
 | 测试 | `-DryRun` 无副作用校验 | DONE | `install` / `soak` / `fault` |
 | 测试 | 5× Restart-NetAdapter + boot + ping | DONE（clone 构建） | `LWF-FIX-TEST-20261116.md` §8-9 |
-| 测试 | 30× disable/enable + 10× restart + 3× sleep | PARTIAL（smoke 3/2 通过，full 运行中） | `evidence/2026-11-16-guest-smoke` |
-| 测试 | 2h 流量 + 100 并发 TCP + OID storm | PARTIAL（OID storm 通过，traffic-only 2h 运行中） | `soak-20261116-174921` |
-| 测试 | 5× boot | READY（手动 `-RecordBoot`） | `run-macfilter-soak.ps1` |
+| 测试 | 30× disable/enable + 10× restart | DONE（`soak-20261116-150836`；无 0x1E） | `evidence/2026-11-16-full-aborted` |
+| 测试 | 3× sleep/resume | BLOCKED（VM 仅暴露 S1；无 S3/休眠） | `powercfg /a` |
+| 测试 | 2h 流量 + 100 并发 TCP + OID storm | DONE（7201s，`pass=true`） | `soak-20261116-174921` |
+| 测试 | 5× boot | DONE（5/5，SYSTEM_START） | `boot-20261116-final` |
 | 测试 | clone fail / lower fail / invalid IOCTL | DONE | `evidence/2026-11-16-guest-smoke/fault-20261116-150548` |
-| 测试 | 低权限 IOCTL 拒绝 | READY（需标准账号） | `run-macfilter-fault.ps1 -LowPrivCredential` |
-| 安全 | `SYSTEM + Administrators` ACL | DONE（待运行时验证） | `IoCreateDeviceSecure` |
+| 测试 | 低权限 IOCTL 拒绝 | DONE（`win32=5`） | `lowpriv-20261116-clean` |
+| 安全 | `SYSTEM + Administrators` ACL | DONE（运行时 `win32=5`） | `lowpriv-20261116-clean` |
 | 文档 | STATUS/README/RESEARCH/AUDIT-CRASH 收敛 | DONE | `STATUS.md` + 三处横幅 |
 | 边界 | 缓存 MAC 不改 | BOUNDARY | `getmac`/WMI/`ipconfig` 仍硬件 MAC |
 | 边界 | 真实 MAC / 按进程 MAC | BOUNDARY | 不在 LWF 能力内 |
@@ -40,6 +41,9 @@
 ```text
 0x1E:        CLOSED (de2d8d1 + clone build 37012AD5...)
 当前构建:    DA5AC063... (ACL/IOCTL/fault)
-运行时 soak: PENDING (隔离测试机)
+运行时 soak: PASS (7201s)
+开机自加载:  PASS x5 (SYSTEM_START)
+低权限:      PASS (win32=5)
+睡眠/恢复:   BLOCKED (VM 无 S3)
 覆盖等级:    STABLE-PASSTHROUGH + OID-VIEW
 ```

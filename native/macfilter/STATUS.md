@@ -30,6 +30,16 @@
   `oidQueriesSeen=138`、`oidRewrites=2`。
 - 当前 ACL/IOCTL/fault 加固构建（`DA5AC063...`）已编译、签名、
   `-DryRun` 哈希闸门通过；运行时 soak 仍待隔离测试机执行。
+- 2h 流量 soak `soak-20261116-174921`：`pass=true`，7201 秒，
+  `newDumps=[]`、`newBugChecks=0`、`failures=[]`；`oidQueriesSeen`
+  12665 → 15524，`sendForwarded` 8744 → 16125。
+- 5× 重启：每次开机 `CacMacLwf` 均为 RUNNING、`attached=1`、
+  `registerStatus=0`，无新 dump / 1001。
+- 低权限 IOCTL：标准账号 `cactest` 打开设备失败，
+  `{"ok":false,"error":"open device","win32":5}`，harness `pass=true`。
+- 开机自加载条件：INF 的 `FilterRunType=2`（optional）导致
+  demand-start 重启后保持 STOPPED；安装脚本 `-Enable` 已改为
+  `start= system`，该配置下 5/5 次开机自加载成功。
 - 控制设备通过 `IoCreateDeviceSecure` 限制为 `SYSTEM + Administrators`；
   `CAC_MAC_IOCTL_SET` 只接受 6 字节，`STATE` 只接受 0 输入，
   `FAULT` 只接受 0/1/2。
@@ -53,12 +63,19 @@
   `evidence/2026-11-16-full-aborted/`，不算 2h 通过。
 - 已修复 traffic 逻辑：`SetThreadExecutionState` 防止测试机睡眠，
   deadline 循环替代裸 `Start-Sleep`，每 5 分钟写 heartbeat，结束时写
-  `traffic complete`。新的 traffic-only run `soak-20261116-174921`
-  从 17:49:21 开始，预计 19:49:21 结束。
+  `traffic complete`。`soak-20261116-174921` 于 19:49:48 结束，
+  7201 秒，`pass=true`，`newDumps=[]`，`newBugChecks=0`，
+  `failures=[]`。
+- 5× 开机（`boot-20261116-final`）：5 个不同的 `LastBootUpTime`，
+  每次 `SERVICE RUNNING`、`attached=1`、`registerStatus=0`。
+- 低权限（`lowpriv-20261116-clean`）：`cactest` 读状态被拒，
+  `win32=5`，`exitCode=1`，`failures=[]`。
 - 隔离测试机 `C:\Windows\System32\drivers\CacMacLwf.sys` 实测
   SHA-256 = `DA5AC0634A92F36EB7FCFE303D5835A4647CA2E2D8C16DCEE6157DB96C22E670`，
   与本仓库 `bin` 构建一致。
-- 尚未运行：3× sleep/resume、5× boot、低权限 IOCTL。
+- 未运行：3× sleep/resume。该 VM 的 ACPI 只暴露 S1（`powercfg /a`
+  显示 S3 / 休眠均“系统固件不支持”），无法执行 S3 睡眠/恢复；
+  需要 S3 可用的物理机或支持 S3 的虚拟机配置。
 
 ## 明确边界
 
@@ -80,12 +97,8 @@
 
 ## 下一步
 
-1. 在隔离测试机执行 `run-macfilter-soak.ps1`：
-   30× disable/enable、10× restart、3× sleep/resume、5× boot、
-   2h 流量、OID storm。
-2. 执行故障注入：clone 分配失败、下层 OID 失败、卸载时 pending OID、
-   非法 IOCTL、低权限 IOCTL。
-3. 把 soak JSONL 与 `BUILD.json` 一并归档到
-   `evidence/soak-<timestamp>/`。
-4. 全部通过后，覆盖等级才可从 `STABLE-PASSTHROUGH + OID-VIEW`
-   升级；不得写成 `MAC-ISOLATED`。
+1. 在具备 S3 的目标上补 3× sleep/resume；当前 VM 固件只支持 S1。
+2. 如需在无 S3 的机器上验证恢复路径，用 30× disable/enable 与
+   10× restart 作为替代证据，不得声称等价于睡眠/恢复。
+3. 覆盖等级保持在 `STABLE-PASSTHROUGH + OID-VIEW`；不得写成
+   `MAC-ISOLATED`。

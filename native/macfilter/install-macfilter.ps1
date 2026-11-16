@@ -136,7 +136,10 @@ if (-not $NoBind) {
 }
 
 if ($Enable) {
-    sc.exe config $component start= demand | Out-Null
+    # The INF marks this filter optional (FilterRunType=2), so NDIS does not
+    # attach a demand-start service during boot. System start is what keeps the
+    # filter loaded across reboots on the isolated test machine.
+    sc.exe config $component start= system | Out-Null
     sc.exe start $component 2>$null | Out-Null
 } else {
     sc.exe config $component start= disabled | Out-Null

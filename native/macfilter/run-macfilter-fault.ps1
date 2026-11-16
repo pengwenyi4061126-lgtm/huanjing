@@ -186,8 +186,8 @@ if ($LowPrivCredential) {
         $ok = ($proc.ExitCode -ne 0)
         if (-not $ok) { $failures.Add('low-priv state unexpectedly succeeded') }
         Write-Record @{ phase = 'low-priv'; ok = $ok; exitCode = $proc.ExitCode;
-            stdout = (Get-Content -LiteralPath $out -Raw -ErrorAction SilentlyContinue);
-            stderr = (Get-Content -LiteralPath $err -Raw -ErrorAction SilentlyContinue) }
+            stdout = [string](Get-Content -LiteralPath $out -Raw -ErrorAction SilentlyContinue);
+            stderr = [string](Get-Content -LiteralPath $err -Raw -ErrorAction SilentlyContinue) }
     } finally {
         Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
     }

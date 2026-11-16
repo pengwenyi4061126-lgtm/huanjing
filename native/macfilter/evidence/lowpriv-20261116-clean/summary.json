@@ -1,0 +1,15 @@
+﻿{
+    "schema":  1,
+    "pass":  true,
+    "startedUtc":  "2026-11-16T12:25:19.4479917Z",
+    "finishedUtc":  "2026-11-16T12:25:24.9134626Z",
+    "oidStormIterations":  5,
+    "newDumps":  [
+
+                 ],
+    "newBugChecks":  0,
+    "failures":  [
+
+                 ],
+    "log":  "C:\\cacmac\\evidence\\lowpriv-20261116-clean\\fault.jsonl"
+}
