@@ -281,6 +281,11 @@ InstanceName. `cac-monitor-wmi-probe.exe` reports the real
 `PHL/C031/UK11125009671/Philips 190E` outside and
 `DEL/41A9/MON-bed5c608a7/Dell U2419H` inside.
 
+DDC/CI: monitor identity is covered on the DisplayConfig, registry EDID,
+WMI and SMBIOS paths. Raw DDC/CI I2C reads (`IOCTL_VIDEO_*` to the monitor
+driver) are hardware-level and remain outside this userland layer;
+`GetMonitorBrightness`/capability queries still return real values.
+
 USB: non-hub `USB\VID_*` rows are projected to the Profile HID receiver
 (`VID_046D&PID_C52B`, manufacturer `Logitech`, description `USB Input
 Device`); instance IDs keep a stable per-row synthetic suffix so rows stay
