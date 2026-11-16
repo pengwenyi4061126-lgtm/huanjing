@@ -38,6 +38,46 @@ static std::wstring RegistryString(HDEVINFO set, SP_DEVINFO_DATA* info, DWORD pr
     return std::wstring();
 }
 
+static const DEVPROPKEY kDevPkeyParent = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 8};
+static const DEVPROPKEY kDevPkeyClass = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 9};
+static const DEVPROPKEY kDevPkeyClassGuid = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 10};
+static const DEVPROPKEY kDevPkeyDriver = {
+    {0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 11};
+
+static std::wstring DevicePropertyString(HDEVINFO set, SP_DEVINFO_DATA* info,
+                                         const DEVPROPKEY& key) {
+    wchar_t buffer[512] = {};
+    DEVPROPTYPE type = 0;
+    DWORD required = 0;
+    if (!SetupDiGetDevicePropertyW(set, info, &key, &type, reinterpret_cast<PBYTE>(buffer),
+                                   sizeof(buffer), &required, 0) ||
+        type != DEVPROP_TYPE_STRING) {
+        return std::wstring();
+    }
+    return buffer;
+}
+
+static std::wstring DevicePropertyGuid(HDEVINFO set, SP_DEVINFO_DATA* info,
+                                       const DEVPROPKEY& key) {
+    GUID guid = {};
+    DEVPROPTYPE type = 0;
+    DWORD required = 0;
+    if (!SetupDiGetDevicePropertyW(set, info, &key, &type, reinterpret_cast<PBYTE>(&guid),
+                                   sizeof(guid), &required, 0) ||
+        type != DEVPROP_TYPE_GUID) {
+        return std::wstring();
+    }
+    wchar_t text[64] = {};
+    swprintf_s(text, L"{%08lX-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+               guid.Data1, guid.Data2, guid.Data3, guid.Data4[0], guid.Data4[1],
+               guid.Data4[2], guid.Data4[3], guid.Data4[4], guid.Data4[5],
+               guid.Data4[6], guid.Data4[7]);
+    return text;
+}
+
 static void Enumerate(const wchar_t* enumerator, const char* label) {
     HDEVINFO set = SetupDiGetClassDevsW(nullptr, enumerator, nullptr,
                                         DIGCF_ALLCLASSES | DIGCF_PRESENT);
@@ -60,6 +100,14 @@ static void Enumerate(const wchar_t* enumerator, const char* label) {
         wprintf(L"%s%d_manufacturer=%ls\n", enumerator, count, manufacturer.c_str());
         wprintf(L"%s%d_description=%ls\n", enumerator, count, description.c_str());
         wprintf(L"%s%d_friendly=%ls\n", enumerator, count, friendly.c_str());
+        wprintf(L"%s%d_class=%ls\n", enumerator, count,
+                DevicePropertyString(set, &info, kDevPkeyClass).c_str());
+        wprintf(L"%s%d_classguid=%ls\n", enumerator, count,
+                DevicePropertyGuid(set, &info, kDevPkeyClassGuid).c_str());
+        wprintf(L"%s%d_parent=%ls\n", enumerator, count,
+                DevicePropertyString(set, &info, kDevPkeyParent).c_str());
+        wprintf(L"%s%d_driver=%ls\n", enumerator, count,
+                DevicePropertyString(set, &info, kDevPkeyDriver).c_str());
         ++count;
     }
     SetupDiDestroyDeviceInfoList(set);

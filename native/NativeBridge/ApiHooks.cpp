@@ -810,6 +810,10 @@ const GUID kDisplayClassGuid = {
     0x4D36E968, 0xE325, 0x11CE, {0xBF, 0xC1, 0x08, 0x00, 0x2B, 0xE1, 0x03, 0x18}};
 const GUID kMonitorClassGuid = {
     0x4D36E96E, 0xE325, 0x11CE, {0xBF, 0xC1, 0x08, 0x00, 0x2B, 0xE1, 0x03, 0x18}};
+const GUID kHidClassGuid = {
+    0x745A17A0, 0x74D3, 0x11D0, {0xB6, 0xFE, 0x00, 0xA0, 0xC9, 0x0F, 0x57, 0xDA}};
+const GUID kUsbClassGuid = {
+    0x36FC9E60, 0xC465, 0x11CF, {0x80, 0x56, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}};
 
 bool SameDevPropKey(const DEVPROPKEY* left, const DEVPROPKEY& right) {
     return left && IsEqualGUID(left->fmtid, right.fmtid) && left->pid == right.pid;
@@ -869,6 +873,19 @@ BOOL WINAPI HookSetupDiGetDevicePropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, c
             const bool monitor = wcsstr(instance, L"DISPLAY\\") != nullptr;
             const bool usbHid = IsUsbHidRow(instance);
             if (usbHid) {
+                const bool compositeInterface = !UsbMiSuffix(instance).empty();
+                if (SameDevPropKey(key, kDevPkeyDeviceClassGuid)) {
+                    const GUID guid = compositeInterface ? kHidClassGuid : kUsbClassGuid;
+                    if (type) *type = DEVPROP_TYPE_GUID;
+                    if (required) *required = sizeof(guid);
+                    if (!buffer || bufferSize < sizeof(guid)) {
+                        SetLastError(ERROR_INSUFFICIENT_BUFFER);
+                        return FALSE;
+                    }
+                    std::memcpy(buffer, &guid, sizeof(guid));
+                    AuditEventRateLimited("api.setupdi.property", "usb-rewrite");
+                    return TRUE;
+                }
                 std::wstring value;
                 if (SameDevPropKey(key, kDevPkeyDeviceFriendlyName)) {
                     value = L"Logitech USB Receiver";
@@ -876,6 +893,14 @@ BOOL WINAPI HookSetupDiGetDevicePropertyW(HDEVINFO set, PSP_DEVINFO_DATA info, c
                     value = L"USB Input Device";
                 } else if (SameDevPropKey(key, kDevPkeyDeviceManufacturer)) {
                     value = L"Logitech";
+                } else if (SameDevPropKey(key, kDevPkeyDeviceClass)) {
+                    value = compositeInterface ? L"HIDClass" : L"USB";
+                } else if (SameDevPropKey(key, kDevPkeyDeviceDriver)) {
+                    value = compositeInterface
+                        ? L"{745a17a0-74d3-11d0-b6fe-00a0c90f57da}\\0000"
+                        : L"{36fc9e60-c465-11cf-8056-444553540000}\\0000";
+                } else if (SameDevPropKey(key, kDevPkeyDeviceParent)) {
+                    value = L"USB\\ROOT_HUB30\\4&PROFILE&0&0";
                 }
                 if (!value.empty()) {
                     const size_t bytes = (value.size() + 1) * sizeof(wchar_t);

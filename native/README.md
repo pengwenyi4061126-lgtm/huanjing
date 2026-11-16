@@ -284,6 +284,10 @@ Device`); instance IDs keep a stable per-row synthetic suffix so rows stay
 unique; MI_xx suffixes are preserved. Root hubs and generic hubs
 (`ROOT_HUB*`, `VID_8087`) are left untouched. `cac-usb-probe.exe` reports
 the real `1C4F:0034` / `1A2C:0B2A` devices outside and `046D:C52B` inside.
+DEVPKEY class/classguid/parent/driver are synthesized too: base composite
+rows report `USB` + `{36FC9E60-...}`, MI interfaces `HIDClass` +
+`{745A17A0-...}`, parent `USB\ROOT_HUB30\4&PROFILE&0&0`, driver instance
+`\0000`.
 
 Audio: `cac-audio-probe.exe` verifies the `IMMDeviceEnumerator` wrapper;
 endpoint IDs, friendly/interface names, endpoint GUID and form factor come

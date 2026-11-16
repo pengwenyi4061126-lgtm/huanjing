@@ -576,6 +576,20 @@ Add-Check 'hardware.usb_hid_projected' 'fail' (
 ) 'HID rows report Logitech 046D:C52B' "$usbCount USB rows" 'SPDRP_HARDWAREID / instance id'
 Add-Check 'hardware.usb_manufacturer' 'fail' ($usbText -match 'manufacturer=Logitech') 'Logitech' 'SPDRP_MFG' 'USB HID manufacturer projection'
 Add-Check 'hardware.usb_hubs_preserved' 'fail' ($usbText -match 'ROOT_HUB30') 'root hub rows untouched' 'ROOT_HUB30' 'generic hubs must not be renamed'
+Add-Check 'hardware.usb_pnp_class' 'fail' (
+    $usbText -match 'class=HIDClass' -and $usbText -match 'class=USB'
+) 'HIDClass interfaces + USB composite' 'class rows' 'DEVPKEY_Device_Class'
+Add-Check 'hardware.usb_pnp_classguid' 'fail' (
+    $usbText -match '(?i)\{745A17A0-74D3-11D0-B6FE-00A0C90F57DA\}' -and
+    $usbText -match '(?i)\{36FC9E60-C465-11CF-8056-444553540000\}'
+) 'HIDClass + USB class GUIDs' 'classguid rows' 'DEVPKEY_Device_ClassGuid'
+Add-Check 'hardware.usb_pnp_parent' 'fail' (
+    $usbText -match [regex]::Escape('USB\ROOT_HUB30\4&PROFILE&0&0')
+) 'synthetic USB parent' 'ROOT_HUB30 profile path' 'DEVPKEY_Device_Parent'
+Add-Check 'hardware.usb_pnp_driver' 'fail' (
+    $usbText -match '(?i)\{745a17a0-74d3-11d0-b6fe-00a0c90f57da\}\\0000' -and
+    $usbText -match '(?i)\{36fc9e60-c465-11cf-8056-444553540000\}\\0000'
+) 'HID/USB driver instance 0000' 'driver rows' 'DEVPKEY_Device_Driver'
 
 $pnpInstances = @($pnp.Keys | Where-Object { $_ -match '^pnp\d+_instance$' } | ForEach-Object { [string]$pnp[$_] })
 $pnpText = $pnpInstances -join '|'
