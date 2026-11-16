@@ -91,6 +91,18 @@ try {
     $launcherPath = Join-Path $dist "cac-native-launch.exe"
     $launcherHash = Get-CacSha256 $launcherPath
     Set-Content -LiteralPath (Join-Path $dist "cac-native-launch.sha256") -Value $launcherHash -Encoding ASCII
+
+    Write-Host "Building cac-service-injector.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "ServiceInjector\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-service-injector.exe" `
+        /link /guard:cf /Brepro advapi32.lib
+    if ($LASTEXITCODE -ne 0) { throw "cac-service-injector.exe build failed ($LASTEXITCODE)" }
+
+    $injectorPath = Join-Path $dist "cac-service-injector.exe"
+    $injectorHash = Get-CacSha256 $injectorPath
+    Set-Content -LiteralPath (Join-Path $dist "cac-service-injector.sha256") -Value $injectorHash -Encoding ASCII
 } finally {
     Pop-Location
 }

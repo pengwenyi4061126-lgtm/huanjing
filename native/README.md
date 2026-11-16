@@ -2,6 +2,12 @@
 
 The kernel boundary is documented separately in [kernel/README.md](kernel/README.md). WDK availability does not mean that a driver is installed. The project accepts only a signed KMDF/WDM driver through an SCM/INF path; manual mappers and vulnerable-driver loaders are not product dependencies.
 
+Claude Desktop also runs a LocalSystem user-mode service, `cowork-svc.exe`.
+`cac-service-injector.exe` injects NativeBridge into that service and any
+replacement process by name. Profile handoff uses
+`C:\ProgramData\CAC\active-profile.ini`; see
+[SERVICE-COVERAGE-20261116.md](SERVICE-COVERAGE-20261116.md).
+
 `NativeBridge.dll` is injected into the Claude process before its main thread resumes. It applies profile-scoped return-value hooks and an optional, hash-bound CPU hook set.
 
 ## What it covers

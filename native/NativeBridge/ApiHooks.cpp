@@ -37,6 +37,7 @@
 namespace {
 
 std::wstring Utf8ToWide(const std::string& value);
+std::string WideToUtf8(const std::wstring& value);
 
 enum class NativeReadPolicy {
     Profile,
@@ -1134,8 +1135,21 @@ bool IsRawHardwarePath(const wchar_t* path) {
     return false;
 }
 
+bool IsClaudeProfilePath(const wchar_t* path) {
+    if (!path) return false;
+    return wcsstr(path, L"ant-did") != nullptr ||
+           wcsstr(path, L"Claude-3p") != nullptr;
+}
+
+void AuditClaudeProfilePath(const char* surface, const wchar_t* path) {
+    if (!IsClaudeProfilePath(path)) return;
+    const std::string detail = WideToUtf8(path);
+    AuditEventRateLimited(surface, "observed", detail.c_str());
+}
+
 HANDLE WINAPI HookCreateFileW(LPCWSTR fileName, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
                               DWORD creation, DWORD flags, HANDLE templateFile) {
+    AuditClaudeProfilePath("api.createfile.claudeprofile", fileName);
     if (EmptyReadsEnabled() && IsRawHardwarePath(fileName)) {
         AuditEventRateLimited("api.createfile.rawdevice", "denied");
         SetLastError(ERROR_ACCESS_DENIED);
@@ -1149,6 +1163,7 @@ HANDLE WINAPI HookCreateFileW(LPCWSTR fileName, DWORD access, DWORD share, LPSEC
 HANDLE WINAPI HookCreateFileA(LPCSTR fileName, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
                               DWORD creation, DWORD flags, HANDLE templateFile) {
     const std::wstring wideName = AnsiToWide(fileName);
+    AuditClaudeProfilePath("api.createfilea.claudeprofile", wideName.c_str());
     if (IsRawHardwarePath(wideName.c_str())) {
         if (EmptyReadsEnabled()) {
             AuditEventRateLimited("api.createfilea.rawdevice", "denied");
@@ -1164,6 +1179,7 @@ HANDLE WINAPI HookCreateFileA(LPCSTR fileName, DWORD access, DWORD share, LPSECU
 
 HANDLE WINAPI HookCreateFile2(LPCWSTR fileName, DWORD access, DWORD share, DWORD creation,
                               LPCREATEFILE2_EXTENDED_PARAMETERS extended) {
+    AuditClaudeProfilePath("api.createfile2.claudeprofile", fileName);
     if (IsRawHardwarePath(fileName)) {
         if (EmptyReadsEnabled()) {
             AuditEventRateLimited("api.createfile2.rawdevice", "denied");
@@ -1191,6 +1207,7 @@ NTSTATUS NTAPI HookNtCreateFile(PHANDLE fileHandle, ACCESS_MASK access, POBJECT_
                                 ULONG fileAttributes, ULONG shareAccess, ULONG disposition,
                                 ULONG createOptions, PVOID eaBuffer, ULONG eaLength) {
     const std::wstring path = ObjectAttributesPath(attributes);
+    AuditClaudeProfilePath("api.ntcreatefile.claudeprofile", path.c_str());
     if (IsRawHardwarePath(path.c_str())) {
         if (EmptyReadsEnabled()) {
             SetLastError(ERROR_ACCESS_DENIED);
@@ -1512,6 +1529,18 @@ std::wstring Utf8ToWide(const std::string& value) {
     if (length <= 0) return std::wstring();
     std::wstring result(length, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), length);
+    return result;
+}
+
+std::string WideToUtf8(const std::wstring& value) {
+    if (value.empty()) return std::string();
+    const int length = WideCharToMultiByte(CP_UTF8, 0, value.data(),
+                                           static_cast<int>(value.size()),
+                                           nullptr, 0, nullptr, nullptr);
+    if (length <= 0) return std::string();
+    std::string result(length, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                        result.data(), length, nullptr, nullptr);
     return result;
 }
 

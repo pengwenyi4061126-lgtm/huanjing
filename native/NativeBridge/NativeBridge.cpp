@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <cwchar>
 #include <cstring>
+#include <string>
+#include <vector>
 
 #include "ApiHooks.h"
 #include "Audit.h"
@@ -13,6 +15,94 @@
 #include "WmiHooks.h"
 
 namespace {
+
+std::wstring TrimWide(const std::wstring& value) {
+    size_t begin = 0;
+    while (begin < value.size() && (value[begin] == L' ' || value[begin] == L'\t' ||
+                                    value[begin] == L'\r' || value[begin] == L'\n')) {
+        ++begin;
+    }
+    size_t end = value.size();
+    while (end > begin && (value[end - 1] == L' ' || value[end - 1] == L'\t' ||
+                           value[end - 1] == L'\r' || value[end - 1] == L'\n')) {
+        --end;
+    }
+    return value.substr(begin, end - begin);
+}
+
+void SetProfileEnvironment(const std::wstring& key, const std::wstring& value) {
+    if (!key.empty() && !value.empty()) {
+        SetEnvironmentVariableW(key.c_str(), value.c_str());
+    }
+}
+
+// A service does not inherit the per-user CAC_* environment.  The injector
+// writes the active Profile handoff here before loading NativeBridge.dll.
+void LoadProgramDataProfile() {
+    wchar_t existing[4] = {};
+    if (GetEnvironmentVariableW(L"CAC_PROFILE_DIR", existing, _countof(existing)) > 0) {
+        return;
+    }
+
+    HANDLE file = CreateFileW(
+        L"C:\\ProgramData\\CAC\\active-profile.ini",
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    LARGE_INTEGER size = {};
+    if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > 64 * 1024) {
+        CloseHandle(file);
+        return;
+    }
+
+    std::vector<BYTE> bytes(static_cast<size_t>(size.QuadPart));
+    DWORD read = 0;
+    const BOOL ok = ReadFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr);
+    CloseHandle(file);
+    if (!ok || read < 2) {
+        return;
+    }
+
+    const wchar_t* text = reinterpret_cast<const wchar_t*>(bytes.data());
+    size_t chars = read / sizeof(wchar_t);
+    if (chars > 0 && text[0] == 0xFEFF) {
+        ++text;
+        --chars;
+    }
+
+    std::wstring content(text, chars);
+    size_t pos = 0;
+    while (pos < content.size()) {
+        size_t end = content.find(L'\n', pos);
+        if (end == std::wstring::npos) end = content.size();
+        std::wstring line = TrimWide(content.substr(pos, end - pos));
+        pos = end + 1;
+        if (line.empty() || line[0] == L'#' || line[0] == L';') continue;
+
+        const size_t equals = line.find(L'=');
+        if (equals == std::wstring::npos) continue;
+        const std::wstring key = TrimWide(line.substr(0, equals));
+        const std::wstring value = TrimWide(line.substr(equals + 1));
+        if (key == L"profile_dir") SetProfileEnvironment(L"CAC_PROFILE_DIR", value);
+        else if (key == L"profile_identity") SetProfileEnvironment(L"CAC_PROFILE_IDENTITY", value);
+        else if (key == L"mac") SetProfileEnvironment(L"CAC_MAC", value);
+        else if (key == L"machine_id") SetProfileEnvironment(L"CAC_MACHINE_ID", value);
+        else if (key == L"hostname") SetProfileEnvironment(L"CAC_HOSTNAME", value);
+        else if (key == L"username") SetProfileEnvironment(L"CAC_USERNAME", value);
+        else if (key == L"read_policy") SetProfileEnvironment(L"CAC_NATIVE_READ_POLICY", value);
+        else if (key == L"cpuid_mode") SetProfileEnvironment(L"CAC_NATIVE_CPUID_MODE", value);
+        else if (key == L"manifest") SetProfileEnvironment(L"CAC_NATIVE_MANIFEST", value);
+        else if (key == L"network_mode") SetProfileEnvironment(L"CAC_NETWORK_MODE", value);
+        else if (key == L"audit") SetProfileEnvironment(L"CAC_NATIVE_AUDIT", value);
+    }
+}
 
 bool NetworkHooksDisabledForCommandLineProxy() {
     char value[16] = {};
@@ -67,9 +157,18 @@ void SignalFailure() {
 }
 
 DWORD WINAPI InitializeThread(LPVOID) {
+    LoadProgramDataProfile();
     ProfileIdentity& identity = ProfileIdentity::Get();
     AuditInit(identity.profileDir);
     AuditEvent("native.bridge", "attach", ProcessTypeDetail());
+    {
+        char identityDetail[512] = {};
+        std::snprintf(identityDetail, sizeof(identityDetail),
+                      "mac=%s host=%s machine=%s disk=%s",
+                      identity.mac.c_str(), identity.hostname.c_str(),
+                      identity.machineId.c_str(), identity.diskSerial.c_str());
+        AuditEvent("native.identity", "loaded", identityDetail);
+    }
 
     const bool apiReady = InstallApiHooks();
     InstallChildInjection();
