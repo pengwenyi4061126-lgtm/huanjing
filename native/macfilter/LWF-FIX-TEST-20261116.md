@@ -102,7 +102,30 @@ SHA-256 CD4F9276673D4AA13E5A17CC3F75486ACB07AE71C156223B6E4DBE5F2A55CE9B
 - 服务状态：`Stopped / Manual`。
 - 当前 VM 使用 VMX 静态 MAC `02:44:08:1a:18:33`，未加载 LWF。
 
-## 6. 决策
+## 6. 安全 pass-through 复测
+
+把 `OidRequestHandler` / `OidRequestCompleteHandler` 恢复为 `NULL` 后重新
+构建并加载：
+
+```text
+SHA-256 5F66776CBE74AE10176C226EA60B81FC49502CB9AC40B80A48FCE1A35F08C5BA
+服务状态 RUNNING
+attached = 1
+oidQueriesSeen = 0
+oidRewrites = 0
+getmac = 02-44-08-1A-18-33
+ping 192.168.174.2 = 4/4
+停止服务 = STOPPED，退出码 0
+无新蓝屏
+```
+
+这说明：
+
+- Pause 和完成链修复后的安全 pass-through 可以稳定加载；
+- 蓝屏的触发点是 **OID handler 参与**，不是驱动加载本身；
+- 由于 OID 参与在 22631 + wfplwfs 上不可用，LWF 不能承担 MAC 查询改写。
+
+## 7. 决策
 
 - HEAD 的 `CacMacLwf` 恢复 `OidRequestHandler = NULL` /
   `OidRequestCompleteHandler = NULL`，只保留安全的 pass-through 修复。
@@ -114,7 +137,7 @@ SHA-256 CD4F9276673D4AA13E5A17CC3F75486ACB07AE71C156223B6E4DBE5F2A55CE9B
 - 不再尝试用 LWF 做按进程 MAC；Microsoft 在 OSR 也明确说 LWF
   不能真正替换 MAC。
 
-## 7. 来源
+## 8. 来源
 
 - FILTER_PAUSE:
   https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ndis/nc-ndis-filter_pause

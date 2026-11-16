@@ -429,8 +429,15 @@ DriverEntry(
     characteristics.DetachHandler = CacMacFilterDetach;
     characteristics.RestartHandler = CacMacFilterRestart;
     characteristics.PauseHandler = CacMacFilterPause;
-    characteristics.OidRequestHandler = CacMacFilterOidRequest;
-    characteristics.OidRequestCompleteHandler = CacMacFilterOidRequestComplete;
+    /*
+     * 2026-11-16: on 22631.7376 + wfplwfs, any OID participation
+     * reproduces 0x1E in ndisFOidRequestCompleteInternal even after the
+     * FILTER_PAUSE and completion fixes.  Keep the OID path disabled on
+     * this stack; see LWF-FIX-TEST-20261116.md.  The MAC view is covered
+     * above NDIS by NativeBridge.
+     */
+    characteristics.OidRequestHandler = NULL;
+    characteristics.OidRequestCompleteHandler = NULL;
     characteristics.SendNetBufferListsHandler =
         CacMacFilterSendNetBufferLists;
     characteristics.SendNetBufferListsCompleteHandler =
