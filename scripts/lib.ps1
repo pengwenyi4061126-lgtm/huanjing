@@ -522,6 +522,10 @@ function Ensure-ProfileLayout {
         audio_interface_name = "Realtek High Definition Audio"
         audio_endpoint_guid = "{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}"
         audio_form_factor = 1
+        opencl_name = "NVIDIA GeForce GTX 1650"
+        opencl_vendor = "NVIDIA"
+        opencl_version = "OpenCL 3.0 CUDA"
+        opencl_compute_units = 14
     }
     $identityChanged = (-not $identityValid)
     foreach ($key in $derived.Keys) {

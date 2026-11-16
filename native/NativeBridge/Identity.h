@@ -34,6 +34,10 @@ struct ProfileIdentity {
     std::string  audioInterfaceName = "Realtek High Definition Audio";
     std::string  audioEndpointGuid = "{8f3c2a1e-5b7d-4c9a-9e2f-1a3b5c7d9e0f}";
     uint32_t     audioFormFactor = 1;
+    std::string  openclName = "NVIDIA GeForce GTX 1650";
+    std::string  openclVendor = "NVIDIA";
+    std::string  openclVersion = "OpenCL 3.0 CUDA";
+    uint32_t     openclComputeUnits = 14;
     std::string  volumeSerialHex_;
     DWORD        volumeSerial = 0;
 

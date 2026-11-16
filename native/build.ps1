@@ -236,6 +236,22 @@ try {
     $pnpProbePath = Join-Path $dist "cac-pnp-probe.exe"
     $pnpProbeHash = Get-CacSha256 $pnpProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-pnp-probe.sha256") -Value $pnpProbeHash -Encoding ASCII
+
+    Write-Host "Building cac-opencl-probe.exe ..." -ForegroundColor Cyan
+    $openclDef = Join-Path $root "OpenCLProbe\opencl.def"
+    $openclLib = Join-Path $obj "opencl.lib"
+    & lib.exe /nologo "/def:$openclDef" "/out:$openclLib" /machine:x64
+    if ($LASTEXITCODE -ne 0) { throw "opencl.lib generation failed ($LASTEXITCODE)" }
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "OpenCLProbe\main.cpp") $openclLib `
+        "/Fo$obj\" "/Fe:$dist\cac-opencl-probe.exe" `
+        /link /guard:cf /Brepro
+    if ($LASTEXITCODE -ne 0) { throw "cac-opencl-probe.exe build failed ($LASTEXITCODE)" }
+
+    $openclProbePath = Join-Path $dist "cac-opencl-probe.exe"
+    $openclProbeHash = Get-CacSha256 $openclProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-opencl-probe.sha256") -Value $openclProbeHash -Encoding ASCII
 } finally {
     Pop-Location
 }

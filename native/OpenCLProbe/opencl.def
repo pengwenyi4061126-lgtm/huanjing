@@ -1,0 +1,5 @@
+LIBRARY OpenCL
+EXPORTS
+    clGetPlatformIDs
+    clGetDeviceIDs
+    clGetDeviceInfo

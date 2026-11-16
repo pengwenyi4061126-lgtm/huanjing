@@ -28,6 +28,7 @@ param(
     [string]$NvmlProbe,
     [string]$PnpProbe,
     [string]$AudioProbe,
+    [string]$OpenClProbe,
     [string]$WmiProbe,
     [switch]$SkipCim
 )
@@ -45,6 +46,7 @@ if (-not $HidProbe) { $HidProbe = Join-Path $repoRoot 'native\dist\cac-hid-probe
 if (-not $NvmlProbe) { $NvmlProbe = Join-Path $repoRoot 'native\dist\cac-nvml-probe.exe' }
 if (-not $PnpProbe) { $PnpProbe = Join-Path $repoRoot 'native\dist\cac-pnp-probe.exe' }
 if (-not $AudioProbe) { $AudioProbe = Join-Path $repoRoot 'native\dist\cac-audio-probe.exe' }
+if (-not $OpenClProbe) { $OpenClProbe = Join-Path $repoRoot 'native\dist\cac-opencl-probe.exe' }
 if (-not $WmiProbe) { $WmiProbe = Join-Path $repoRoot 'artifacts\wmi_probe.exe' }
 $ProfilePath = (Resolve-Path -LiteralPath $ProfilePath).Path
 $Launcher = (Resolve-Path -LiteralPath $Launcher).Path
@@ -82,6 +84,10 @@ if (-not (Test-Path -LiteralPath $AudioProbe -PathType Leaf)) {
     throw "Audio probe not found: $AudioProbe"
 }
 $AudioProbe = (Resolve-Path -LiteralPath $AudioProbe).Path
+if (-not (Test-Path -LiteralPath $OpenClProbe -PathType Leaf)) {
+    throw "OpenCL probe not found: $OpenClProbe"
+}
+$OpenClProbe = (Resolve-Path -LiteralPath $OpenClProbe).Path
 if (-not (Test-Path -LiteralPath $WmiProbe -PathType Leaf)) {
     throw "WMI probe not found: $WmiProbe"
 }
@@ -242,6 +248,10 @@ $audioLog = Join-Path $OutputDir 'audio-probe.txt'
 $audioCode = Invoke-Injected -Executable $AudioProbe -Arguments @() -LogPath $audioLog
 $audio = Read-KeyValues -Path $audioLog
 
+$openclLog = Join-Path $OutputDir 'opencl-probe.txt'
+$openclCode = Invoke-Injected -Executable $OpenClProbe -Arguments @() -LogPath $openclLog
+$opencl = Read-KeyValues -Path $openclLog
+
 $cimCode = $null
 $cimLog = Join-Path $OutputDir 'cim-probe.txt'
 if (-not $SkipCim) {
@@ -268,6 +278,7 @@ Add-Check 'probe.hid' 'fail' ($hidCode -eq 0 -and $hid['hid_state'] -eq 'ok') 'h
 Add-Check 'probe.nvml' 'fail' ($nvmlCode -eq 0 -and $nvml['nvml_state'] -eq 'ok') 'nvml_state=ok' "exit=$nvmlCode state=$($nvml['nvml_state'])" 'NVML static-import probe'
 Add-Check 'probe.pnp' 'fail' ($pnpCode -eq 0 -and $pnp['pnp_state'] -eq 'ok') 'pnp_state=ok' "exit=$pnpCode state=$($pnp['pnp_state'])" 'SetupDi PnP probe'
 Add-Check 'probe.audio' 'fail' ($audioCode -eq 0 -and $audio['audio_state'] -eq 'ok') 'audio_state=ok' "exit=$audioCode state=$($audio['audio_state'])" 'IMMDevice audio probe'
+Add-Check 'probe.opencl' 'fail' ($openclCode -eq 0 -and $opencl['opencl_state'] -eq 'ok') 'opencl_state=ok' "exit=$openclCode state=$($opencl['opencl_state'])" 'OpenCL probe'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -469,6 +480,19 @@ Add-Check 'hardware.audio_formfactor' 'fail' (
     $audioFormFactor.Count -gt 0 -and @($audioFormFactor | Where-Object { $_ -ne '1' }).Count -eq 0
 ) '1' ($audioFormFactor -join '|') 'PKEY_AudioEndpoint_FormFactor'
 
+$expectedOpenClName = [string]$identity.opencl_name
+if (-not $expectedOpenClName) { $expectedOpenClName = 'NVIDIA GeForce GTX 1650' }
+$expectedOpenClVendor = [string]$identity.opencl_vendor
+if (-not $expectedOpenClVendor) { $expectedOpenClVendor = 'NVIDIA' }
+$expectedOpenClUnits = Convert-ToInt64 $identity.opencl_compute_units
+if ($expectedOpenClUnits -le 0) { $expectedOpenClUnits = 14 }
+Add-Check 'hardware.opencl_name' 'fail' ([string]$opencl['opencl_name'] -eq $expectedOpenClName) $expectedOpenClName ([string]$opencl['opencl_name']) 'clGetDeviceInfo CL_DEVICE_NAME'
+Add-Check 'hardware.opencl_vendor' 'fail' ([string]$opencl['opencl_vendor'] -eq $expectedOpenClVendor) $expectedOpenClVendor ([string]$opencl['opencl_vendor']) 'clGetDeviceInfo CL_DEVICE_VENDOR'
+$openclMemory = Convert-ToInt64 $opencl['opencl_mem_mb']
+Add-Check 'hardware.opencl_memory' 'fail' ($openclMemory -eq 4096) '4096 MB' "$openclMemory MB" 'CL_DEVICE_GLOBAL_MEM_SIZE'
+$openclUnits = Convert-ToInt64 $opencl['opencl_cus']
+Add-Check 'hardware.opencl_compute_units' 'fail' ($openclUnits -eq $expectedOpenClUnits) "$expectedOpenClUnits" "$openclUnits" 'CL_DEVICE_MAX_COMPUTE_UNITS'
+
 $processNames = @()
 if (Test-Path -LiteralPath $processLog) {
     $processNames = @(Get-Content -LiteralPath $processLog | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() } | Sort-Object -Unique)
@@ -502,6 +526,7 @@ $result = [ordered]@{
         nvml = $nvml
         pnp = $pnp
         audio = $audio
+        opencl = $opencl
         wmi = $wmi
         hardwareExit = $hardwareCode
         gpuExit = $gpuCode
@@ -512,6 +537,7 @@ $result = [ordered]@{
         nvmlExit = $nvmlCode
         pnpExit = $pnpCode
         audioExit = $audioCode
+        openclExit = $openclCode
         wmiExit = $wmiCode
         cimExit = $cimCode
         processExit = $processCode

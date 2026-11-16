@@ -244,6 +244,12 @@ int HookNvmlGetName(nvmlDevice_t, char*, unsigned int);
 int HookNvmlGetSerial(nvmlDevice_t, char*, unsigned int);
 int HookNvmlGetUUID(nvmlDevice_t, char*, unsigned int);
 int HookNvmlGetMemoryInfo(nvmlDevice_t, CacNvmlMemory*);
+typedef void* cl_device_id;
+typedef unsigned int cl_device_info;
+typedef unsigned int cl_uint;
+typedef unsigned long long cl_ulong;
+typedef int cl_int;
+typedef cl_int(__stdcall* PFN_clGetDeviceInfo)(cl_device_id, cl_device_info, size_t, void*, size_t*);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExW)(LPCWSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef BOOL (WINAPI* PFN_GetDiskFreeSpaceExA)(LPCSTR, PULARGE_INTEGER, PULARGE_INTEGER, PULARGE_INTEGER);
 typedef void (WINAPI* PFN_GetSystemInfo)(LPSYSTEM_INFO);
@@ -309,6 +315,7 @@ PFN_nvmlDeviceGetName g_origNvmlGetName = nullptr;
 PFN_nvmlDeviceGetSerial g_origNvmlGetSerial = nullptr;
 PFN_nvmlDeviceGetUUID g_origNvmlGetUUID = nullptr;
 PFN_nvmlDeviceGetMemoryInfo g_origNvmlGetMemoryInfo = nullptr;
+PFN_clGetDeviceInfo g_origClGetDeviceInfo = nullptr;
 PFN_LoadLibraryW g_origLoadLibraryW = nullptr;
 PFN_GetProcAddress g_origGetProcAddress = nullptr;
 PFN_GetDiskFreeSpaceExW g_origGetDiskFreeSpaceExW = nullptr;
@@ -1468,6 +1475,58 @@ int HookNvmlGetMemoryInfo(nvmlDevice_t device, CacNvmlMemory* memory) {
     memory->used = total - memory->free;
     AuditEventRateLimited("api.nvml.memory", "patched");
     return 0;
+}
+
+cl_int ReturnClString(const std::string& text, size_t size, void* value, size_t* sizeRet) {
+    const size_t needed = text.size() + 1;
+    if (sizeRet) *sizeRet = needed;
+    if (!value) return 0;
+    if (size < needed) return -30;
+    std::memcpy(value, text.c_str(), needed);
+    return 0;
+}
+
+cl_int __stdcall HookClGetDeviceInfo(cl_device_id device, cl_device_info param,
+                                     size_t size, void* value, size_t* sizeRet) {
+    if (!NativeHardwareHooksEnabled()) {
+        return g_origClGetDeviceInfo
+            ? g_origClGetDeviceInfo(device, param, size, value, sizeRet)
+            : -30;
+    }
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    switch (param) {
+        case 0x102B:  // CL_DEVICE_NAME
+            AuditEventRateLimited("api.opencl.deviceinfo", "name");
+            return ReturnClString(identity.openclName, size, value, sizeRet);
+        case 0x102C:  // CL_DEVICE_VENDOR
+            AuditEventRateLimited("api.opencl.deviceinfo", "vendor");
+            return ReturnClString(identity.openclVendor, size, value, sizeRet);
+        case 0x102F:  // CL_DEVICE_VERSION
+            AuditEventRateLimited("api.opencl.deviceinfo", "version");
+            return ReturnClString(identity.openclVersion, size, value, sizeRet);
+        case 0x101F: {  // CL_DEVICE_GLOBAL_MEM_SIZE
+            const cl_ulong memory = identity.gpuMemoryMb * 1024ULL * 1024ULL;
+            if (sizeRet) *sizeRet = sizeof(memory);
+            if (!value) return 0;
+            if (size < sizeof(memory)) return -30;
+            std::memcpy(value, &memory, sizeof(memory));
+            AuditEventRateLimited("api.opencl.deviceinfo", "memory");
+            return 0;
+        }
+        case 0x1002: {  // CL_DEVICE_MAX_COMPUTE_UNITS
+            const cl_uint units = identity.openclComputeUnits;
+            if (sizeRet) *sizeRet = sizeof(units);
+            if (!value) return 0;
+            if (size < sizeof(units)) return -30;
+            std::memcpy(value, &units, sizeof(units));
+            AuditEventRateLimited("api.opencl.deviceinfo", "compute-units");
+            return 0;
+        }
+        default:
+            return g_origClGetDeviceInfo
+                ? g_origClGetDeviceInfo(device, param, size, value, sizeRet)
+                : -30;
+    }
 }
 
 BOOL WINAPI HookEnumDisplayDevicesW(LPCWSTR device, DWORD deviceIndex,
@@ -3459,6 +3518,10 @@ bool InstallApiHooks() {
         if (HMODULE nvml = LoadLibraryW(L"nvml.dll")) {
             InstallNvmlHooksFromModule(nvml);
         }
+        LoadLibraryW(L"OpenCL.dll");
+        InstallOptionalInlineThenIat("OpenCL.dll", "clGetDeviceInfo",
+                             reinterpret_cast<void*>(&HookClGetDeviceInfo),
+                             reinterpret_cast<void**>(&g_origClGetDeviceInfo));
     }
     InstallInlineThenIat("kernel32.dll", "GetSystemFirmwareTable", reinterpret_cast<void*>(&HookGetSystemFirmwareTable),
                          reinterpret_cast<void**>(&g_origGetSystemFirmwareTable));
