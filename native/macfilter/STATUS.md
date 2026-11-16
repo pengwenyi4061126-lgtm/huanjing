@@ -48,6 +48,9 @@
   fault-invalid 全部按预期；`pass=true`。
 - 当前正在运行：30× disable/enable、10× restart、2h 流量、
   100 并发 TCP；完成后归档到 `evidence/`。
+- 隔离测试机 `C:\Windows\System32\drivers\CacMacLwf.sys` 实测
+  SHA-256 = `DA5AC0634A92F36EB7FCFE303D5835A4647CA2E2D8C16DCEE6157DB96C22E670`，
+  与本仓库 `bin` 构建一致。
 - 尚未运行：3× sleep/resume、5× boot、低权限 IOCTL。
 
 ## 明确边界
