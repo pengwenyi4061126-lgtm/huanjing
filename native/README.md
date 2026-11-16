@@ -26,6 +26,7 @@ replacement process by name. Profile handoff uses
 | `NtQuerySystemInformation` class 76 | inline-primary + IAT/delay patch + SMBIOS rewrite | on |
 | `NtQuerySystemInformation` class 11 | profile-mode virtualization module filtering | on |
 | `DeviceIoControl` `IOCTL_STORAGE_QUERY_PROPERTY` | IAT/inline; immediate serial rewrite; pending requests tracked for completion | on |
+| `DeviceIoControl` `IOCTL_DISK_GET_DRIVE_LAYOUT_EX` | MBR signature/partition GUID and GPT DiskId/PartitionId/name rewrite | on |
 | `NtDeviceIoControlFile` | inline + IAT; storage serial rewrite, SMART/firmware cleared; `STATUS_PENDING` is audited as unhandled | on |
 | `GetVolumeInformationByHandleW` / `GetFileInformationByHandle` / `NtQueryVolumeInformationFile` | inline-primary + IAT/delay patch + volume serial rewrite | on |
 | `GetComputerNameW` / `GetComputerNameExW` | inline-primary + IAT/delay patch | on |
@@ -201,7 +202,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\device-profile-verify.ps1 
   -ProfilePath "$env:USERPROFILE\.cac\desktop\1" -NetworkMode clean
 ```
 
-The 2026-11-16 baseline is `pass=30 fail=1 warn=0`; the only failure is
+The 2026-11-16 baseline is `pass=33 fail=1 warn=0`; the only failure is
 Clash process visibility, which belongs to the deferred TUN+clean work.
 SMBIOS Type 17 now rewrites only populated slots, so the sum of module
 sizes matches the profile memory total instead of filling empty slots.
@@ -213,6 +214,10 @@ see the real GPU vs the profile GPU:
 ```powershell
 native\dist\cac-gpu-probe.exe
 ```
+
+`cac-disk-probe.exe` prints the MBR signature/partition GUIDs or GPT
+DiskId/PartitionId/name for `\\.\PhysicalDrive0`; run it outside and inside
+the launcher to compare.
 
 ## Boundaries
 

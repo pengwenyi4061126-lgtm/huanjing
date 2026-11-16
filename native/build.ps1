@@ -160,6 +160,18 @@ try {
     $cpuDeepProbePath = Join-Path $dist "cac-cpu-deep-probe.exe"
     $cpuDeepProbeHash = Get-CacSha256 $cpuDeepProbePath
     Set-Content -LiteralPath (Join-Path $dist "cac-cpu-deep-probe.sha256") -Value $cpuDeepProbeHash -Encoding ASCII
+
+    Write-Host "Building cac-disk-probe.exe ..." -ForegroundColor Cyan
+    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /W3 /guard:cf $optimize $runtime `
+        /D_WIN32_WINNT=0x0A00 /DWIN32_LEAN_AND_MEAN /DUNICODE /D_UNICODE `
+        (Join-Path $root "DiskProbe\main.cpp") `
+        "/Fo$obj\" "/Fe:$dist\cac-disk-probe.exe" `
+        /link /guard:cf /Brepro
+    if ($LASTEXITCODE -ne 0) { throw "cac-disk-probe.exe build failed ($LASTEXITCODE)" }
+
+    $diskProbePath = Join-Path $dist "cac-disk-probe.exe"
+    $diskProbeHash = Get-CacSha256 $diskProbePath
+    Set-Content -LiteralPath (Join-Path $dist "cac-disk-probe.sha256") -Value $diskProbeHash -Encoding ASCII
 } finally {
     Pop-Location
 }

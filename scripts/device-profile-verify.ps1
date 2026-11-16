@@ -22,6 +22,7 @@ param(
     [string]$HardwareProbe,
     [string]$GpuProbe,
     [string]$CpuDeepProbe,
+    [string]$DiskProbe,
     [string]$WmiProbe,
     [switch]$SkipCim
 )
@@ -33,6 +34,7 @@ if (-not $DllPath) { $DllPath = Join-Path $repoRoot 'native\dist\NativeBridge.dl
 if (-not $HardwareProbe) { $HardwareProbe = Join-Path $repoRoot 'native\dist\cac-hardware-probe.exe' }
 if (-not $GpuProbe) { $GpuProbe = Join-Path $repoRoot 'native\dist\cac-gpu-probe.exe' }
 if (-not $CpuDeepProbe) { $CpuDeepProbe = Join-Path $repoRoot 'native\dist\cac-cpu-deep-probe.exe' }
+if (-not $DiskProbe) { $DiskProbe = Join-Path $repoRoot 'native\dist\cac-disk-probe.exe' }
 if (-not $WmiProbe) { $WmiProbe = Join-Path $repoRoot 'artifacts\wmi_probe.exe' }
 $ProfilePath = (Resolve-Path -LiteralPath $ProfilePath).Path
 $Launcher = (Resolve-Path -LiteralPath $Launcher).Path
@@ -46,6 +48,10 @@ if (-not (Test-Path -LiteralPath $CpuDeepProbe -PathType Leaf)) {
     throw "CPU deep probe not found: $CpuDeepProbe"
 }
 $CpuDeepProbe = (Resolve-Path -LiteralPath $CpuDeepProbe).Path
+if (-not (Test-Path -LiteralPath $DiskProbe -PathType Leaf)) {
+    throw "Disk probe not found: $DiskProbe"
+}
+$DiskProbe = (Resolve-Path -LiteralPath $DiskProbe).Path
 if (-not (Test-Path -LiteralPath $WmiProbe -PathType Leaf)) {
     throw "WMI probe not found: $WmiProbe"
 }
@@ -182,6 +188,10 @@ $cpuLog = Join-Path $OutputDir 'cpu-deep-probe.txt'
 $cpuCode = Invoke-Injected -Executable $CpuDeepProbe -Arguments @() -LogPath $cpuLog
 $cpu = Read-KeyValues -Path $cpuLog
 
+$diskLog = Join-Path $OutputDir 'disk-probe.txt'
+$diskCode = Invoke-Injected -Executable $DiskProbe -Arguments @() -LogPath $diskLog
+$disk = Read-KeyValues -Path $diskLog
+
 $cimCode = $null
 $cimLog = Join-Path $OutputDir 'cim-probe.txt'
 if (-not $SkipCim) {
@@ -202,6 +212,7 @@ Add-Check 'probe.hardware' 'fail' ($hardwareCode -eq 0 -and $hardware.Count -gt 
 Add-Check 'probe.wmi' 'fail' ($wmiCode -eq 0 -and $wmi['wmi_state'] -eq 'ok') 'wmi_state=ok' "exit=$wmiCode state=$($wmi['wmi_state'])" 'IWbemLocator probe'
 Add-Check 'probe.gpu' 'fail' ($gpuCode -eq 0 -and $gpu['gpu_state'] -eq 'ok') 'gpu_state=ok' "exit=$gpuCode state=$($gpu['gpu_state'])" 'DXGI probe'
 Add-Check 'probe.cpudeep' 'fail' ($cpuCode -eq 0 -and $cpu.Count -gt 0) 'exit 0 + key=value' "exit=$cpuCode lines=$($cpu.Count)" 'CPU/memory deep probe'
+Add-Check 'probe.disk' 'fail' ($diskCode -eq 0 -and $disk['disk_state'] -eq 'ok') 'disk_state=ok' "exit=$diskCode state=$($disk['disk_state'])" 'Disk layout probe'
 if (-not $SkipCim) {
     Add-Check 'cim.available' 'fail' ($cimCode -eq 0 -and (Test-Path -LiteralPath $cimLog)) 'Get-CimInstance succeeds' "exit=$cimCode" 'tool-image WMI gate; Get-WmiObject is still a known gap'
 }
@@ -292,6 +303,11 @@ Add-Check 'hardware.memory_realism' 'warn' ([string]::IsNullOrEmpty($smbiosMemPa
 $acpiSize = Convert-ToInt64 (Get-ProbeScalar -Path $hardwareLog -Key 'acpi_size')
 Add-Check 'firmware.acpi_hidden' 'warn' ($acpiSize -eq 0) '0' "$acpiSize" 'set firmware_mode=hide-acpi in the Profile'
 
+$diskStyle = [string]$disk['disk_style']
+Add-Check 'hardware.disk_layout' 'fail' ($diskStyle -eq 'GPT' -or $diskStyle -eq 'MBR') 'GPT or MBR' $diskStyle 'IOCTL_DISK_GET_DRIVE_LAYOUT_EX'
+$diskId = if ($diskStyle -eq 'GPT') { [string]$disk['disk_id'] } else { [string]$disk['disk_signature'] }
+Add-Check 'hardware.disk_id' 'fail' (-not [string]::IsNullOrWhiteSpace($diskId) -and $diskId -ne '0x90248822') 'profile disk signature/GUID' $diskId 'real MBR signature 0x90248822 must not leak'
+
 $processNames = @()
 if (Test-Path -LiteralPath $processLog) {
     $processNames = @(Get-Content -LiteralPath $processLog | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() } | Sort-Object -Unique)
@@ -319,10 +335,12 @@ $result = [ordered]@{
         hardware = $hardware
         gpu = $gpu
         cpu = $cpu
+        disk = $disk
         wmi = $wmi
         hardwareExit = $hardwareCode
         gpuExit = $gpuCode
         cpuExit = $cpuCode
+        diskExit = $diskCode
         wmiExit = $wmiCode
         cimExit = $cimCode
         processExit = $processCode

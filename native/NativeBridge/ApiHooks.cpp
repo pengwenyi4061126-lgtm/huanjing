@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstddef>
+#include <string>
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
@@ -1341,6 +1342,62 @@ void DropPendingDeviceIo(LPOVERLAPPED overlapped, const char* action) {
     if (found) AuditEventRateLimited("api.deviceiocontrol.pending", action, nullptr, code, true);
 }
 
+GUID DeriveProfileGuid(const std::string& seed) {
+    GUID result = {};
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) {
+        return result;
+    }
+    BYTE digest[32] = {};
+    const NTSTATUS status = BCryptHash(
+        algorithm, nullptr, 0,
+        reinterpret_cast<PUCHAR>(const_cast<char*>(seed.data())),
+        static_cast<ULONG>(seed.size()), digest, sizeof(digest));
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    if (status < 0) return result;
+    std::memcpy(&result, digest, sizeof(result));
+    result.Data3 = static_cast<USHORT>((result.Data3 & 0x0FFF) | 0x4000);
+    result.Data4[0] = static_cast<BYTE>((result.Data4[0] & 0x3F) | 0x80);
+    return result;
+}
+
+DWORD DeriveProfileDword(const std::string& seed) {
+    return DeriveProfileGuid(seed).Data1;
+}
+
+void PatchDriveLayout(LPVOID output, DWORD outputSize, DWORD returned) {
+    if (!NativeHardwareHooksEnabled() || !output) return;
+    if (returned < sizeof(DRIVE_LAYOUT_INFORMATION_EX)) return;
+    auto* layout = static_cast<DRIVE_LAYOUT_INFORMATION_EX*>(output);
+    if (layout->PartitionCount == 0 || layout->PartitionCount > 128) return;
+    const size_t header = offsetof(DRIVE_LAYOUT_INFORMATION_EX, PartitionEntry);
+    const size_t needed = header + layout->PartitionCount * sizeof(PARTITION_INFORMATION_EX);
+    if (needed > outputSize || needed > returned) return;
+
+    const ProfileIdentity& identity = ProfileIdentity::Get();
+    if (layout->PartitionStyle == PARTITION_STYLE_MBR) {
+        layout->Mbr.Signature = DeriveProfileDword(identity.machineId + "|mbr-signature");
+        for (DWORD index = 0; index < layout->PartitionCount; ++index) {
+            PARTITION_INFORMATION_EX& partition = layout->PartitionEntry[index];
+            if (partition.PartitionStyle != PARTITION_STYLE_MBR) continue;
+            partition.Mbr.PartitionId = DeriveProfileGuid(
+                identity.machineId + "|mbr-part-" + std::to_string(index));
+        }
+        AuditEventRateLimited("api.disklayout.mbr", "patched");
+        return;
+    }
+    if (layout->PartitionStyle != PARTITION_STYLE_GPT) return;
+    layout->Gpt.DiskId = DeriveProfileGuid(identity.machineId + "|gpt-disk");
+    for (DWORD index = 0; index < layout->PartitionCount; ++index) {
+        PARTITION_INFORMATION_EX& partition = layout->PartitionEntry[index];
+        if (partition.PartitionStyle != PARTITION_STYLE_GPT) continue;
+        partition.Gpt.PartitionId = DeriveProfileGuid(
+            identity.machineId + "|gpt-part-" + std::to_string(index));
+        wcscpy_s(partition.Gpt.Name, L"Basic data partition");
+    }
+    AuditEventRateLimited("api.disklayout.gpt", "patched");
+}
+
 BOOL WINAPI HookDeviceIoControl(HANDLE device, DWORD code, LPVOID input, DWORD inputSize,
                                 LPVOID output, DWORD outputSize, LPDWORD returned, LPOVERLAPPED overlapped) {
     const BOOL result = g_origDeviceIoControl
@@ -1350,6 +1407,9 @@ BOOL WINAPI HookDeviceIoControl(HANDLE device, DWORD code, LPVOID input, DWORD i
     if (result && output && returned && *returned > 0) {
         SanitizeStorageOutput(code, input, inputSize, output, outputSize, *returned,
                               "api.deviceiocontrol.serial");
+        if (code == IOCTL_DISK_GET_DRIVE_LAYOUT_EX) {
+            PatchDriveLayout(output, outputSize, *returned);
+        }
         AuditEventRateLimited("api.deviceiocontrol", "observed", nullptr, code, true);
     } else if (!result && overlapped && lastError == ERROR_IO_PENDING) {
         TrackPendingDeviceIo(overlapped, code, input, inputSize, output, outputSize);
