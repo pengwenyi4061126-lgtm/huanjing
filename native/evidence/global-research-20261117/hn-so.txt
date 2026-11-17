@@ -1,0 +1,29 @@
+HN | Chrome's New AI Web APIs Are Enabling Hardware Fingerprinting | 3 | https://datadome.co/threat-research/how-chromes-new-ai-web-apis-enable-hardware-fingerprinting/
+HN | GPU Hardware Fingerprinting Using Physically Unclonable Functions | 2 | https://dannylau.gumroad.com/l/gpu-fingerprinting
+HN | PUF Away for Hardware Fingerprinting | 2 | https://hackaday.com/2023/04/17/puf-away-for-hardware-fingerprinting/
+HN | Aura – Detecting Fake Cell Towers with RF Fingerprinting AI | 8 | 
+HN | Why Do Enterprise MFA Solutions Still Allow Remote Takeovers? | 1 | 
+HN | Microsoft patched HWIDGen Windows activation method after 6 years | 1 | https://forum.cktn.de/t/microsoft-began-closing-off-the-windows-7-and-win-8-installation-path-around-a-week-ago-which-hwid-exploits-meaning-hwid-is-dead/4006
+HN | FTC sues Adobe for hiding fees and inhibiting cancellations | 2587 | https://www.ftc.gov/news-events/news/press-releases/2024/06/ftc-takes-action-against-adobe-executives-hiding-fees-preventing-consumers-easily-cancelling
+HN | Apple Hides Taiwan Flag in Hong Kong | 1456 | https://blog.emojipedia.org/apple-hides-taiwan-flag-in-hong-kong/
+HN | Apple has pushed a silent Mac update to remove hidden Zoom web server | 1358 | https://techcrunch.com/2019/07/10/apple-silent-update-zoom-app/
+HN | uBlock filter list to hide all YouTube Shorts | 1172 | https://github.com/i5heu/ublock-hide-yt-shorts/
+HN | Yoti age checks share facial photos and device fingerprints with third parties | 196 | https://techxplore.com/news/2026-05-online-age-pointless-privacy.html
+HN | UK ICO response to Google's policy change on device fingerprinting | 158 | https://ico.org.uk/about-the-ico/media-centre/news-and-blogs/2024/12/our-response-to-google-s-policy-change-on-fingerprinting/
+HN | Firmware update hides a device’s Bluetooth fingerprint | 151 | https://today.ucsd.edu/story/a-simple-firmware-update-completely-hides-a-devices-bluetooth-fingerprint
+HN | Google, Meta 'break' Apple's device fingerprinting rules | 104 | https://www.theregister.com/2024/05/07/apple_fingerprinting_rules/
+HN | Picasso: Lightweight Device Class Fingerprinting Web Clients – Google Research | 33 | https://research.google/pubs/pub45581/
+HN | Split Lock Detection VM Hangs | 3 | https://x86.lol/generic/2023/11/07/split-lock.html
+HN | New: VM threat detection on Google Cloud | 2 | https://cloud.google.com/blog/products/identity-security/virtual-machine-threat-detection-in-security-command-center
+HN | Safe Qubes OS screenshot tool with active VM detection and window border removal | 2 | https://github.com/nil0x42/qubes-screenshooter
+HN | Windows VM detection tricks part 2 – driver thread fingerprinting | 1 | https://labs.nettitude.com/blog/vm-detection-tricks-part-2-driver-thread-fingerprinting/
+HN | Agentless detection and management of VM SBOM and security threats | 2 | https://github.com/openclarity/vmclarity
+SO | Sending IDENTIFY DEVICE COMMAND - ATA PASS THROUGH on raid - SSD | score=2 | https://stackoverflow.com/questions/11080688/sending-identify-device-command-ata-pass-through-on-raid-ssd
+SO | Using WRITE SECTOR(S) EXT ATA command with SCSI ATA PASS-THROUGH(16) | score=1 | https://stackoverflow.com/questions/16108182/using-write-sectors-ext-ata-command-with-scsi-ata-pass-through16
+SO | Executing ATA commands on HDD from user space application using libata | score=1 | https://stackoverflow.com/questions/17366515/executing-ata-commands-on-hdd-from-user-space-application-using-libata
+SO | Overflow error when trying to read drive properties with ioctl in python | score=0 | https://stackoverflow.com/questions/60103310/overflow-error-when-trying-to-read-drive-properties-with-ioctl-in-python
+SO | PowerShell interrogate a remote system | score=0 | https://stackoverflow.com/questions/61061475/powershell-interrogate-a-remote-system
+SO | Reading DisplayPort DDC/CI under linux using libdrm | score=6 | https://stackoverflow.com/questions/29863547/reading-displayport-ddc-ci-under-linux-using-libdrm
+SO | How to start linux with gui without monitor? | score=4 | https://stackoverflow.com/questions/9699992/how-to-start-linux-with-gui-without-monitor
+SO | Pop OS / Dell XPS 9310 -- battery drained overnight on suspend | score=3 | https://stackoverflow.com/questions/71836323/pop-os-dell-xps-9310-battery-drained-overnight-on-suspend
+SO | XFCE 4.12: desktop taking ages to appear when dual monitor is on | score=2 | https://stackoverflow.com/questions/29603131/xfce-4-12-desktop-taking-ages-to-appear-when-dual-monitor-is-on

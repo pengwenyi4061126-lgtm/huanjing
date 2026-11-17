@@ -1,0 +1,10 @@
+
+Name                          MacAddress       
+----                          ----------       
+VMware Network Adapter VMnet1 00-50-56-C0-00-01
+以太网                           0A-E0-AF-B1-2C-E1
+VMware Network Adapter VMnet8 00-50-56-C0-00-08
+Meta                                           
+
+
+

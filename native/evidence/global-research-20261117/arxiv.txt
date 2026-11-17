@@ -1,0 +1,14 @@
+ARXIV | Hardware Fingerprinting FTQC via Quantum Decoder Timing | 2026-09-10 | http://arxiv.org/abs/2609.12145v1
+ARXIV | Enhancing Co-packaging Optics Enabled Silicon Photonics Security Assurance Hardware Fingerprinting | 2026-06-26 | http://arxiv.org/abs/2606.27612v1
+ARXIV | GPU Fingerprinting for Location Verification | 2026-05-03 | http://arxiv.org/abs/2605.01930v2
+ARXIV | Software-Hardware Binding for Protection of Sensitive Data in Embedded Software | 2026-03-12 | http://arxiv.org/abs/2603.11727v1
+ARXIV | SiliconHealth: A Complete Low-Cost Blockchain Healthcare Infrastructure for Resource-Constrained Regions Using Repurposed Bitcoin Mining ASICs | 2026-01-14 | http://arxiv.org/abs/2601.09557v2
+ARXIV | KGym: A Platform and Dataset to Benchmark Large Language Models on Linux Kernel Crash Resolution | 2024-07-02 | http://arxiv.org/abs/2407.02680v5
+ARXIV | Longitudinal Study of the Prevalence of Malware Evasive Techniques | 2021-12-21 | http://arxiv.org/abs/2112.11289v1
+ARXIV | FP-Agent: Fingerprinting AI Browsing Agents | 2026-05-02 | http://arxiv.org/abs/2605.01247v1
+ARXIV | Trackly: A Unified SaaS Platform for User Behavior Analytics and Real Time Rule Based Anomaly Detection | 2026-01-30 | http://arxiv.org/abs/2601.22800v1
+ARXIV | Byte by Byte: Unmasking Browser Fingerprinting at the Function Level Using V8 Bytecode Transformers | 2025-09-12 | http://arxiv.org/abs/2509.09950v1
+ARXIV | To WASM or Not to WASM: Evaluation of Browser Fingerprinting Defenses Under WASM based Obfuscation | 2025-08-28 | http://arxiv.org/abs/2508.21219v2
+ARXIV | Browser Fingerprinting Using WebAssembly | 2025-05-31 | http://arxiv.org/abs/2506.00719v1
+ARXIV | GPU Fingerprinting for Location Verification | 2026-05-03 | http://arxiv.org/abs/2605.01930v2
+ARXIV | DRAWNAPART: A Device Identification Technique based on Remote GPU Fingerprinting | 2022-01-24 | http://arxiv.org/abs/2201.09956v1

@@ -1,0 +1,4 @@
+ata_state=ok
+ata_model=CJ325060BC
+ata_serial=F4DJ13000878
+ata_firmware=1.00

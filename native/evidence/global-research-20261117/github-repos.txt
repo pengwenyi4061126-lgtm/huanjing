@@ -1,0 +1,23 @@
+FiYHer/EASY-HWID-SPOOFER | stars=1001 | updated=2026-11-16 | 基于内核模式的硬件信息欺骗工具
+btbd/hwid | stars=743 | updated=2026-11-11 | HWID spoofer
+SamuelTulach/mutante | stars=635 | updated=2026-11-11 | Kernel-mode Windows HWID spoofer
+Alex3434/wmi-static-spoofer | stars=518 | updated=2026-11-02 | Spoofing the Windows 10 HDD/diskdrive serialnumber from kernel without hooking
+sr2echa/Monotone-HWID-Spoofer | stars=410 | updated=2026-11-09 | Custom Created Hardware ID Spoofer to Bypass Hardware or IP Bans
+SamuelTulach/negativespoofer | stars=367 | updated=2026-10-23 | PoC HWID spoofer that runs in EFI
+ReFo0/hwidspoofer | stars=278 | updated=2026-11-12 | kernel mode spoofer disk and smbios, socket communication 
+vibheksoni/dma-spoofer | stars=144 | updated=2026-11-16 | First open-source DMA-based HWID spoofer written in Rust. Spoof hardware IDs via direct memory access.
+wxxz975/HWIDSpoofer | stars=82 | updated=2026-11-08 | hwid spoofer for window(include nic, smbios, disk)
+Igniaemage/UmbrellaSpoofer-resocket | stars=50 | updated=2026-11-16 | Umbrella Spoofer v2.0.4 scans hwid reset beside hwid checker. hwid ban tally, smbios board, volume label, nic oui, snapshot pair, disk serial, caller id, device fingerprint, webgl canvases. 
+Skotschia/hwid_spoofer | stars=40 | updated=2026-09-29 | HWID Spoofer which spoofs disk serials, smart disk serials and SMBIOS.
+03927/PerfectSMBios | stars=20 | updated=2026-10-30 | Perfect way to spoof SMBios serials before bootx64.efi ( UEFI )
+breezechen/hdsnspoofer | stars=83 | updated=2026-09-13 | Hard Disk Serial Number Spoofer on windows. x86/x64 supported.
+AndrzejRPiotrowski/HWID-shifter | stars=72 | updated=2026-11-10 | Spoofing the Windows 10 HDD/disk drive serial number.
+Igniaemage/UmbrellaSpoofer-resocket | stars=50 | updated=2026-11-16 | Umbrella Spoofer v2.0.4 scans hwid reset beside hwid checker. hwid ban tally, smbios board, volume label, nic oui, snapshot pair, disk serial, caller id, device fingerprint, webgl canvases. 
+Skotschia/hwid_spoofer | stars=40 | updated=2026-09-29 | HWID Spoofer which spoofs disk serials, smart disk serials and SMBIOS.
+UserJoo9/Hydra-Spoofer-Free | stars=8 | updated=2026-10-26 | Hydra Spoofer changes your computer's hardware identifiers (MAC address, BIOS serial, disk serial, etc.) to prevent tracking by websites and online services.
+TheHolyOneZ/ZHWID | stars=3 | updated=2026-11-09 | One-toggle Linux identity switch: spoof your MAC address, machine-id, hostname & DHCP client-ID/DUID system-wide, cloak per-app firmware IDs (motherboard/disk serials) via LD_PRELOAD, and restore your real identity anytime. A reversible privacy & authorized security-testing tool. Rust + Tauri desktop app plus a headless CLI.
+ericwazhung/avr-edid-spoofer | stars=2 | updated=2022-06-27 | Simulate an EDID chip
+v3l0c1r4pt0r/hdmi-spoofer | stars=1 | updated=2025-03-28 | Simple HDMI-HDMI board that allows overriding EDID memory
+Leo-PL/EDID-spoofer | stars=0 | updated=2024-06-21 | Simple board that can act as dummy plug or can override EDID of a display, or access VESA DDC interface externally.
+0xTracepacket/edid-spoofer | stars=0 | updated=2026-06-14 | Modify serial numbers in EDID binaries with automatic pattern matching and checksum correction. Interactive CLI and command-line interface included
+miaolinopenvox/avr-edid-spoofer | stars=0 | updated=2015-08-31 | Automatically exported from code.google.com/p/avr-edid-spoofer
