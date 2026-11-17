@@ -1,0 +1,14 @@
+
+Profile             MachineId                        Mac               Hostname        DiskSerial      Realism
+-------             ---------                        ---               --------        ----------      -------
+desktop\1           643026d9e8714bfb827a02a029717992 B0:83:FE:54:c0:38 DESKTOP-8058E16 WD-WUBQNX85J2VK       2
+desktop\audit-clean 7105ecbcb4a642a685ea9848ddd5d3ba B0:83:FE:09:f6:66 DESKTOP-3E2092A WD-W2H6F8RBV79H       2
+desktop\profile-a   bd1fa8ea0fcf4072aaa012a9c8037a44 A4:BB:6D:50:85:49 DESKTOP-499CBFA WD-WRK2RMFJ6XR9       2
+desktop\profile-b   30ba5229ca6a49f1b2aa4904f21aa67f B0:83:FE:f6:34:32 DESKTOP-133979B WD-WUCYXR99D8EF       2
+envs\1              1ef6240ae79f4ef889d90845b5501730 A4:BB:6D:47:1a:af DESKTOP-972DC83 WD-WEGH3CT9MCXN       2
+envs\profile-a      003223bdb1d846708e1f265ceadc35d7 3C:7C:3F:bf:94:ab DESKTOP-674E0B2 WD-WGU8KXZQFJAV       2
+envs\profile-b      188f2aee7810467ca62e49bf81df8c77 A4:BB:6D:34:48:ef DESKTOP-B8AD035 WD-WBYUV8C3LKU5       2
+envs\smoke          fc045ccb7c4f4e6595fed2ead1d80535 00:1B:21:1d:5f:44 DESKTOP-B952A4E WD-WTNJ92GKUB9T       2
+
+
+profile_identity_check=pass

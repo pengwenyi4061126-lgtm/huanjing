@@ -307,6 +307,18 @@ Network clean mode also hides the known VPN process images
 `clash-meta`) by compacting `SystemProcessInformation`; `Get-Process`
 returns no rows inside while the real processes remain outside.
 
+Profile identity tooling:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\profile-identity-normalize.ps1 -RegenerateDevice 'desktop\1'
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\profile-identity-check.ps1
+```
+
+The normalizer migrates MAC/hostname/serials to vendor formats and can
+regenerate a profile's `machine_id`/`uuid`; the checker enforces cross-profile
+uniqueness for machine id, UUID, system UUID, MAC, hostname and disk serial.
+Current state: 8 profiles, all `realism_schema=2`, checker `pass`.
+
 Audio: `cac-audio-probe.exe` verifies the `IMMDeviceEnumerator` wrapper;
 endpoint IDs, friendly/interface names, endpoint GUID and form factor come
 from the Profile.

@@ -24,6 +24,8 @@
     "scripts/desktop-native-check.ps1",
     "scripts/kernel-boundary-check.ps1",
     "scripts/desktop-profile.ps1",
+    "scripts/profile-identity-normalize.ps1",
+    "scripts/profile-identity-check.ps1",
     "scripts/fingerprint-shim.js",
     "scripts/fingerprint-cdp.js",
     "scripts/fingerprint-test.js",

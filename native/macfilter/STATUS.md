@@ -4,6 +4,10 @@
 
 ## 当前状态
 
+**宿主机（2026-11-17）**：`CacMacLwf` 服务、OEM 驱动包、驱动文件与
+网络绑定已全部卸载；本机不再加载任何 MAC LWF。仓库 `bin` 构建与 VM
+证据仅用于隔离测试机。
+
 | 项 | 值 |
 |---|---|
 | 修复提交 | `de2d8d1` `fix: clone OID requests before forwarding` |
@@ -11,7 +15,7 @@
 | 构建产物 | `bin/CacMacLwf.sys` |
 | 驱动 SHA-256 | `DA5AC0634A92F36EB7FCFE303D5835A4647CA2E2D8C16DCEE6157DB96C22E670`（含 ACL/IOCTL/fault 加固） |
 | 签名 | `CN=CAC Kernel Test Signing` / Valid |
-| 服务状态 | `DISABLED`（默认不加载） |
+| 服务状态 | 宿主机已卸载（2026-11-17）；隔离测试机按需安装 |
 | 覆盖等级 | `STABLE-PASSTHROUGH + OID-VIEW` |
 
 安装脚本默认把服务设为 `DISABLED`；隔离测试机使用
@@ -43,9 +47,8 @@
 - 控制设备通过 `IoCreateDeviceSecure` 限制为 `SYSTEM + Administrators`；
   `CAC_MAC_IOCTL_SET` 只接受 6 字节，`STATE` 只接受 0 输入，
   `FAULT` 只接受 0/1/2。
-- `verify-macfilter-artifacts.ps1` 当前结果：`PASS=True FAIL=0 WARN=1`；
-  唯一警告是本机已安装的旧驱动 `E3A307C0...` 仍是 11-14 版本，服务
-  `DISABLED`，未加载。
+- `verify-macfilter-artifacts.ps1`：仓库制品校验通过；宿主机旧的
+  `E3A307C0...` 驱动、OEM 包和服务已于 2026-11-17 全部卸载。
 
 ## 隔离测试机运行证据
 
@@ -92,8 +95,8 @@
   仅作为历史证据，不参与安装。
 - `install-macfilter.ps1` 安装前校验 `bin/CacMacLwf.sha256`，复制到
   `System32\drivers` 后再校验一次；不匹配即拒绝。
-- 本机已安装的旧版 `E3A307C0...` 保持 `DISABLED`；重新启用必须先
-  通过安装脚本覆盖为当前 `bin` 构建。
+- 宿主机不再安装任何 `CacMacLwf` 版本；需要内核视图时只在隔离测试机
+  通过安装脚本部署当前 `bin` 构建。
 
 ## 下一步
 
