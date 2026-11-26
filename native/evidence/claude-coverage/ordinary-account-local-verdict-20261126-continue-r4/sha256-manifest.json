@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "generatedUtc": "2026-11-26T05:17:15.638Z",
+  "files": [
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\ordinary-account-local-verdict-20261126-continue-r4\\ordinary-account-local-verdict.json",
+      "bytes": 9173,
+      "sha256": "6D47470559967448C3FFC21BDD5C51F8BA16A35A345F92D0C35508A5F0BAD6BD"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\ordinary-account-local-verdict-20261126-continue-r4\\ordinary-account-local-verdict.md",
+      "bytes": 3333,
+      "sha256": "8D9970273264FD6A72F9DC11F34E6629BEF6FC96B1903E70F6553E2D7B5B08C0"
+    }
+  ]
+}

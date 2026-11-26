@@ -1,0 +1,27 @@
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-26T04:53:07.3670073Z",
+    "outputRoot":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-reconciliation-local-rev32-20261126-resume",
+    "files":  [
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-reconciliation-local-rev32-20261126-resume\\commands.json",
+                      "bytes":  1608,
+                      "sha256":  "22031C2063BA6BFE8AB45CC7FA681DFCD0CAD79AE613F6492C6947467D93CBCE"
+                  },
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-reconciliation-local-rev32-20261126-resume\\delivery-reconciliation.json",
+                      "bytes":  1105624,
+                      "sha256":  "0426BF8B1683F5F04CF86AE578794D8995DE6EDC751430E7768DD6321507489B"
+                  },
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-reconciliation-local-rev32-20261126-resume\\delivery-reconciliation.md",
+                      "bytes":  1180,
+                      "sha256":  "DEB7BB3576870314E0037B9FCF2E8015CE4327EB7AC3CC2DA9FB24356FCCE475"
+                  },
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-reconciliation-local-rev32-20261126-resume\\rollback-reconciliation.json",
+                      "bytes":  1679,
+                      "sha256":  "42CDCC45C5CFE65BF6A182476413585EE580E29B951F0A6B14B9EC282B0B709B"
+                  }
+              ]
+}

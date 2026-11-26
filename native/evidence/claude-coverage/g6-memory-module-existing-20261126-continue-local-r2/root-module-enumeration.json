@@ -1,0 +1,22 @@
+{
+    "schema":  1,
+    "mode":  "Enumerate",
+    "pid":  18196,
+    "status":  "pass",
+    "modules":  [
+                    {
+                        "moduleName":  "NativeBridge.dll",
+                        "filePath":  "C:\\Users\\Administrator\\.cac\\native\\NativeBridge.dll",
+                        "baseAddress":  140710748291072,
+                        "moduleMemorySize":  593920
+                    },
+                    {
+                        "moduleName":  "claude-native-binding.node",
+                        "filePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\node_modules\\@ant\\claude-native\\claude-native-binding.node",
+                        "baseAddress":  140710742982656,
+                        "moduleMemorySize":  4251648
+                    }
+                ],
+    "memory":  null,
+    "error":  null
+}

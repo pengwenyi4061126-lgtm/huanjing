@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "generated_utc": "2026-11-26T04:30:17.106Z",
+  "outputRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g1b-current-rev32-20261126-continue",
+  "files": [
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g1b-current-rev32-20261126-continue\\closure.json",
+      "bytes": 1380,
+      "sha256": "C66E50144CCDD5820D598D3E5E5F8DE75F9EA1AE08B1A0AAD4E66362D6782184"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g1b-current-rev32-20261126-continue\\g1b-current-disposition.json",
+      "bytes": 62192,
+      "sha256": "AD01B3E419236CBD9F55634B2D86519B2D20C7B4808814907979727047A37E69"
+    }
+  ]
+}

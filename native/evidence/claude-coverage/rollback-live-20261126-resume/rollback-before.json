@@ -1,0 +1,97 @@
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-26T04:52:09.7402056Z",
+    "contract":  {
+                     "revision":  "2026-11-25.32",
+                     "jsonSha256":  "34B2817762A9D653D9C4D84B6A8CC4ECA2AB1DBBF596B5267E4274BED2788B11",
+                     "markdownSha256":  "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+                     "declaredMarkdownSha256":  "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+                     "bindingMatch":  true
+                 },
+    "installedRoot":  "C:\\Users\\Administrator\\.cac\\native",
+    "records":  [
+                    {
+                        "path":  "C:\\Users\\Administrator\\.cac\\native\\NativeBridge.dll",
+                        "exists":  true,
+                        "bytes":  568320,
+                        "sha256":  "3368975C10ADF834283A31FB558799DEAB150AFBB029B8364D65EE0396B45586"
+                    },
+                    {
+                        "path":  "C:\\Users\\Administrator\\.cac\\native\\NativeBridge.sha256",
+                        "exists":  true,
+                        "bytes":  66,
+                        "sha256":  "04C047431824943E04E206FA80B9001F777299932026240D0E7834DBEF18D961"
+                    },
+                    {
+                        "path":  "C:\\Users\\Administrator\\.cac\\native\\cac-native-launch.exe",
+                        "exists":  true,
+                        "bytes":  229888,
+                        "sha256":  "5350C41B39FD718C0E95743736797CA15A540E9D115226A5131812FA34D15C69"
+                    },
+                    {
+                        "path":  "C:\\Users\\Administrator\\.cac\\native\\cac-native-launch.sha256",
+                        "exists":  true,
+                        "bytes":  66,
+                        "sha256":  "C49814B0FD13CF340E1403D2EEE2A1DEE5DCC82FCBA2DBB901E440C35A2FB21E"
+                    },
+                    {
+                        "path":  "C:\\Users\\Administrator\\.cac\\native\\manifest.sha256",
+                        "exists":  true,
+                        "bytes":  2797,
+                        "sha256":  "46C2F8B60788B886F786AF5200AE0FBD9F3B927CF5D5809FF9420F568C0728BD"
+                    },
+                    {
+                        "path":  "C:\\Users\\Administrator\\.cac\\native\\build-provenance.json",
+                        "exists":  true,
+                        "bytes":  302234,
+                        "sha256":  "129BA0E0211066203669271897538485CEF351F4A9AA92B76238A0FB37A56158"
+                    }
+                ],
+    "fixtureRoot":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\h1-delivery-20261118-0630\\package-extract\\package\\native\\dist",
+    "fixture":  [
+                    {
+                        "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\h1-delivery-20261118-0630\\package-extract\\package\\native\\dist\\NativeBridge.dll",
+                        "exists":  true,
+                        "bytes":  509952,
+                        "sha256":  "D6CFBAD8D3254CDA4BF82F9DB1D30CED898B4398AB22CA6970C53FBFF8232CD6"
+                    },
+                    {
+                        "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\h1-delivery-20261118-0630\\package-extract\\package\\native\\dist\\NativeBridge.sha256",
+                        "exists":  true,
+                        "bytes":  66,
+                        "sha256":  "F3B6CE837315ED1799B4AC31F2C83EF48E8B5458CFDFD915BE0ED6424A00E0C4"
+                    },
+                    {
+                        "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\h1-delivery-20261118-0630\\package-extract\\package\\native\\dist\\cac-native-launch.exe",
+                        "exists":  true,
+                        "bytes":  223232,
+                        "sha256":  "6AF154629C61E4D8B060980D00865B6B73823AAB24157D7CEA95A9C3A17036AC"
+                    },
+                    {
+                        "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\h1-delivery-20261118-0630\\package-extract\\package\\native\\dist\\cac-native-launch.sha256",
+                        "exists":  true,
+                        "bytes":  66,
+                        "sha256":  "A8095FD3B4A7C721C3C69A0022650D59F4D3C1FD81AA8AAAA5D84E2AE8C3BDD6"
+                    },
+                    {
+                        "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\h1-delivery-20261118-0630\\package-extract\\package\\native\\dist\\manifest.sha256",
+                        "exists":  true,
+                        "bytes":  2710,
+                        "sha256":  "28263EB18D76D7658AD9587AF3A2CB09CD076FF87D90F741D0AB86FF3E049213"
+                    },
+                    {
+                        "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\h1-delivery-20261118-0630\\package-extract\\package\\native\\dist\\build-provenance.json",
+                        "exists":  true,
+                        "bytes":  23489,
+                        "sha256":  "7A061523DFBEB343E77104CDBBDCFE63B484F89780F1674C9CA34130718C2C2D"
+                    }
+                ],
+    "service":  {
+                    "exists":  true,
+                    "status":  "Running",
+                    "startType":  "Automatic"
+                },
+    "claude":  {
+
+               }
+}

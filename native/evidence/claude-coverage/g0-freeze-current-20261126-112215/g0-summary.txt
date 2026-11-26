@@ -1,0 +1,11 @@
+schema=claude-g0-freeze/v1
+capturedAt=2026-11-26T11:22:18.8429755+08:00
+target=Claude 5.1231.2.0 x64
+contractRevision=2026-11-25.32
+contractSha256=A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3
+sourceCount=4
+gitHead=b062e1b02341ee0d7a3339c1b6828a1136ddb91a
+gitStatusCount=2211
+accountCount=1
+profileIdentityMatchesLock=True
+freeGiB=21.62

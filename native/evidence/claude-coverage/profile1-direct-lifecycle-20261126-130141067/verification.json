@@ -1,0 +1,74 @@
+{
+  "schema": "profile1-direct-lifecycle/v1",
+  "generatedUtc": "2026-11-26T05:15:56.2660190Z",
+  "contract": {
+    "revision": "2026-11-25.32",
+    "markdownSha256": "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+    "jsonSha256": "34B2817762A9D653D9C4D84B6A8CC4ECA2AB1DBBF596B5267E4274BED2788B11"
+  },
+  "target": {
+    "product": "Claude Desktop",
+    "version": "5.1231.2.0",
+    "architecture": "Windows x64 MSIX",
+    "exe": "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+    "rawMsixReadOnly": true
+  },
+  "profile": {
+    "id": "1",
+    "root": "C:\\Users\\Administrator\\.cac\\desktop\\1",
+    "userDataDir": "C:\\Users\\Administrator\\.cac\\desktop\\1\\home\\AppData\\Roaming\\Claude",
+    "cachePreserved": true,
+    "secretExported": false
+  },
+  "runs": [
+    {
+      "id": 1,
+      "launcherPid": 13120,
+      "claudeProcessCountAfterWait": 8,
+      "antDid": {
+        "exists": true,
+        "length": 48,
+        "lastWriteTime": "2026-11-15T16:13:24.9613015Z",
+        "sha256": "7CB26199298ECA504C41FE78DD80AA5D712169DD8ECD205D862871314FC83158"
+      },
+      "gracefulStop": "stop-1-graceful rc=2",
+      "controlledStop": "stop-1-controlled rc=0",
+      "finalClaudeProcessCount": 0
+    },
+    {
+      "id": 2,
+      "launcherPid": 13620,
+      "claudeProcessCountAfterWait": 8,
+      "antDid": {
+        "exists": true,
+        "length": 48,
+        "lastWriteTime": "2026-11-15T16:13:24.9613015Z",
+        "sha256": "7CB26199298ECA504C41FE78DD80AA5D712169DD8ECD205D862871314FC83158"
+      },
+      "gracefulStop": "stop-2-graceful rc=2",
+      "controlledStop": "stop-2-controlled rc=0",
+      "finalClaudeProcessCount": 0
+    }
+  ],
+  "conclusion": {
+    "launchPass": true,
+    "restartPass": true,
+    "cacheHashStable": true,
+    "gracefulStopPass": false,
+    "controlledStopPass": true,
+    "finalClaudeProcessCount": 0,
+    "boundary": "Claude accepted CloseMainWindow but retained the authenticated process tree; Profile-scoped controlled stop was required and succeeded."
+  },
+  "resources": {
+    "diskFreeBytes": 23198842880,
+    "diskFreeGiB": 21.61,
+    "diskFloorGiB": 12
+  },
+  "constraints": {
+    "noInject": true,
+    "noProxyOrWfp": true,
+    "noMsixMutation": true,
+    "noNetworkHostMutation": true,
+    "noTokenCookieDpapiOrPasswordExport": true
+  }
+}

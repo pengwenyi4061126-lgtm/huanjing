@@ -1,0 +1,97 @@
+{
+    "adapters":  [
+                     {
+                         "ifIndex":  4,
+                         "name":  "Meta",
+                         "status":  "Up",
+                         "mac":  "",
+                         "linkSpeed":  "100 Gbps"
+                     },
+                     {
+                         "ifIndex":  7,
+                         "name":  "VMware Network Adapter VMnet8",
+                         "status":  "Up",
+                         "mac":  "00-50-56-C0-00-08",
+                         "linkSpeed":  "100 Mbps"
+                     },
+                     {
+                         "ifIndex":  10,
+                         "name":  "以太网",
+                         "status":  "Up",
+                         "mac":  "0A-E0-AF-B1-2C-E1",
+                         "linkSpeed":  "100 Mbps"
+                     },
+                     {
+                         "ifIndex":  14,
+                         "name":  "VMware Network Adapter VMnet1",
+                         "status":  "Up",
+                         "mac":  "00-50-56-C0-00-01",
+                         "linkSpeed":  "100 Mbps"
+                     }
+                 ],
+    "routes":  [
+                   {
+                       "ifIndex":  4,
+                       "interfaceAlias":  "Meta",
+                       "nextHop":  "198.18.0.2",
+                       "metric":  0,
+                       "state":  "Alive"
+                   },
+                   {
+                       "ifIndex":  10,
+                       "interfaceAlias":  "以太网",
+                       "nextHop":  "192.168.1.1",
+                       "metric":  256,
+                       "state":  "Alive"
+                   }
+               ],
+    "dns":  [
+                {
+                    "ifIndex":  1,
+                    "alias":  "Loopback Pseudo-Interface 1",
+                    "servers":  [
+
+                                ]
+                },
+                {
+                    "ifIndex":  4,
+                    "alias":  "Meta",
+                    "servers":  [
+                                    "198.18.0.2"
+                                ]
+                },
+                {
+                    "ifIndex":  7,
+                    "alias":  "VMware Network Adapter VMnet8",
+                    "servers":  [
+
+                                ]
+                },
+                {
+                    "ifIndex":  10,
+                    "alias":  "以太网",
+                    "servers":  [
+                                    "127.0.0.1"
+                                ]
+                },
+                {
+                    "ifIndex":  14,
+                    "alias":  "VMware Network Adapter VMnet1",
+                    "servers":  [
+
+                                ]
+                }
+            ],
+    "winhttp":  [
+                    "",
+                    "Current WinHTTP proxy settings:",
+                    "",
+                    "    Direct access (no proxy server).",
+                    ""
+                ],
+    "userProxy":  {
+                      "proxyEnable":  0,
+                      "proxyServer":  "127.0.0.1:7897",
+                      "autoConfigUrl":  ""
+                  }
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "generated_utc": "2026-11-26T04:30:17.103Z",
+  "gate": "G1b",
+  "gate_state": "pass",
+  "counts": {
+    "total": 77,
+    "closed": 39,
+    "boundary": 24,
+    "blocked_external_input": 13,
+    "false_positive": 1,
+    "open": 0,
+    "partial": 0,
+    "unknown": 0
+  },
+  "checks": {
+    "all_77_records_present": true,
+    "no_open": true,
+    "no_partial": true,
+    "unknown_zero": true,
+    "counts_sum_77": true,
+    "every_record_terminal": true,
+    "every_record_has_reason": true,
+    "every_record_has_evidence": true,
+    "blocked_records_have_blockers": true,
+    "boundary_records_have_basis": true,
+    "crr_anchors_exist": true
+  },
+  "source_disposition": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g1b-disposition-20261125-0310\\g1b-disposition.json",
+  "source_disposition_sha256": "A06DB2856EAEB8E9ED9D4DC00689F64C1C812C1620C7D2712B417A53DB473BE2",
+  "contract": {
+    "revision": "2026-11-25.32",
+    "markdown_sha256": "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+    "json_sha256": "34B2817762A9D653D9C4D84B6A8CC4ECA2AB1DBBF596B5267E4274BED2788B11",
+    "binding_match": true
+  },
+  "conclusion": "All 77 legacy observations have a terminal, evidence-backed disposition. blocked-external-input records remain visible and keep supported_subset_pass/full_coverage_within_declared_scope false."
+}

@@ -1,0 +1,17 @@
+{
+    "schema":  1,
+    "mode":  "MemoryHash",
+    "pid":  18196,
+    "status":  "pass",
+    "modules":  [
+
+                ],
+    "memory":  {
+                   "status":  "pass",
+                   "bytesRead":  593920,
+                   "requestedBytes":  593920,
+                   "sha256":  "43C2371EE5AA82DE5A905592EBDF677263F298AA4D1B0A0B6C1FADFB764A48AB",
+                   "error":  null
+               },
+    "error":  null
+}

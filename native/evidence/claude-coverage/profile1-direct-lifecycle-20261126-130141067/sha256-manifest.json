@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "generatedUtc": "2026-11-26T05:15:56.3475629Z",
+  "files": [
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\launch-2.json",
+      "bytes": 291,
+      "sha256": "5B20F0C9AA8A8955BC758A5D554D58E2EAFA99AC3D06F900FB5F24267430CB77"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\launch.json",
+      "bytes": 289,
+      "sha256": "DF72D9EA0209B8A7E8F49BE3FDAC876D19E90DA6DBC59A24EF3634A1BC3FBFA8"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\runtime-after-controlled-stop-2.json",
+      "bytes": 121,
+      "sha256": "F5C7655BFCDC850F8D4C40F5732CF4704AD0301C57BBE1D574DF3469F75E4DDD"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\runtime-after-controlled-stop.json",
+      "bytes": 119,
+      "sha256": "9D7669BD2A6BD59D69EF60B9CFF61597807E8617DADB9858E969C57B4A3DEAA7"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\runtime-after-stop-1.json",
+      "bytes": 28326,
+      "sha256": "DDD7FF4B1B29978C60D1511EE90A66EF35998768060286A8146C20AB9552F1F9"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\runtime-after-stop-2-graceful.json",
+      "bytes": 28353,
+      "sha256": "70B27DF95356088C41B6A2A9B41363A8C9298E0814F374C546A24FF04925983D"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\runtime-after-stop-wait.json",
+      "bytes": 28331,
+      "sha256": "79EC9826654EB29F6BB9958D588D66A0198B7C48C843B70B882632C4EC7ACD35"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\runtime-after-wait-2.json",
+      "bytes": 28526,
+      "sha256": "3A829683D6975B63EF3683F719C2502EE20312EC243810FCF15D5265E43D6FED"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\runtime-after-wait.json",
+      "bytes": 28508,
+      "sha256": "7618D3B5BEC94C706AED1B5795D474893192D2875AEB6FA42C5211BB1607AEE7"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\stop-1-controlled-rc.txt",
+      "bytes": 24,
+      "sha256": "023CCB97EA222295B2B3A33512556004360E55EECF29293363E69100BD6B83E5"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\stop-1-controlled.txt",
+      "bytes": 144,
+      "sha256": "9D2E949B130D6A10D0E3820B23EDCD8FE87FF0E2F3DB98A1C31FC905E7B2E9A8"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\stop-1-graceful.txt",
+      "bytes": 252,
+      "sha256": "0E446DC76B297DB950152CCA0685A8D6DF0653EA1EB85D93E13ADD8A59CEA629"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\stop-1-rc.txt",
+      "bytes": 22,
+      "sha256": "9E8982D74A1DB0321390C76B2660D16D1EB6F90DECC34FA4B1228662A6DCDE14"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\stop-2-controlled-rc.txt",
+      "bytes": 24,
+      "sha256": "F2AE9AA1AE3BC89FB1776AC1481A7C93E22201F6E542386DE306546EE53458CA"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\stop-2-controlled.txt",
+      "bytes": 147,
+      "sha256": "B60DD9824D61FCA64636E939C8D5117A5F9CECC799B5FE2DF98BEA76D3D8A506"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\stop-2-graceful-rc.txt",
+      "bytes": 22,
+      "sha256": "35A2DF469A5E5071E38FAC0201F73D7B98286F44CD69CAFC227CDA03A214CA50"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\stop-2-graceful.txt",
+      "bytes": 260,
+      "sha256": "45EF714AC3F0A7A962BD7D35092D1BC3380A00960D36F6A534D30BA87C0EACE6"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\profile1-direct-lifecycle-20261126-130141067\\verification.json",
+      "bytes": 2434,
+      "sha256": "58EF75BD28D138658F35549119EB8106F7FC1D7E02E0F7781D4E18C409C490DC"
+    }
+  ]
+}

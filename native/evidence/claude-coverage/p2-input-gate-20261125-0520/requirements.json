@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "generatedUtc": "2026-11-24T19:48:47.5099923Z",
+  "gate": "P2",
+  "status": "blocked-external-input",
+  "reason": "All non-account gates (G1b, G5c, G6, G7, G8) are closed. The remaining nine CRR items and functional_pass require user-supplied account/session/credential inputs.",
+  "items": {
+    "S-02": {
+      "missing": "authenticated Claude session / Cowork surface",
+      "unblock": "Log in to the controlled Claude Desktop copy with a real account that has Cowork enabled; navigate to the real Cowork UI."
+    },
+    "M-03": {
+      "missing": "authenticated session / CoworkFeedback or DesktopInfo surface",
+      "unblock": "Same authenticated session; open the Cowork/DesktopInfo surface that calls getSystemInfo."
+    },
+    "M-04": {
+      "missing": "authenticated session or an MCP extension actually spawned by this profile",
+      "unblock": "Same authenticated session; configure/spawn a real MCP extension or capture the utility-node env once Claude starts it."
+    },
+    "A-01": {
+      "missing": "authenticated session / computer-use tool invocation",
+      "unblock": "Enable computer-use for the account and invoke the tool in a real conversation."
+    },
+    "A-02": {
+      "missing": "authenticated session / computer-use tool invocation",
+      "unblock": "Same as A-01, capture the second computer-use surface."
+    },
+    "A-03": {
+      "missing": "authenticated session / computer-use or network-drive path",
+      "unblock": "Invoke the computer-use/network-drive path in a real conversation."
+    },
+    "L-03": {
+      "missing": "real test account for login/logout/relogin/switch",
+      "unblock": "Provide a test account and perform login, logout, relogin and account switch in separate lifecycle batches."
+    },
+    "R-05": {
+      "missing": "post-login remote feature-flag snapshot",
+      "unblock": "After login, capture /api/desktop/features and the local fcache snapshot."
+    },
+    "R-06": {
+      "missing": "telemetry credential / real TelemetryEvent body",
+      "unblock": "Provide a telemetry credential or a real TelemetryEvent captured from the authenticated client."
+    }
+  },
+  "minimum_inputs": [
+    "A real Claude account that can log in to the controlled Claude Desktop copy",
+    "Cowork enabled for that account",
+    "Computer-use tool enabled for that account",
+    "A real MCP extension or a profile that spawns one",
+    "Telemetry credential or a real TelemetryEvent body",
+    "A test account for login/logout/relogin/switch",
+    "A post-login feature-flag snapshot"
+  ],
+  "not_acceptable": [
+    "pushState/route tricks to bypass the sign-in page",
+    "CDP or shim direct calls that fake a logged-in API invocation",
+    "fabricated pass or a shared token used without consent",
+    "claiming functional_pass from the login page alone"
+  ],
+  "next": "Resume with the inputs above. One authenticated A/B batch can collect S-02/M-03/M-04/A-01..A-03/R-05/R-06; L-03 needs a separate lifecycle batch."
+}

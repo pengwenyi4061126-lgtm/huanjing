@@ -1,0 +1,26 @@
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-26T04:21:20.9041785Z",
+    "results":  [
+                    {
+                        "mode":  "Enumerate",
+                        "pid":  18196,
+                        "status":  "pass",
+                        "error":  ""
+                    },
+                    {
+                        "mode":  "MemoryHash",
+                        "pid":  18196,
+                        "module":  "NativeBridge.dll",
+                        "status":  "pass",
+                        "error":  ""
+                    },
+                    {
+                        "mode":  "MemoryHash",
+                        "pid":  18196,
+                        "module":  "claude-native-binding.node",
+                        "status":  "pass",
+                        "error":  ""
+                    }
+                ]
+}

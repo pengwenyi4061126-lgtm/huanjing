@@ -1,0 +1,24 @@
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-26T04:53:07.3549572Z",
+    "script":  "E:\\环境\\huanjing\\scripts\\reconcile-claude-delivery-readonly.ps1",
+    "arguments":  {
+                      "Root":  "E:\\环境\\huanjing",
+                      "OutputRoot":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-reconciliation-local-rev32-20261126-resume",
+                      "InstalledNativeRoot":  "C:\\Users\\Administrator\\.cac\\native",
+                      "ClaudeRoot":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc",
+                      "CanonicalRoot":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\canonical-goal-20261118-13-1610",
+                      "DeliveryRoot":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\delivery-goal-20261118-13-1550",
+                      "MemoryModuleEvidenceRoot":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-memory-module-existing-20261126-continue-local-r2",
+                      "LiveRollbackRoot":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\rollback-live-20261126-resume"
+                  },
+    "readOnly":  {
+                     "readOnly":  true,
+                     "noBuild":  true,
+                     "noDeploy":  true,
+                     "noServiceMutation":  true,
+                     "noRollbackMutation":  true,
+                     "noCleanupMutation":  true
+                 },
+    "outputRoot":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-reconciliation-local-rev32-20261126-resume"
+}

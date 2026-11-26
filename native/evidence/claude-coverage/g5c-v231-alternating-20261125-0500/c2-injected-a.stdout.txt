@@ -1,0 +1,230 @@
+RUN_ID=g5c-v231-alternating-20261125-0500-c2-inj-a
+
+  日志文件: E:\环境\huanjing\native\evidence\claude-coverage\g5c-v231-alternating-20261125-0500-c2-inj-a\robocopy.log
+
+-------------------------------------------------------------------------------
+   ROBOCOPY     ::     Windows 的可靠文件复制                              
+-------------------------------------------------------------------------------
+
+  开始时间: 2026年11月25日 3:43:48
+        源: C:\Program Files\WindowsApps\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\app\
+      目标: E:\环境\huanjing\.tmp\g5c-v231-alternating-20261125-0500-c2-inj-a-copy\app\
+
+      文件: *.*
+	    
+      选项: *.* /NDL /NFL /TEE /S /E /DCOPY:DAT /COPY:DAT /NP /R:1 /W:1 
+
+------------------------------------------------------------------------------
+
+
+------------------------------------------------------------------------------
+
+                  总数        复制        跳过       不匹配        失败        其他
+       目录:        13        13         0         0         0         0
+       文件:        96        96         0         0         0         0
+       字节:  726.54 m  726.54 m         0         0         0         0
+       时间:   0:00:00   0:00:00                       0:00:00   0:00:00
+
+
+       速度:           2,042,473,552 字节/秒。
+       速度:             116,871.273 MB/分钟。
+   已结束: 2026年11月25日 3:43:56
+
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-24T19:45:17.6086441Z",
+    "scope":  "controlled copy; ASAR header preserved; fixed-size payload patch; original MSIX untouched",
+    "target":  {
+                   "product":  "Claude Desktop",
+                   "version":  "5.1231.2.0",
+                   "sourceApp":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app",
+                   "sourceExe":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe"
+               },
+    "command":  "invoke-claude-coverage-locked.ps1 -ScriptPath scripts\\run-claude-copy-inplace-main-probe.ps1 -Workspace E:\\鐜\\huanjing -RunRoot E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a -CopyRoot E:\\鐜\\huanjing\\.tmp\\g5c-v231-alternating-20261125-0500-c2-inj-a-copy -UserProfileRoot E:\\鐜\\huanjing\\.tmp\\goal-v2-g5-persist-profile",
+    "provenance":  {
+                       "sourceAppBytes":  761842635,
+                       "copyExitCode":  1,
+                       "patchExitCode":  0,
+                       "sourceExeSha256":  "FC643260D33233E23CAE41E3AF4582C9E874C37D975DBA5562C64842C5CD374A",
+                       "sourceAppAsarSha256":  "F749C5BD615F907ED6CC9F8B3F9BA2FE068D8501D555399F510B992C8F75468E",
+                       "sourceIonDistSha256":  "D7957C54E70073B6A143E09421D456E268A4FC7CB600BF9BFEC791C99C7CDAF4",
+                       "copyAsarBeforeSha256":  "F749C5BD615F907ED6CC9F8B3F9BA2FE068D8501D555399F510B992C8F75468E",
+                       "copyAsarAfterSha256":  "3BBB65F1EC0D48272005B48A78FDCF2666B7BACD9509A35263E19C601947F966",
+                       "shimSha256":  "F679942A3AB78924636645DC5815F488963AC6C44596C191451E943B3185AF1A",
+                       "observerSha256":  "602CE3108E75C804521BFB1672CF8D5661537FA3D25C69F2804641CBA21DAD4F",
+                       "preloadHookSha256":  "9A9BEB275D317D15F7615C1A573D64A8F9E495C7899BAF5A50872A537ADB1155",
+                       "serializationHookSha256":  "32A3CF5886855AED5FACED2BEBCDC2AFBA26C49AF0896EC685F0AF11C3CE6097",
+                       "nativeCallObserverHookSha256":  "34D4137707941DAD052EE599DD0A3D6923087A67D9B7F553AB9E5C163A8239B7",
+                       "dlopenHookSha256":  "60BB8DD5E4912E0C39A4FD3197272FE2E7B2D8C119C4FC5121B17C7C963A707F",
+                       "patchReportSha256":  "7BA8B311E210E7A8FA50B20458EDE576391628207F25A897F498D05BBE0D447F",
+                       "independentObserverScriptSha256":  "5E854DFDD4664CCCCBFF6651912BF0B51FD36E3A10DF8B939DCA540B87D6E3FC"
+                   },
+    "runtime":  {
+                    "appAclGrant":  {
+                                        "exitCode":  0,
+                                        "applied":  true,
+                                        "outputTail":  [
+                                                           "宸叉垚鍔熷鐞?109 涓枃浠? 澶勭悊 0 涓枃浠舵椂澶辫触"
+                                                       ]
+                                    },
+                    "pid":  20620,
+                    "launchRc":  null,
+                    "stopRc":  0,
+                    "remoteDebuggingPort":  0,
+                    "nativeNetworkHooksDisabled":  true,
+                    "moduleAuditEnabled":  false,
+                    "exportAuditEnabled":  false,
+                    "serializationObserverEnabled":  true,
+                    "observerFilePresent":  true,
+                    "observerFileBytes":  761896,
+                    "observerFileSha256":  "D0AAB180554AD6E7F208DDD247275C4900FDE4B039473D637AD088ED4397EA80",
+                    "observerRecords":  373,
+                    "preloadHandshakeFilePresent":  true,
+                    "preloadHandshakeFileBytes":  30318,
+                    "preloadHandshakeFileSha256":  "0376EE4D60515383A3D627E2747AAB59EA86E2F6C692F5CC5E71CDBE8558A8B3",
+                    "preloadHandshakeRecords":  18,
+                    "rendererMainWorldFilePresent":  true,
+                    "rendererMainWorldFileBytes":  65064,
+                    "rendererMainWorldFileSha256":  "817E0A3808AD9DAC517D1F5BBF351DD1A9B06B0A0C7C67940F904B27F40027D3",
+                    "rendererMainWorldRecords":  60,
+                    "rendererIpcFilePresent":  true,
+                    "rendererIpcFileBytes":  60454,
+                    "rendererIpcFileSha256":  "C3AA3647D8FBC4115803E78492D7689D707793C692D3325A6A274EE69836D413",
+                    "rendererIpcRecords":  60,
+                    "dlopenFilePresent":  false,
+                    "dlopenFileBytes":  0,
+                    "dlopenFileSha256":  null,
+                    "dlopenRecords":  0,
+                    "serializationFilePresent":  true,
+                    "serializationFileBytes":  1791605,
+                    "serializationFileSha256":  "81075A487AE6F1DB98F7F8BF17EB0DB781C1FCC2FA6531D4B3013C236F0FBFDC",
+                    "serializationRecords":  1926,
+                    "shimMarkerPresent":  true,
+                    "shimMarkerBytes":  1640,
+                    "shimMarkerSha256":  "EECD1B71DE0FE08584473555D936606B40A2F4E163281B3E9FA69116E0D50403",
+                    "shimMarkerRecords":  8,
+                    "remainingProcessCount":  0,
+                    "independentObserverStarted":  true,
+                    "independentObserverPid":  26708,
+                    "independentObserverFilePresent":  true,
+                    "independentObserverFileBytes":  1032095,
+                    "independentObserverFileSha256":  "2FE905E436DE2A37D9D9ACD226150527698F7752AE1BF60D4FFDAC7294A7EF8F",
+                    "independentObserverSummaryPresent":  true,
+                    "independentObserverSummarySha256":  "1CD6B0BF8E21B412BFA5A1682620AAA556CD18E2E102883DC7BEF58F4D76F7C7",
+                    "independentObserverError":  null
+                },
+    "profile":  {
+                    "identity":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a\\profile-identity.json",
+                    "leakage":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a\\profile-leakage.json",
+                    "source":  "",
+                    "sourceBytes":  0,
+                    "copyExitCode":  null,
+                    "copyLog":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a\\profile-robocopy.log",
+                    "copiedBytes":  0,
+                    "manifestRewritePath":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a\\mcp-profile-manifest-rewrite.json",
+                    "manifestRewriteCount":  0,
+                    "storageAudit":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a\\storage-audit\\storage-audit.json",
+                    "storageAuditSha256":  "B39CBF8B68BC223B69176A5A1C367DB62B32EB677F2825625BFDFBFE351508D8",
+                    "storageAuditSummary":  {
+                                                "json_id_like_leaves":  3,
+                                                "cookie_rows":  0,
+                                                "local_storage_entries":  140,
+                                                "indexeddb_entries":  31,
+                                                "session_storage_entries":  166
+                                            }
+                },
+    "disk":  {
+                 "drive":  "E",
+                 "freeGiBBefore":  21.881,
+                 "freeGiBAfterRun":  21.165,
+                 "minimumFreeGiB":  12,
+                 "sourceAppGiB":  0.71,
+                 "temporaryCopyCleaned":  true,
+                 "temporaryProfileCleaned":  false,
+                 "guardBefore":  {
+                                     "schema":  1,
+                                     "capturedUtc":  "2026-11-24T19:43:48.1049059Z",
+                                     "drive":  "E",
+                                     "runRoot":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a",
+                                     "runBytes":  3989,
+                                     "profileRoot":  "E:\\鐜\\huanjing\\.tmp\\goal-v2-g5-persist-profile",
+                                     "profileBytes":  77711822,
+                                     "trackedBytes":  77715811,
+                                     "maxRunBytes":  1073741824,
+                                     "auditPath":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a\\renderer-observer.jsonl",
+                                     "auditBytes":  0,
+                                     "maxAuditBytes":  33554432,
+                                     "freeBytes":  23494930432,
+                                     "minimumFreeBytes":  12884901888,
+                                     "volumeError":  null,
+                                     "sufficient":  true,
+                                     "reasons":  [
+
+                                                 ]
+                                 },
+                 "guardLast":  {
+                                   "schema":  1,
+                                   "capturedUtc":  "2026-11-24T19:45:03.9513375Z",
+                                   "drive":  "E",
+                                   "runRoot":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a",
+                                   "runBytes":  4029960,
+                                   "profileRoot":  "E:\\鐜\\huanjing\\.tmp\\goal-v2-g5-persist-profile",
+                                   "profileBytes":  80393098,
+                                   "trackedBytes":  84423058,
+                                   "maxRunBytes":  1073741824,
+                                   "auditPath":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a\\renderer-observer.jsonl",
+                                   "auditBytes":  761896,
+                                   "maxAuditBytes":  33554432,
+                                   "freeBytes":  22726004736,
+                                   "minimumFreeBytes":  12884901888,
+                                   "volumeError":  null,
+                                   "sufficient":  true,
+                                   "reasons":  [
+
+                                               ]
+                               },
+                 "guardAfter":  {
+                                    "schema":  1,
+                                    "capturedUtc":  "2026-11-24T19:45:17.6076456Z",
+                                    "drive":  "E",
+                                    "runRoot":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a",
+                                    "runBytes":  4218058,
+                                    "profileRoot":  "E:\\鐜\\huanjing\\.tmp\\goal-v2-g5-persist-profile",
+                                    "profileBytes":  80440440,
+                                    "trackedBytes":  84658498,
+                                    "maxRunBytes":  1073741824,
+                                    "auditPath":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a\\renderer-observer.jsonl",
+                                    "auditBytes":  761896,
+                                    "maxAuditBytes":  33554432,
+                                    "freeBytes":  23487885312,
+                                    "minimumFreeBytes":  12884901888,
+                                    "volumeError":  null,
+                                    "sufficient":  true,
+                                    "reasons":  [
+
+                                                ]
+                                },
+                 "abortPath":  null
+             },
+    "network":  {
+                    "beforeDigest":  "E2DBA6E157108BEDB04A9130C3CB1EC8CB20E1F8F349D1C2BC1CADCEBA80DF15",
+                    "afterDigest":  "E2DBA6E157108BEDB04A9130C3CB1EC8CB20E1F8F349D1C2BC1CADCEBA80DF15",
+                    "changed":  false,
+                    "changeReason":  null,
+                    "beforePath":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a\\network-before.json",
+                    "afterPath":  "E:\\鐜\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a\\network-after.json",
+                    "changePath":  null,
+                    "mutation":  "NOT_PERFORMED_BY_PROBE"
+                },
+    "safety":  {
+                   "claudeStarted":  true,
+                   "etwStarted":  false,
+                   "networkChanged":  false,
+                   "originalMsixModified":  false,
+                   "rawEvidenceDeleted":  false,
+                   "independentObserverStarted":  true
+               },
+    "conclusion":  "inplace-main-shim-observed; renderer observer output exists",
+    "crashTest":  null
+}
+

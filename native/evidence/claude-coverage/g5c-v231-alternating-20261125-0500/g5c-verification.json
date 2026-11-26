@@ -1,0 +1,870 @@
+{
+  "schema_version": 1,
+  "generated_utc": "2026-11-24T19:47:47.049Z",
+  "gate": "G5c",
+  "gate_state": "pass",
+  "sequence": {
+    "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\sequence.json",
+    "sha256": "4517B86F90D5A39F0E93C397D9364772BADB0553993A2339602E08C3CD4B212B",
+    "baseRunId": "g5c-v231-alternating-20261125-0500"
+  },
+  "contract": {
+    "revision": "2026-11-25.32",
+    "markdown_sha256": "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+    "json_sha256": "34B2817762A9D653D9C4D84B6A8CC4ECA2AB1DBBF596B5267E4274BED2788B11"
+  },
+  "scope": {
+    "verified_here": [
+      "E-01..E-09",
+      "E-10 config locale",
+      "B-01..B-07",
+      "B-09",
+      "D-01..D-03",
+      "D-05",
+      "A-04",
+      "A-06"
+    ],
+    "carried_from_crr": [
+      "S-01",
+      "S-03",
+      "S-04",
+      "S-06",
+      "D-04",
+      "D-06",
+      "R-07"
+    ],
+    "not_applicable": [
+      "A-05",
+      "B-02"
+    ],
+    "unsupported": [
+      "B-08",
+      "S-05",
+      "L-06",
+      "N-01..N-04",
+      "N-06",
+      "R-03"
+    ],
+    "blocked_external_input": [
+      "S-02",
+      "M-03",
+      "M-04",
+      "A-01",
+      "A-02",
+      "A-03",
+      "L-03",
+      "R-05",
+      "R-06"
+    ]
+  },
+  "checks": {
+    "sequence_status_pass": true,
+    "eight_steps": true,
+    "all_exit_zero": true,
+    "no_network_change": true,
+    "network_digest_single": true,
+    "bare_count_4": true,
+    "injected_count_4": true,
+    "persona_a_count_2": true,
+    "persona_b_count_2": true,
+    "bare_all_match_host": true,
+    "injected_a_all_match": true,
+    "injected_b_all_match": true,
+    "a_preload_all_match": true,
+    "b_preload_all_match": true,
+    "a_main_all_match": true,
+    "b_main_all_match": true,
+    "a_identity_stable": true,
+    "b_identity_stable": true,
+    "a_b_antdid_distinct": true,
+    "bare_antdid_unique": true,
+    "bare_distinct_from_injected": true,
+    "config_locale_a": true,
+    "config_locale_b": true,
+    "config_locale_bare_host": true,
+    "audio_labels_redacted": true,
+    "audio_bare_baseline_labels": true,
+    "a_b_core_distinct": true,
+    "bare_vs_injected_distinct": true,
+    "no_claude_residual": true,
+    "disk_floor": true
+  },
+  "steps": [
+    {
+      "id": "c1-bare-1",
+      "cycle": 1,
+      "kind": "bare",
+      "persona": "host",
+      "runId": "g5c-v231-alternating-20261125-0500-c1-bare-1",
+      "script": "E:\\环境\\huanjing\\scripts\\run-bare-observer-115.ps1",
+      "startedUtc": "2026-11-24T19:33:17.2154839Z",
+      "endedUtc": "2026-11-24T19:34:46.3099512Z",
+      "durationSeconds": 89.1,
+      "exitCode": 0,
+      "stdout": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-1.stdout.txt",
+      "stderr": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-1.stderr.txt",
+      "networkBefore": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkAfter": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkChanged": false,
+      "cleanupRemoved": [],
+      "freeGiB": 21.92,
+      "runRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c1-bare-1",
+      "metric": {
+        "language": "zh-CN",
+        "languages": [
+          "zh-CN",
+          "zh-Hans-CN"
+        ],
+        "locale": "zh-CN",
+        "timeZone": "Asia/Shanghai",
+        "offset": -480,
+        "hardwareConcurrency": 24,
+        "deviceMemory": 32,
+        "maxTouchPoints": 10,
+        "screen": [
+          1440,
+          900
+        ],
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Ti (0x00001C82) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "extensionCount": 35,
+        "regionalDate": "2020年1月2日",
+        "currency": "US$1,234.50",
+        "configLocale": "zh-Hans"
+      },
+      "preload": null,
+      "main": null,
+      "media": {
+        "available": true,
+        "total": 5,
+        "audioinput": 0,
+        "audiooutput": 5,
+        "videoinput": 0,
+        "label_present": 5,
+        "kinds": [
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput"
+        ],
+        "label_sha256": [
+          "20B2F2822EEA9A4309AF7B7267A726264A45248BFEC19D2A5BA3C9DC302C2C1B",
+          "136330A578BDFD758563DE3D5902704C94911B987987A41A2751E9D14F0A20E0",
+          "11DF3CDC5D9A64E2FC0F4FC46AC495D372E66F36FC837F4F1A2C54B0AB1E0C67",
+          "B4328EE16C3BF9BEEF6F3B0098E16E8903B77884EEC841A1E63054BA8AD68171",
+          "F003AFCAA3AAFFE054E94FFE883D4B04B7C18210318DC686C13565282D27D4CC"
+        ],
+        "group_id_sha256": [
+          "747D34D7E06E21A5F8E0F8BB12ED3091D51A9CDA8434F7C5FC5A24CBB8B27B81",
+          "747D34D7E06E21A5F8E0F8BB12ED3091D51A9CDA8434F7C5FC5A24CBB8B27B81",
+          "14005929DC8CA9EEDB9730C732F4CAB1713AFD7923F97C5D0AD9A03E948BECB6",
+          "CE4F60395CF3210B67C10B1B7349C45B3E223CCAF2C9E2F662901F00207F7151",
+          "747D34D7E06E21A5F8E0F8BB12ED3091D51A9CDA8434F7C5FC5A24CBB8B27B81"
+        ],
+        "label_lengths": [
+          44,
+          51,
+          53,
+          43,
+          34
+        ]
+      },
+      "identity": {
+        "antDidSha256": "E15446BC91834B0740F5060CC883F32F714C9A4F8EC86C30FFFEC7CD5D0C5DBC",
+        "configLocale": "zh-Hans"
+      }
+    },
+    {
+      "id": "c1-injected-a",
+      "cycle": 1,
+      "kind": "injected",
+      "persona": "a",
+      "runId": "g5c-v231-alternating-20261125-0500-c1-inj-a",
+      "script": "E:\\环境\\huanjing\\scripts\\run-g5a-persona-a2.ps1",
+      "startedUtc": "2026-11-24T19:34:46.6614125Z",
+      "endedUtc": "2026-11-24T19:36:18.7190189Z",
+      "durationSeconds": 92.1,
+      "exitCode": 0,
+      "stdout": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-a.stdout.txt",
+      "stderr": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-a.stderr.txt",
+      "networkBefore": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkAfter": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkChanged": false,
+      "cleanupRemoved": [],
+      "freeGiB": 21.91,
+      "runRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c1-inj-a",
+      "metric": {
+        "language": "en-US",
+        "languages": [
+          "en-US",
+          "en"
+        ],
+        "locale": "en-US",
+        "timeZone": "America/New_York",
+        "offset": 300,
+        "hardwareConcurrency": 8,
+        "deviceMemory": 16,
+        "maxTouchPoints": 0,
+        "screen": [
+          1920,
+          1080
+        ],
+        "gpu": "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "extensionCount": 35,
+        "regionalDate": "Jan 2, 2020",
+        "currency": "$1,234.50",
+        "configLocale": "en-US"
+      },
+      "preload": {
+        "language": "en-US",
+        "languages": [
+          "en-US",
+          "en"
+        ],
+        "locale": "en-US",
+        "timeZone": "America/New_York",
+        "offset": 300,
+        "hardwareConcurrency": 8,
+        "deviceMemory": 16,
+        "maxTouchPoints": 0,
+        "screen": [
+          1920,
+          1080
+        ],
+        "gpu": "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      },
+      "main": {
+        "totalmem": 17179869184,
+        "freemem": 8589934592,
+        "cpuCount": 8,
+        "cpuModel": "Intel(R) Core(TM) i7-9700T CPU @ 2.00GHz",
+        "cpuFrequencyMhz": 2000,
+        "release": "10.0.22631",
+        "version": "10.0.22631",
+        "getSystemVersion": "10.0.22631",
+        "argvLang": [
+          "--lang=en-US"
+        ],
+        "appLocale": "en-US",
+        "appSystemLocale": "en-US",
+        "appPreferredSystemLanguages": [
+          "en-US",
+          "en"
+        ],
+        "appLocaleCountryCode": "US"
+      },
+      "media": {
+        "available": true,
+        "total": 5,
+        "audioinput": 0,
+        "audiooutput": 5,
+        "videoinput": 0,
+        "label_present": 0,
+        "kinds": [
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput"
+        ],
+        "label_sha256": [],
+        "group_id_sha256": [
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+        ],
+        "label_lengths": []
+      },
+      "identity": {
+        "antDidSha256": "5AF66462F0EA3641C8A984A2CF990A88F017E64AE56FE15FE1CAF671DD019918",
+        "configLocale": "en-US"
+      }
+    },
+    {
+      "id": "c1-bare-2",
+      "cycle": 1,
+      "kind": "bare",
+      "persona": "host",
+      "runId": "g5c-v231-alternating-20261125-0500-c1-bare-2",
+      "script": "E:\\环境\\huanjing\\scripts\\run-bare-observer-115.ps1",
+      "startedUtc": "2026-11-24T19:36:18.9646459Z",
+      "endedUtc": "2026-11-24T19:37:48.9969612Z",
+      "durationSeconds": 90,
+      "exitCode": 0,
+      "stdout": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-2.stdout.txt",
+      "stderr": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-2.stderr.txt",
+      "networkBefore": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkAfter": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkChanged": false,
+      "cleanupRemoved": [],
+      "freeGiB": 21.91,
+      "runRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c1-bare-2",
+      "metric": {
+        "language": "zh-CN",
+        "languages": [
+          "zh-CN",
+          "zh-Hans-CN"
+        ],
+        "locale": "zh-CN",
+        "timeZone": "Asia/Shanghai",
+        "offset": -480,
+        "hardwareConcurrency": 24,
+        "deviceMemory": 32,
+        "maxTouchPoints": 10,
+        "screen": [
+          1440,
+          900
+        ],
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Ti (0x00001C82) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "extensionCount": 35,
+        "regionalDate": "2020年1月2日",
+        "currency": "US$1,234.50",
+        "configLocale": "zh-Hans"
+      },
+      "preload": null,
+      "main": null,
+      "media": {
+        "available": true,
+        "total": 5,
+        "audioinput": 0,
+        "audiooutput": 5,
+        "videoinput": 0,
+        "label_present": 5,
+        "kinds": [
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput"
+        ],
+        "label_sha256": [
+          "20B2F2822EEA9A4309AF7B7267A726264A45248BFEC19D2A5BA3C9DC302C2C1B",
+          "136330A578BDFD758563DE3D5902704C94911B987987A41A2751E9D14F0A20E0",
+          "11DF3CDC5D9A64E2FC0F4FC46AC495D372E66F36FC837F4F1A2C54B0AB1E0C67",
+          "B4328EE16C3BF9BEEF6F3B0098E16E8903B77884EEC841A1E63054BA8AD68171",
+          "F003AFCAA3AAFFE054E94FFE883D4B04B7C18210318DC686C13565282D27D4CC"
+        ],
+        "group_id_sha256": [
+          "21A39AB034E65DE9B12BD7CDDD8A091783E2901A414502F8404C764CDFA19117",
+          "21A39AB034E65DE9B12BD7CDDD8A091783E2901A414502F8404C764CDFA19117",
+          "3EFAABC12DD00A8783BDE4F2B2459CF8447018A5FE697F62B1AF7827C532A2C9",
+          "52B78C41CE6BFCD07417DE6FBB3F9ABB9E9B302BA64679C034E0CD2ED89584F3",
+          "21A39AB034E65DE9B12BD7CDDD8A091783E2901A414502F8404C764CDFA19117"
+        ],
+        "label_lengths": [
+          44,
+          51,
+          53,
+          43,
+          34
+        ]
+      },
+      "identity": {
+        "antDidSha256": "2F0B806C74BC53B00E1BB45785AE360B7EF5D651DF69130703FB3DB8E8762911",
+        "configLocale": "zh-Hans"
+      }
+    },
+    {
+      "id": "c1-injected-b",
+      "cycle": 1,
+      "kind": "injected",
+      "persona": "b",
+      "runId": "g5c-v231-alternating-20261125-0500-c1-inj-b",
+      "script": "E:\\环境\\huanjing\\scripts\\run-g5b-persona-b2.ps1",
+      "startedUtc": "2026-11-24T19:37:49.2437218Z",
+      "endedUtc": "2026-11-24T19:39:17.2188839Z",
+      "durationSeconds": 88,
+      "exitCode": 0,
+      "stdout": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-b.stdout.txt",
+      "stderr": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-b.stderr.txt",
+      "networkBefore": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkAfter": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkChanged": false,
+      "cleanupRemoved": [],
+      "freeGiB": 21.9,
+      "runRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c1-inj-b",
+      "metric": {
+        "language": "en-GB",
+        "languages": [
+          "en-GB",
+          "en"
+        ],
+        "locale": "en-GB",
+        "timeZone": "Europe/London",
+        "offset": 0,
+        "hardwareConcurrency": 12,
+        "deviceMemory": 8,
+        "maxTouchPoints": 0,
+        "screen": [
+          2560,
+          1440
+        ],
+        "gpu": "ANGLE (AMD, AMD Radeon RX 6600 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "extensionCount": 35,
+        "regionalDate": "2 Jan 2020",
+        "currency": "US$1,234.50",
+        "configLocale": "en-US"
+      },
+      "preload": {
+        "language": "en-GB",
+        "languages": [
+          "en-GB",
+          "en"
+        ],
+        "locale": "en-GB",
+        "timeZone": "Europe/London",
+        "offset": 0,
+        "hardwareConcurrency": 12,
+        "deviceMemory": 8,
+        "maxTouchPoints": 0,
+        "screen": [
+          2560,
+          1440
+        ],
+        "gpu": "ANGLE (AMD, AMD Radeon RX 6600 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      },
+      "main": {
+        "totalmem": 8589934592,
+        "freemem": 4294967296,
+        "cpuCount": 12,
+        "cpuModel": "AMD Ryzen 5 5600X 6-Core Processor",
+        "cpuFrequencyMhz": 3700,
+        "release": "10.0.22631",
+        "version": "10.0.22631",
+        "getSystemVersion": "10.0.22631",
+        "argvLang": [
+          "--lang=en-GB"
+        ],
+        "appLocale": "en-GB",
+        "appSystemLocale": "en-GB",
+        "appPreferredSystemLanguages": [
+          "en-GB",
+          "en"
+        ],
+        "appLocaleCountryCode": "GB"
+      },
+      "media": {
+        "available": true,
+        "total": 5,
+        "audioinput": 0,
+        "audiooutput": 5,
+        "videoinput": 0,
+        "label_present": 0,
+        "kinds": [
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput"
+        ],
+        "label_sha256": [],
+        "group_id_sha256": [
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+        ],
+        "label_lengths": []
+      },
+      "identity": {
+        "antDidSha256": "556954942E7FAECE3FE70D900F513C03FAE98F8843C2BBC3CAB7803A18596B64",
+        "configLocale": "en-US"
+      }
+    },
+    {
+      "id": "c2-bare-1",
+      "cycle": 2,
+      "kind": "bare",
+      "persona": "host",
+      "runId": "g5c-v231-alternating-20261125-0500-c2-bare-1",
+      "script": "E:\\环境\\huanjing\\scripts\\run-bare-observer-115.ps1",
+      "startedUtc": "2026-11-24T19:39:17.5005944Z",
+      "endedUtc": "2026-11-24T19:40:46.5830673Z",
+      "durationSeconds": 89.1,
+      "exitCode": 0,
+      "stdout": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-1.stdout.txt",
+      "stderr": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-1.stderr.txt",
+      "networkBefore": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkAfter": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkChanged": false,
+      "cleanupRemoved": [],
+      "freeGiB": 21.89,
+      "runRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-bare-1",
+      "metric": {
+        "language": "zh-CN",
+        "languages": [
+          "zh-CN",
+          "zh-Hans-CN"
+        ],
+        "locale": "zh-CN",
+        "timeZone": "Asia/Shanghai",
+        "offset": -480,
+        "hardwareConcurrency": 24,
+        "deviceMemory": 32,
+        "maxTouchPoints": 10,
+        "screen": [
+          1440,
+          900
+        ],
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Ti (0x00001C82) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "extensionCount": 35,
+        "regionalDate": "2020年1月2日",
+        "currency": "US$1,234.50",
+        "configLocale": "zh-Hans"
+      },
+      "preload": null,
+      "main": null,
+      "media": {
+        "available": true,
+        "total": 5,
+        "audioinput": 0,
+        "audiooutput": 5,
+        "videoinput": 0,
+        "label_present": 5,
+        "kinds": [
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput"
+        ],
+        "label_sha256": [
+          "20B2F2822EEA9A4309AF7B7267A726264A45248BFEC19D2A5BA3C9DC302C2C1B",
+          "136330A578BDFD758563DE3D5902704C94911B987987A41A2751E9D14F0A20E0",
+          "11DF3CDC5D9A64E2FC0F4FC46AC495D372E66F36FC837F4F1A2C54B0AB1E0C67",
+          "B4328EE16C3BF9BEEF6F3B0098E16E8903B77884EEC841A1E63054BA8AD68171",
+          "F003AFCAA3AAFFE054E94FFE883D4B04B7C18210318DC686C13565282D27D4CC"
+        ],
+        "group_id_sha256": [
+          "9ACCDEA2AC1168339705C2D177E3E40B5194C4E7AA3EA0C149AD5778E438D458",
+          "9ACCDEA2AC1168339705C2D177E3E40B5194C4E7AA3EA0C149AD5778E438D458",
+          "54811D5FF96DF64107ED3CD73290C069B20170A8F9D4F462EB8F6AC75BD47EFB",
+          "191D3121BF8895E51FA85DE32B211734B1194F1FFF1DDB8ACDF51AB16441B056",
+          "9ACCDEA2AC1168339705C2D177E3E40B5194C4E7AA3EA0C149AD5778E438D458"
+        ],
+        "label_lengths": [
+          44,
+          51,
+          53,
+          43,
+          34
+        ]
+      },
+      "identity": {
+        "antDidSha256": "107D5C5DD1E1888A3B4A6378BABB0910B9137E02BCCE74DE2C4FBFF5DA5A5933",
+        "configLocale": "zh-Hans"
+      }
+    },
+    {
+      "id": "c2-injected-b",
+      "cycle": 2,
+      "kind": "injected",
+      "persona": "b",
+      "runId": "g5c-v231-alternating-20261125-0500-c2-inj-b",
+      "script": "E:\\环境\\huanjing\\scripts\\run-g5b-persona-b2.ps1",
+      "startedUtc": "2026-11-24T19:40:46.8315369Z",
+      "endedUtc": "2026-11-24T19:42:16.7868835Z",
+      "durationSeconds": 90,
+      "exitCode": 0,
+      "stdout": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-b.stdout.txt",
+      "stderr": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-b.stderr.txt",
+      "networkBefore": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkAfter": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkChanged": false,
+      "cleanupRemoved": [],
+      "freeGiB": 21.89,
+      "runRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-b",
+      "metric": {
+        "language": "en-GB",
+        "languages": [
+          "en-GB",
+          "en"
+        ],
+        "locale": "en-GB",
+        "timeZone": "Europe/London",
+        "offset": 0,
+        "hardwareConcurrency": 12,
+        "deviceMemory": 8,
+        "maxTouchPoints": 0,
+        "screen": [
+          2560,
+          1440
+        ],
+        "gpu": "ANGLE (AMD, AMD Radeon RX 6600 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "extensionCount": 35,
+        "regionalDate": "2 Jan 2020",
+        "currency": "US$1,234.50",
+        "configLocale": "en-US"
+      },
+      "preload": {
+        "language": "en-GB",
+        "languages": [
+          "en-GB",
+          "en"
+        ],
+        "locale": "en-GB",
+        "timeZone": "Europe/London",
+        "offset": 0,
+        "hardwareConcurrency": 12,
+        "deviceMemory": 8,
+        "maxTouchPoints": 0,
+        "screen": [
+          2560,
+          1440
+        ],
+        "gpu": "ANGLE (AMD, AMD Radeon RX 6600 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      },
+      "main": {
+        "totalmem": 8589934592,
+        "freemem": 4294967296,
+        "cpuCount": 12,
+        "cpuModel": "AMD Ryzen 5 5600X 6-Core Processor",
+        "cpuFrequencyMhz": 3700,
+        "release": "10.0.22631",
+        "version": "10.0.22631",
+        "getSystemVersion": "10.0.22631",
+        "argvLang": [
+          "--lang=en-GB"
+        ],
+        "appLocale": "en-GB",
+        "appSystemLocale": "en-GB",
+        "appPreferredSystemLanguages": [
+          "en-GB",
+          "en"
+        ],
+        "appLocaleCountryCode": "GB"
+      },
+      "media": {
+        "available": true,
+        "total": 5,
+        "audioinput": 0,
+        "audiooutput": 5,
+        "videoinput": 0,
+        "label_present": 0,
+        "kinds": [
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput"
+        ],
+        "label_sha256": [],
+        "group_id_sha256": [
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+        ],
+        "label_lengths": []
+      },
+      "identity": {
+        "antDidSha256": "556954942E7FAECE3FE70D900F513C03FAE98F8843C2BBC3CAB7803A18596B64",
+        "configLocale": "en-US"
+      }
+    },
+    {
+      "id": "c2-bare-2",
+      "cycle": 2,
+      "kind": "bare",
+      "persona": "host",
+      "runId": "g5c-v231-alternating-20261125-0500-c2-bare-2",
+      "script": "E:\\环境\\huanjing\\scripts\\run-bare-observer-115.ps1",
+      "startedUtc": "2026-11-24T19:42:17.0340796Z",
+      "endedUtc": "2026-11-24T19:43:40.0267883Z",
+      "durationSeconds": 83,
+      "exitCode": 0,
+      "stdout": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-2.stdout.txt",
+      "stderr": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-2.stderr.txt",
+      "networkBefore": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkAfter": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkChanged": false,
+      "cleanupRemoved": [],
+      "freeGiB": 21.88,
+      "runRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-bare-2",
+      "metric": {
+        "language": "zh-CN",
+        "languages": [
+          "zh-CN",
+          "zh-Hans-CN"
+        ],
+        "locale": "zh-CN",
+        "timeZone": "Asia/Shanghai",
+        "offset": -480,
+        "hardwareConcurrency": 24,
+        "deviceMemory": 32,
+        "maxTouchPoints": 10,
+        "screen": [
+          1440,
+          900
+        ],
+        "gpu": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Ti (0x00001C82) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "extensionCount": 35,
+        "regionalDate": "2020年1月2日",
+        "currency": "US$1,234.50",
+        "configLocale": "zh-Hans"
+      },
+      "preload": null,
+      "main": null,
+      "media": {
+        "available": true,
+        "total": 5,
+        "audioinput": 0,
+        "audiooutput": 5,
+        "videoinput": 0,
+        "label_present": 5,
+        "kinds": [
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput"
+        ],
+        "label_sha256": [
+          "20B2F2822EEA9A4309AF7B7267A726264A45248BFEC19D2A5BA3C9DC302C2C1B",
+          "136330A578BDFD758563DE3D5902704C94911B987987A41A2751E9D14F0A20E0",
+          "11DF3CDC5D9A64E2FC0F4FC46AC495D372E66F36FC837F4F1A2C54B0AB1E0C67",
+          "B4328EE16C3BF9BEEF6F3B0098E16E8903B77884EEC841A1E63054BA8AD68171",
+          "F003AFCAA3AAFFE054E94FFE883D4B04B7C18210318DC686C13565282D27D4CC"
+        ],
+        "group_id_sha256": [
+          "7C8C1AC04596CFC8D0AE470BC8A6EF6AADE898F8EF161E50471187FE618B734E",
+          "7C8C1AC04596CFC8D0AE470BC8A6EF6AADE898F8EF161E50471187FE618B734E",
+          "017E5AED06771A0FE007B79793173E4FCA3BDC625619882BC6F5C503EB4C3DE8",
+          "D851CAE4137D71069C746B42DAB9EB671119CEE3391C034B03078A677C1CE68C",
+          "7C8C1AC04596CFC8D0AE470BC8A6EF6AADE898F8EF161E50471187FE618B734E"
+        ],
+        "label_lengths": [
+          44,
+          51,
+          53,
+          43,
+          34
+        ]
+      },
+      "identity": {
+        "antDidSha256": "B2F8D4E4B577DA4B5DE5115275AF40878264BCE36EACC23AA9F6F1399A893772",
+        "configLocale": "zh-Hans"
+      }
+    },
+    {
+      "id": "c2-injected-a",
+      "cycle": 2,
+      "kind": "injected",
+      "persona": "a",
+      "runId": "g5c-v231-alternating-20261125-0500-c2-inj-a",
+      "script": "E:\\环境\\huanjing\\scripts\\run-g5a-persona-a2.ps1",
+      "startedUtc": "2026-11-24T19:43:40.2755522Z",
+      "endedUtc": "2026-11-24T19:45:21.2353923Z",
+      "durationSeconds": 101,
+      "exitCode": 0,
+      "stdout": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-a.stdout.txt",
+      "stderr": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-a.stderr.txt",
+      "networkBefore": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkAfter": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "networkChanged": false,
+      "cleanupRemoved": [],
+      "freeGiB": 21.87,
+      "runRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500-c2-inj-a",
+      "metric": {
+        "language": "en-US",
+        "languages": [
+          "en-US",
+          "en"
+        ],
+        "locale": "en-US",
+        "timeZone": "America/New_York",
+        "offset": 300,
+        "hardwareConcurrency": 8,
+        "deviceMemory": 16,
+        "maxTouchPoints": 0,
+        "screen": [
+          1920,
+          1080
+        ],
+        "gpu": "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+        "extensionCount": 35,
+        "regionalDate": "Jan 2, 2020",
+        "currency": "$1,234.50",
+        "configLocale": "en-US"
+      },
+      "preload": {
+        "language": "en-US",
+        "languages": [
+          "en-US",
+          "en"
+        ],
+        "locale": "en-US",
+        "timeZone": "America/New_York",
+        "offset": 300,
+        "hardwareConcurrency": 8,
+        "deviceMemory": 16,
+        "maxTouchPoints": 0,
+        "screen": [
+          1920,
+          1080
+        ],
+        "gpu": "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+      },
+      "main": {
+        "totalmem": 17179869184,
+        "freemem": 8589934592,
+        "cpuCount": 8,
+        "cpuModel": "Intel(R) Core(TM) i7-9700T CPU @ 2.00GHz",
+        "cpuFrequencyMhz": 2000,
+        "release": "10.0.22631",
+        "version": "10.0.22631",
+        "getSystemVersion": "10.0.22631",
+        "argvLang": [
+          "--lang=en-US"
+        ],
+        "appLocale": "en-US",
+        "appSystemLocale": "en-US",
+        "appPreferredSystemLanguages": [
+          "en-US",
+          "en"
+        ],
+        "appLocaleCountryCode": "US"
+      },
+      "media": {
+        "available": true,
+        "total": 5,
+        "audioinput": 0,
+        "audiooutput": 5,
+        "videoinput": 0,
+        "label_present": 0,
+        "kinds": [
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput",
+          "audiooutput"
+        ],
+        "label_sha256": [],
+        "group_id_sha256": [
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+          "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+        ],
+        "label_lengths": []
+      },
+      "identity": {
+        "antDidSha256": "5AF66462F0EA3641C8A984A2CF990A88F017E64AE56FE15FE1CAF671DD019918",
+        "configLocale": "en-US"
+      }
+    }
+  ],
+  "counts": {
+    "total": 8,
+    "bare": 4,
+    "injected": 4,
+    "persona_a": 2,
+    "persona_b": 2
+  },
+  "note": "G5c non-login alternating A/B passes: two cycles, four bare and four injected runs, network digest unchanged, persona surfaces consistent, A/B ant-did distinct and stable, audio labels redacted, no residual. This does not close any CRR item and does not mean functional_pass."
+}

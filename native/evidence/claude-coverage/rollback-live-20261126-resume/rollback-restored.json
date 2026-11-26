@@ -1,0 +1,51 @@
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-26T04:52:10.5066509Z",
+    "restored":  [
+                     {
+                         "path":  "C:\\Users\\Administrator\\.cac\\native\\NativeBridge.dll",
+                         "exists":  true,
+                         "bytes":  568320,
+                         "sha256":  "3368975C10ADF834283A31FB558799DEAB150AFBB029B8364D65EE0396B45586"
+                     },
+                     {
+                         "path":  "C:\\Users\\Administrator\\.cac\\native\\NativeBridge.sha256",
+                         "exists":  true,
+                         "bytes":  66,
+                         "sha256":  "04C047431824943E04E206FA80B9001F777299932026240D0E7834DBEF18D961"
+                     },
+                     {
+                         "path":  "C:\\Users\\Administrator\\.cac\\native\\cac-native-launch.exe",
+                         "exists":  true,
+                         "bytes":  229888,
+                         "sha256":  "5350C41B39FD718C0E95743736797CA15A540E9D115226A5131812FA34D15C69"
+                     },
+                     {
+                         "path":  "C:\\Users\\Administrator\\.cac\\native\\cac-native-launch.sha256",
+                         "exists":  true,
+                         "bytes":  66,
+                         "sha256":  "C49814B0FD13CF340E1403D2EEE2A1DEE5DCC82FCBA2DBB901E440C35A2FB21E"
+                     },
+                     {
+                         "path":  "C:\\Users\\Administrator\\.cac\\native\\manifest.sha256",
+                         "exists":  true,
+                         "bytes":  2797,
+                         "sha256":  "46C2F8B60788B886F786AF5200AE0FBD9F3B927CF5D5809FF9420F568C0728BD"
+                     },
+                     {
+                         "path":  "C:\\Users\\Administrator\\.cac\\native\\build-provenance.json",
+                         "exists":  true,
+                         "bytes":  302234,
+                         "sha256":  "129BA0E0211066203669271897538485CEF351F4A9AA92B76238A0FB37A56158"
+                     }
+                 ],
+    "service":  {
+                    "exists":  true,
+                    "status":  "Running",
+                    "startType":  "Automatic"
+                },
+    "claude":  [
+
+               ],
+    "rollbackExecuted":  true
+}

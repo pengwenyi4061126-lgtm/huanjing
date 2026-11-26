@@ -1,0 +1,29 @@
+{
+    "status":  "pass-executable-live-rollback",
+    "performed":  true,
+    "mutationAllowed":  false,
+    "historicalFiles":  [
+
+                        ],
+    "liveEvidence":  {
+                         "root":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\rollback-live-20261126-resume",
+                         "result":  {
+                                        "label":  "live-rollback-result",
+                                        "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\rollback-live-20261126-resume\\rollback-result.json",
+                                        "exists":  true,
+                                        "bytes":  8021,
+                                        "sha256":  "04AFCE70F8DA2736A262E0EFD307DF053B63CFB324EEABE22800D204945B9C63",
+                                        "lastWriteUtc":  "2026-11-26T04:52:10.5066509Z"
+                                    },
+                         "contractRevision":  "2026-11-25.32",
+                         "contractMarkdownSha256":  "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+                         "bindingMatchesCurrentContract":  true,
+                         "status":  "pass-executable-live-rollback",
+                         "mutationPerformed":  true,
+                         "rollbackExecuted":  true,
+                         "serviceRestoredToOriginalState":  true,
+                         "noClaudeResidual":  true,
+                         "rawStatus":  "pass"
+                     },
+    "reason":  "Read-only reconciliation consumed a separately executed rollback evidence directory."
+}

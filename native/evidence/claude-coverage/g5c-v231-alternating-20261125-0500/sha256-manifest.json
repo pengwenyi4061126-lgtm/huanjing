@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "generated_utc": "2026-11-24T19:47:47.060Z",
+  "outputRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500",
+  "files": [
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-1.stderr.txt",
+      "bytes": 16484,
+      "sha256": "C32CB0DEEB4042F7FB4081EAC67C4C9C188991935C25029C522F1F8717C6B440"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-1.stdout.txt",
+      "bytes": 15047,
+      "sha256": "A0B283D7AC91263B7EFCD2F3C0F205198025C80D1D26565092D587124CC873F7"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-2.stderr.txt",
+      "bytes": 16489,
+      "sha256": "CF9A517449DA0AC41EDF9EB270105DA1F61C47997439B64F47FB87931BB25DEE"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-2.stdout.txt",
+      "bytes": 15052,
+      "sha256": "C3620BADE2279552D25317D97403C72EC9E83582EF6AB409FEA4D0E9F77F3713"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-a.stderr.txt",
+      "bytes": 16487,
+      "sha256": "C432E0932777D2C5D6E1918E6CC8ABFF4327C4AC1EDFBD619CCB5AAC572081CA"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-a.stdout.txt",
+      "bytes": 14952,
+      "sha256": "0FE29F1C1951F13C36D9357A29AD820572B72EAC74AEA201C50F8AD72A8CFA31"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-b.stderr.txt",
+      "bytes": 16483,
+      "sha256": "E988416FDA4A40779A5F18943C36AED55248B394E9F4DBC5758C6445B51FEA41"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-b.stdout.txt",
+      "bytes": 14926,
+      "sha256": "69C9F88ACA9BBF517D3AAEB04DDC9BF396594EA1CF98A23E7BCB4A707F8D1AAF"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-1.stderr.txt",
+      "bytes": 16485,
+      "sha256": "083936ABFD149FB516A3ADF51F4B20B6CF8F3C33CF32E2BE5936864735FE6BF4"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-1.stdout.txt",
+      "bytes": 15046,
+      "sha256": "84A68945F5AFE0C4528AD92CE236DDF3F7024A3BB9ABFA322C4C83CED7681656"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-2.stderr.txt",
+      "bytes": 16484,
+      "sha256": "229DAF4F90D18F48F25FFAC11E102229933BA633662E652823E4EBBD1DD87586"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-2.stdout.txt",
+      "bytes": 15052,
+      "sha256": "137A7D87D06A9C0204C60D5847F799EF22EA8925A4952D01BB56C49C96AC532A"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-a.stderr.txt",
+      "bytes": 16485,
+      "sha256": "32F17837F286CF07ECA12A17D69DE9F944E4D4F796A085D8ECF20EC9A249B909"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-a.stdout.txt",
+      "bytes": 14954,
+      "sha256": "CDDB5D227F49DD4D86EF1A8148FE33FE32348B3ADA8B3C004EC03E4174ABB92E"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-b.stderr.txt",
+      "bytes": 16485,
+      "sha256": "9F703D19C91F0295F0674FF2E18D30568E6D9782607A50ED886B9D6BD4A4CB2D"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-b.stdout.txt",
+      "bytes": 14928,
+      "sha256": "9CAD137146BB4CB855100E7BBDA2D8C874807E192F4413495B232DFED97BD6A7"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\g5c-verification.json",
+      "bytes": 29788,
+      "sha256": "C0AF52BF23A7B2CB7391C1DC41733EF5669684062514E7F022763213B3BAF22C"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-after-c1-bare-1.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-after-c1-bare-2.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-after-c1-injected-a.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-after-c1-injected-b.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-after-c2-bare-1.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-after-c2-bare-2.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-after-c2-injected-a.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-after-c2-injected-b.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-before-c1-bare-1.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-before-c1-bare-2.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-before-c1-injected-a.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-before-c1-injected-b.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-before-c2-bare-1.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-before-c2-bare-2.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-before-c2-injected-a.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\network-before-c2-injected-b.json",
+      "bytes": 3339,
+      "sha256": "2C646766F35FC5A9109335C364B3B7F43C52D2D609EC0039856874FEDA6F254B"
+    },
+    {
+      "path": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\sequence.json",
+      "bytes": 13759,
+      "sha256": "4517B86F90D5A39F0E93C397D9364772BADB0553993A2339602E08C3CD4B212B"
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-26T04:21:20.8934970Z",
+    "contract":  {
+                     "revision":  "2026-11-25.32",
+                     "jsonSha256":  "34B2817762A9D653D9C4D84B6A8CC4ECA2AB1DBBF596B5267E4274BED2788B11",
+                     "markdownSha256":  "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+                     "declaredMarkdownSha256":  "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+                     "bindingMatch":  true
+                 },
+    "processes":  [
+                      {
+                          "pid":  396,
+                          "parentPid":  18196,
+                          "processType":  "crashpad",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:08:34",
+                          "commandLineSha256":  "9200D87C755F1F29AE10CA8BBCC590D57B7A4FCE96CF3AD6C3E48DE666DAB169",
+                          "profileMarkerPresent":  true
+                      },
+                      {
+                          "pid":  1912,
+                          "parentPid":  18196,
+                          "processType":  "gpu",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:08:36",
+                          "commandLineSha256":  "8CE29B0ADF81D33A9F914E257ECDC3A5DC0B0F50C3928DB412C17452B8711FE3",
+                          "profileMarkerPresent":  true
+                      },
+                      {
+                          "pid":  2648,
+                          "parentPid":  18196,
+                          "processType":  "renderer",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:08:35",
+                          "commandLineSha256":  "0773E400373BB36905EB15A69C2DEC4E49DF1DFD1771FAAD384C9EAB83DA445F",
+                          "profileMarkerPresent":  true
+                      },
+                      {
+                          "pid":  11224,
+                          "parentPid":  18196,
+                          "processType":  "renderer",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:53:08",
+                          "commandLineSha256":  "8269FCADDE26755539394F46FF4DEE97476548AA924581A3E77E6901DD4FD8BC",
+                          "profileMarkerPresent":  true
+                      },
+                      {
+                          "pid":  18196,
+                          "parentPid":  16036,
+                          "processType":  "main-or-helper",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:08:34",
+                          "commandLineSha256":  "51DA938598EBA9CD87E7567DC9CFDDE46534CDCDD1E22AFEE072DFD3FF3BCE83",
+                          "profileMarkerPresent":  true
+                      },
+                      {
+                          "pid":  20236,
+                          "parentPid":  18196,
+                          "processType":  "renderer",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:53:08",
+                          "commandLineSha256":  "AA45CA6382879EF01F1B07BCE60F642804F0A4C3532AEB2DF627D75ADB53CA08",
+                          "profileMarkerPresent":  true
+                      },
+                      {
+                          "pid":  21036,
+                          "parentPid":  18196,
+                          "processType":  "renderer",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:08:37",
+                          "commandLineSha256":  "8638652B236FA5BF5B6BD5BC598B7B091F23CDFE7C81D7EC2E08BBEC17B5EDB6",
+                          "profileMarkerPresent":  true
+                      },
+                      {
+                          "pid":  21224,
+                          "parentPid":  18196,
+                          "processType":  "utility",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:08:49",
+                          "commandLineSha256":  "5A41A6C969DB9A293FABB5AC9BE896F47DF7596EF9800E20AF78ABEB1835ACF1",
+                          "profileMarkerPresent":  true
+                      },
+                      {
+                          "pid":  22024,
+                          "parentPid":  18196,
+                          "processType":  "utility",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:08:49",
+                          "commandLineSha256":  "2325DB0B4C41C74A8D659A54F20C70E3FEDB25ACE44B4CE7FB67D0E6EF617158",
+                          "profileMarkerPresent":  true
+                      },
+                      {
+                          "pid":  22664,
+                          "parentPid":  18196,
+                          "processType":  "renderer",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:08:43",
+                          "commandLineSha256":  "6DBD539F21758F6D54AC0FF6A66587E331F20AD3397B398981935CFE53002741",
+                          "profileMarkerPresent":  true
+                      },
+                      {
+                          "pid":  24356,
+                          "parentPid":  18196,
+                          "processType":  "utility",
+                          "imagePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+                          "creationDate":  "11/26/2026 11:08:35",
+                          "commandLineSha256":  "96B515AD4FC42AB1BAD75B3115984BD9013BC9C7E99B8FDDBD803F341DE9B7D3",
+                          "profileMarkerPresent":  true
+                      }
+                  ]
+}

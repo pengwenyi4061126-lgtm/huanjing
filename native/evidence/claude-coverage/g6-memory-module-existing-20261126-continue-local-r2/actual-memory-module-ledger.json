@@ -1,0 +1,72 @@
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-26T04:21:20.8846361Z",
+    "status":  "pass",
+    "captureMode":  "read-only-existing-Claude-process",
+    "noLaunch":  true,
+    "noStop":  true,
+    "noMutation":  true,
+    "contract":  {
+                     "revision":  "2026-11-25.32",
+                     "jsonSha256":  "34B2817762A9D653D9C4D84B6A8CC4ECA2AB1DBBF596B5267E4274BED2788B11",
+                     "markdownSha256":  "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+                     "declaredMarkdownSha256":  "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+                     "bindingMatch":  true
+                 },
+    "targetProcess":  18196,
+    "processCount":  11,
+    "nativeBridge":  [
+                         {
+                             "pid":  18196,
+                             "processType":  "main-or-helper",
+                             "moduleName":  "NativeBridge.dll",
+                             "filePath":  "C:\\Users\\Administrator\\.cac\\native\\NativeBridge.dll",
+                             "baseAddress":  "0x7FF9C62B0000",
+                             "moduleMemorySize":  593920,
+                             "file":  {
+                                          "exists":  true,
+                                          "path":  "C:\\Users\\Administrator\\.cac\\native\\NativeBridge.dll",
+                                          "bytes":  568320,
+                                          "sha256":  "3368975C10ADF834283A31FB558799DEAB150AFBB029B8364D65EE0396B45586"
+                                      },
+                             "memory":  {
+                                            "status":  "pass",
+                                            "bytesRead":  593920,
+                                            "requestedBytes":  593920,
+                                            "sha256":  "43C2371EE5AA82DE5A905592EBDF677263F298AA4D1B0A0B6C1FADFB764A48AB",
+                                            "error":  null
+                                        },
+                             "memoryHashMeaning":  "SHA-256 of SizeOfImage bytes read from the live mapped image; not directly equal to raw PE file hash."
+                         }
+                     ],
+    "claudeNativeBinding":  [
+                                {
+                                    "pid":  18196,
+                                    "processType":  "main-or-helper",
+                                    "moduleName":  "claude-native-binding.node",
+                                    "filePath":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\node_modules\\@ant\\claude-native\\claude-native-binding.node",
+                                    "baseAddress":  "0x7FF9C5DA0000",
+                                    "moduleMemorySize":  4251648,
+                                    "file":  {
+                                                 "exists":  true,
+                                                 "path":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\node_modules\\@ant\\claude-native\\claude-native-binding.node",
+                                                 "bytes":  4253008,
+                                                 "sha256":  "E821D18559F9C439E640075CA805BA775A51EBCE8D6E571E22C94FAA07A7F683"
+                                             },
+                                    "memory":  {
+                                                   "status":  "pass",
+                                                   "bytesRead":  4251648,
+                                                   "requestedBytes":  4251648,
+                                                   "sha256":  "039C6920743A99C0985409D4C6BC72F0B6625B658956E1DDA5C35D1C7E003BBA",
+                                                   "error":  null
+                                               },
+                                    "memoryHashMeaning":  "SHA-256 of SizeOfImage bytes read from the live mapped image; not directly equal to raw PE file hash."
+                                }
+                            ],
+    "nativeBridgeLoaded":  true,
+    "nativeBindingLoaded":  true,
+    "nativeBridgeMemoryHashCollected":  true,
+    "nativeBindingMemoryHashCollected":  true,
+    "memoryLoadedHash":  "collected-mapped-image-sha256",
+    "memoryHashComparison":  "Mapped SizeOfImage hash is not directly comparable to raw PE file hash; retain both hashes."
+}

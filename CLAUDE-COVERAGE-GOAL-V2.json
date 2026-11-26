@@ -1,0 +1,2036 @@
+{
+  "schema_version": 2,
+  "revision": "2026-11-25.32",
+  "contract_file": "CLAUDE-COVERAGE-GOAL-V2.md",
+  "contract_sha256": "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+  "supersedes": {
+    "contract_file": "CLAUDE-COVERAGE-GOAL-V2.md",
+    "revision": "2026-11-25.31",
+    "disposition": "historical-retained-not-deleted",
+    "old_denominator_reused_as_crr": false
+  },
+  "workspace": "E:\\环境\\huanjing",
+  "target": {
+    "product": "Claude Desktop",
+    "version": "5.1231.2.0",
+    "architecture": "Windows x64 MSIX",
+    "source_policy": "frozen original package, read-only; controlled copy for observation"
+  },
+  "semantic_authority": "Markdown defines semantics; JSON binds it by hash and supplies machine rules. Mismatch blocks acceptance.",
+  "purpose": [
+    "prevent cross-account and cross-profile association through device-image fields within the declared non-network scope",
+    "keep locale, timezone, region, software and device image consistent with the declared persona; network egress is recorded but not changed in this revision",
+    "preserve login, session, MCP, updater, crash recovery and clean exit"
+  ],
+  "non_goals": [
+    "forge TPM or attestation or signatures",
+    "modify the original MSIX install tree",
+    "change host routes, DNS, proxy, adapters, WFP, LWF or TUN",
+    "claim coverage that was not runtime-verified"
+  ],
+  "ledgers": {
+    "crr": {
+      "name": "claude_reachable_required",
+      "participates_in_completion": true,
+      "count": 61,
+      "status_counts": {
+        "unsupported": 9,
+        "pass": 41,
+        "unverified": 9,
+        "not_applicable": 2
+      },
+      "items": [
+        {
+          "id": "N-01",
+          "group": "N",
+          "signal": "network-egress-ip-asn-country",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile",
+            "lifecycle"
+          ],
+          "status": "unsupported",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "N-02",
+          "group": "N",
+          "signal": "dns-resolver-egress-congruence",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "lifecycle"
+          ],
+          "status": "unsupported",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "N-03",
+          "group": "N",
+          "signal": "proxy-visibility-winhttp-hkcu-pac",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "static",
+            "bare",
+            "injected",
+            "lifecycle"
+          ],
+          "status": "unsupported",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "N-04",
+          "group": "N",
+          "signal": "vpn-hosting-signal-observation",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "bare",
+            "injected"
+          ],
+          "status": "unsupported",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "N-05",
+          "group": "N",
+          "signal": "network-before-after-invariance",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "lifecycle"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "N-06",
+          "group": "N",
+          "signal": "cross-profile-egress-separation",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "profile",
+            "negative",
+            "lifecycle"
+          ],
+          "status": "unsupported",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "E-01",
+          "group": "E",
+          "signal": "navigator-language-languages",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "E-02",
+          "group": "E",
+          "signal": "intl-resolved-timezone",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "E-03",
+          "group": "E",
+          "signal": "timezone-offset",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "E-04",
+          "group": "E",
+          "signal": "intl-resolved-locale",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "E-05",
+          "group": "E",
+          "signal": "app-get-locale",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "E-06",
+          "group": "E",
+          "signal": "accept-language-client-hints",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected",
+            "negative"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "network"
+          ]
+        },
+        {
+          "id": "E-07",
+          "group": "E",
+          "signal": "third-party-iframe-surface",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "injected",
+            "negative"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload",
+            "network"
+          ]
+        },
+        {
+          "id": "E-08",
+          "group": "E",
+          "signal": "first-document-lang",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "E-09",
+          "group": "E",
+          "signal": "number-date-regional-format",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "bare",
+            "injected"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "E-10",
+          "group": "E",
+          "signal": "persisted-config-locale-consistency",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "static",
+            "profile",
+            "negative"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage",
+            "main",
+            "network"
+          ]
+        },
+        {
+          "id": "D-01",
+          "group": "D",
+          "signal": "ant-did-profile-unique",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "static",
+            "bare",
+            "injected",
+            "profile",
+            "negative"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage"
+          ]
+        },
+        {
+          "id": "D-02",
+          "group": "D",
+          "signal": "config-localstate-preferences-ids",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "static",
+            "profile",
+            "negative"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage"
+          ]
+        },
+        {
+          "id": "D-03",
+          "group": "D",
+          "signal": "storage-cookies-partition-ids",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "static",
+            "profile",
+            "negative",
+            "lifecycle"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage"
+          ]
+        },
+        {
+          "id": "D-04",
+          "group": "D",
+          "signal": "install-level-identity",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "static",
+            "bare"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage",
+            "native"
+          ]
+        },
+        {
+          "id": "D-05",
+          "group": "D",
+          "signal": "same-profile-stability",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "lifecycle"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage"
+          ]
+        },
+        {
+          "id": "D-06",
+          "group": "D",
+          "signal": "cross-profile-negative-leakage",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "negative"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage",
+            "network",
+            "utility-node"
+          ]
+        },
+        {
+          "id": "S-01",
+          "group": "S",
+          "signal": "cu-is-remote-session",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "native",
+            "renderer-mainworld"
+          ]
+        },
+        {
+          "id": "S-02",
+          "group": "S",
+          "signal": "hcs-vm-status",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected"
+          ],
+          "status": "unverified",
+          "required_surfaces": [
+            "main",
+            "native",
+            "renderer-mainworld"
+          ]
+        },
+        {
+          "id": "S-03",
+          "group": "S",
+          "signal": "windows-elevation-type",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "native",
+            "renderer-mainworld"
+          ]
+        },
+        {
+          "id": "S-04",
+          "group": "S",
+          "signal": "process-lineage-commandline",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "native",
+            "renderer-mainworld"
+          ]
+        },
+        {
+          "id": "S-05",
+          "group": "S",
+          "signal": "process-module-commandline-env-visibility",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected",
+            "negative"
+          ],
+          "status": "unsupported",
+          "required_surfaces": [
+            "main",
+            "native",
+            "renderer-mainworld"
+          ]
+        },
+        {
+          "id": "S-06",
+          "group": "S",
+          "signal": "msix-package-identity",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "static",
+            "bare"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "native",
+            "renderer-mainworld"
+          ]
+        },
+        {
+          "id": "A-01",
+          "group": "A",
+          "signal": "cu-list-installed-apps",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "injected",
+            "profile"
+          ],
+          "status": "unverified",
+          "required_surfaces": [
+            "main",
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "A-02",
+          "group": "A",
+          "signal": "cu-list-running-apps",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "injected",
+            "profile"
+          ],
+          "status": "unverified",
+          "required_surfaces": [
+            "main",
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "A-03",
+          "group": "A",
+          "signal": "enumerate-network-drives",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "injected"
+          ],
+          "status": "unverified",
+          "required_surfaces": [
+            "main",
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "A-04",
+          "group": "A",
+          "signal": "cu-list-displays",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "A-05",
+          "group": "A",
+          "signal": "font-enumeration",
+          "classification": "conditional",
+          "applicability": "not-applicable",
+          "facets": [
+            "injected"
+          ],
+          "status": null,
+          "required_surfaces": [
+            "main",
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "A-06",
+          "group": "A",
+          "signal": "audio-device-count-labels",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "injected"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "B-01",
+          "group": "B",
+          "signal": "webgl-unmasked-vendor-renderer",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "B-02",
+          "group": "B",
+          "signal": "webgpu-adapter-info",
+          "classification": "conditional",
+          "applicability": "not-applicable",
+          "facets": [
+            "bare",
+            "injected"
+          ],
+          "status": null,
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "B-03",
+          "group": "B",
+          "signal": "hardware-concurrency",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "B-04",
+          "group": "B",
+          "signal": "device-memory",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "B-05",
+          "group": "B",
+          "signal": "screen-geometry-dpr",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "B-06",
+          "group": "B",
+          "signal": "user-agent-client-hints",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "B-07",
+          "group": "B",
+          "signal": "plugins-mimetypes",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "bare",
+            "injected"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "B-08",
+          "group": "B",
+          "signal": "webgl-extension-set",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "bare",
+            "injected"
+          ],
+          "status": "unsupported",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "B-09",
+          "group": "B",
+          "signal": "max-touch-points",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "renderer-mainworld",
+            "renderer-preload"
+          ]
+        },
+        {
+          "id": "R-01",
+          "group": "R",
+          "signal": "request-destination-inventory",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected",
+            "lifecycle"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "R-02",
+          "group": "R",
+          "signal": "request-header-set",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected",
+            "negative"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "R-03",
+          "group": "R",
+          "signal": "request-body-device-fields",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected",
+            "negative"
+          ],
+          "status": "unsupported",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "R-04",
+          "group": "R",
+          "signal": "redirect-retry-chain",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "R-05",
+          "group": "R",
+          "signal": "remote-flag-snapshot-pre-post-login",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected",
+            "lifecycle"
+          ],
+          "status": "unverified",
+          "required_surfaces": [
+            "network",
+            "main"
+          ]
+        },
+        {
+          "id": "R-06",
+          "group": "R",
+          "signal": "telemetry-event-metadata",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected",
+            "profile",
+            "negative"
+          ],
+          "status": "unverified",
+          "required_surfaces": [
+            "main",
+            "network",
+            "storage"
+          ]
+        },
+        {
+          "id": "R-07",
+          "group": "R",
+          "signal": "sentry-event-context-host-leak",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected",
+            "negative",
+            "lifecycle"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "storage"
+          ]
+        },
+        {
+          "id": "L-01",
+          "group": "L",
+          "signal": "profile-tree-delta",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "lifecycle",
+            "negative"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage",
+            "main",
+            "native"
+          ]
+        },
+        {
+          "id": "L-02",
+          "group": "L",
+          "signal": "cold-warm-start",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "lifecycle"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage",
+            "main",
+            "native"
+          ]
+        },
+        {
+          "id": "L-03",
+          "group": "L",
+          "signal": "login-logout-switch",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "lifecycle",
+            "profile"
+          ],
+          "status": "unverified",
+          "required_surfaces": [
+            "storage",
+            "main",
+            "native"
+          ]
+        },
+        {
+          "id": "L-04",
+          "group": "L",
+          "signal": "crash-recovery",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "lifecycle"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage",
+            "main",
+            "native"
+          ]
+        },
+        {
+          "id": "L-05",
+          "group": "L",
+          "signal": "clean-exit-no-residue",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "lifecycle"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "storage",
+            "main",
+            "native"
+          ]
+        },
+        {
+          "id": "L-06",
+          "group": "L",
+          "signal": "updater-isolation",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "lifecycle"
+          ],
+          "status": "unsupported",
+          "required_surfaces": [
+            "storage",
+            "main",
+            "native"
+          ]
+        },
+        {
+          "id": "M-01",
+          "group": "M",
+          "signal": "main-process-memory-derived-headers",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "static",
+            "bare",
+            "injected",
+            "profile",
+            "negative"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "network"
+          ]
+        },
+        {
+          "id": "M-02",
+          "group": "M",
+          "signal": "main-process-os-version-derived-headers",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "static",
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "network"
+          ]
+        },
+        {
+          "id": "M-03",
+          "group": "M",
+          "signal": "main-process-cpu-os-edition-telemetry",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "static",
+            "bare",
+            "injected",
+            "profile"
+          ],
+          "status": "unverified",
+          "required_surfaces": [
+            "main",
+            "network"
+          ]
+        },
+        {
+          "id": "M-04",
+          "group": "M",
+          "signal": "main-process-environment-identity",
+          "classification": "conditional",
+          "applicability": "conditional",
+          "facets": [
+            "static",
+            "injected",
+            "profile",
+            "negative"
+          ],
+          "status": "unverified",
+          "required_surfaces": [
+            "main",
+            "utility-node",
+            "network"
+          ]
+        },
+        {
+          "id": "M-05",
+          "group": "M",
+          "signal": "path-log-sanitization",
+          "classification": "confirmed-read",
+          "applicability": "required",
+          "facets": [
+            "injected",
+            "negative",
+            "lifecycle"
+          ],
+          "status": "pass",
+          "required_surfaces": [
+            "main",
+            "storage",
+            "network"
+          ]
+        }
+      ]
+    },
+    "coa": {
+      "name": "capability_only_auxiliary",
+      "participates_in_completion": false,
+      "count": 10,
+      "items": [
+        {
+          "id": "COA-01",
+          "capability": "pnp-device-graph-win32-pnpentity",
+          "claude_reachability": "none-observed",
+          "blocking": false,
+          "search_method": "exact static term search over frozen MSIX plus runtime native-call observation",
+          "promotion_rule": "any new runtime or source hit reopens the matching CRR gate"
+        },
+        {
+          "id": "COA-02",
+          "capability": "setupdi-device-properties",
+          "claude_reachability": "none-observed",
+          "blocking": false,
+          "search_method": "exact static term search over frozen MSIX plus runtime native-call observation",
+          "promotion_rule": "any new runtime or source hit reopens the matching CRR gate"
+        },
+        {
+          "id": "COA-03",
+          "capability": "wmi-disk-bios-board-serials",
+          "claude_reachability": "none-observed",
+          "blocking": false,
+          "search_method": "exact static term search over frozen MSIX plus runtime native-call observation",
+          "promotion_rule": "any new runtime or source hit reopens the matching CRR gate"
+        },
+        {
+          "id": "COA-04",
+          "capability": "smart-nvme-ata-identify",
+          "claude_reachability": "none-observed",
+          "blocking": false,
+          "search_method": "exact static term search over frozen MSIX plus runtime native-call observation",
+          "promotion_rule": "any new runtime or source hit reopens the matching CRR gate"
+        },
+        {
+          "id": "COA-05",
+          "capability": "ddc-ci-edid",
+          "claude_reachability": "none-observed",
+          "blocking": false,
+          "search_method": "exact static term search over frozen MSIX plus runtime native-call observation",
+          "promotion_rule": "any new runtime or source hit reopens the matching CRR gate"
+        },
+        {
+          "id": "COA-06",
+          "capability": "raw-hid-report-descriptor",
+          "claude_reachability": "none-observed",
+          "blocking": false,
+          "search_method": "exact static term search over frozen MSIX plus runtime native-call observation",
+          "promotion_rule": "any new runtime or source hit reopens the matching CRR gate"
+        },
+        {
+          "id": "COA-07",
+          "capability": "audio-endpoint-identifiers",
+          "claude_reachability": "none-observed",
+          "blocking": false,
+          "search_method": "exact static term search over frozen MSIX plus runtime native-call observation",
+          "promotion_rule": "any new runtime or source hit reopens the matching CRR gate"
+        },
+        {
+          "id": "COA-08",
+          "capability": "nvml-vulkan-dxgi-hardware-enumeration",
+          "claude_reachability": "none-observed",
+          "blocking": false,
+          "search_method": "exact static term search over frozen MSIX plus runtime native-call observation",
+          "promotion_rule": "any new runtime or source hit reopens the matching CRR gate"
+        },
+        {
+          "id": "COA-09",
+          "capability": "mac-nic-list-getadapters",
+          "claude_reachability": "none-observed",
+          "blocking": false,
+          "search_method": "exact static term search over frozen MSIX plus runtime native-call observation",
+          "promotion_rule": "any new runtime or source hit reopens the matching CRR gate"
+        },
+        {
+          "id": "COA-10",
+          "capability": "volume-serial-machineguid",
+          "claude_reachability": "none-observed",
+          "blocking": false,
+          "search_method": "exact static term search over frozen MSIX plus runtime native-call observation",
+          "promotion_rule": "any new runtime or source hit reopens the matching CRR gate"
+        }
+      ]
+    }
+  },
+  "false_positive_rules": [
+    "go-rust-runtime-symbol-table: identical string clusters at contiguous offsets replicated across Go helper executables",
+    "substring collision: ATA in toDataURL or CryptProtectData; machine in machineLearning",
+    "url-property confusion: url.hostname is not os.hostname",
+    "chromium-engine-assets: locales pak, LICENSES.chromium.html, d3dcompiler, dxcompiler, snapshot_blob, v8_context_snapshot",
+    "bundled-third-party-components are conditional and do not enter the core device image",
+    "probe self-evidence does not count as a Claude read"
+  ],
+  "status_policy": {
+    "values": [
+      "pass",
+      "fail",
+      "unsupported",
+      "unverified"
+    ],
+    "unsupported_requires": [
+      "original error code or architecture boundary",
+      "reason",
+      "reproduction"
+    ],
+    "not_applicable_sets_status_null": true,
+    "hook_installation_or_unit_test_or_exit_zero_is_not_pass": true
+  },
+  "closure_policy": {
+    "revision_scope": "no-new-crr-no-new-coa",
+    "terminal_states": [
+      "pass",
+      "fail",
+      "unsupported",
+      "unverified-with-blocker"
+    ],
+    "unverified_requires_blocker_at_delivery": true,
+    "blocked_external_input_is_blocker_class": true,
+    "max_runtime_attempts_per_item_per_revision": 2,
+    "attempt_counting": "A and B each count as one attempt",
+    "same_method_retry_after_budget_forbidden": true,
+    "batch_merge_required": true,
+    "max_p1_runtime_batches": 6,
+    "single_batch_observation_window_seconds_max": 90,
+    "per_batch_copies_max": 1,
+    "per_batch_profiles_max": 2,
+    "cleanup_after_verification_json": true,
+    "cleanup_records": [
+      "free_gib_before",
+      "free_gib_after"
+    ],
+    "evidence_minimum": [
+      "six_facets",
+      "raw_lines",
+      "input_hashes",
+      "command",
+      "expected_value_source",
+      "blocker"
+    ],
+    "waves": {
+      "P1a": [
+        "R-06"
+      ],
+      "P1b": [
+        "M-03",
+        "M-04",
+        "S-02",
+        "A-01",
+        "A-02",
+        "A-03"
+      ],
+      "P1c": [
+        "G5c",
+        "G7"
+      ],
+      "P2": [
+        "L-03",
+        "R-05"
+      ],
+      "P3": [
+        "G1b",
+        "G6",
+        "G8"
+      ]
+    }
+  },
+  "facet_policy": {
+    "order": [
+      "static-present",
+      "bare-baseline",
+      "injected-actual",
+      "profile-consistency",
+      "negative-leakage",
+      "lifecycle"
+    ],
+    "alternating_cycles_minimum": 2,
+    "inapplicable_facet_status": null,
+    "required_surfaces_field": "required_surfaces",
+    "surface_pass_is_per_item_times_surface": true,
+    "cross_surface_substitution_forbidden": true
+  },
+  "surface_policy": {
+    "surfaces": [
+      "renderer-mainworld",
+      "renderer-preload",
+      "main",
+      "utility-node",
+      "native",
+      "storage",
+      "network"
+    ],
+    "rule": "a value must be captured on the surface that produces it; renderer patches cannot close main-process reads; local Node os patches cannot close Chromium network headers",
+    "derived_sink_requires_input_and_output_evidence": true,
+    "attribution_requires": [
+      "surface",
+      "pid",
+      "process_start_utc"
+    ],
+    "known_counterexample": {
+      "observed": "anthropic-client-total-memory-gb=32 while navigator.deviceMemory=16",
+      "source": "app.asar main process U9t=Math.round(os.totalmem()/1024**3), ab=H9t(os.totalmem()), H9t maps to le4/8/16/gt16",
+      "disposition": "M-01 added; renderer pass alone cannot close B-04 or M-01"
+    },
+    "preload_counterexample": {
+      "observed_before": "preload/isolated world hc24 dm32 Asia/Shanghai GTX 1050 Ti 1440x900 while main world was hc8 dm16 America/New_York Intel UHD 630",
+      "fix": "applyPersona executed in renderer-preload before Claude preload and fingerprint capture",
+      "observed_after": "A en-US/8/16/America/New_York/1920x1080/Intel; B en-GB/12/8/Europe/London/2560x1440/AMD",
+      "disposition": "renderer-preload added as a required surface for E and B groups"
+    }
+  },
+  "evidence_policy": {
+    "required": [
+      "input hashes",
+      "tool version",
+      "process identity pid+creation+image+hash",
+      "real value or verifiable digest",
+      "expected value source",
+      "raw output",
+      "reproducible command"
+    ],
+    "observer_health": [
+      "provider-filter",
+      "privilege",
+      "capture-window",
+      "loss",
+      "overflow",
+      "truncation",
+      "disk",
+      "clock-alignment",
+      "flush"
+    ],
+    "independent_observer_required": true,
+    "probe_self_calls_excluded": true,
+    "secrets_never_emitted": true
+  },
+  "resource_policy": {
+    "unique_output_root": true,
+    "reject_nonempty_output_root": true,
+    "memory_reserve": "max(8GiB, 25% physical memory)",
+    "minimum_free_gib": 12,
+    "global_evidence_cap_gib": 24,
+    "per_run_cap_gib": 1,
+    "per_audit_file_cap_mib": 32,
+    "truncation_must_be_marked": true,
+    "default_retention": "summary-only",
+    "failed_batch_retention": "retain-raw",
+    "cleanup_controlled_copy_after_batch": true,
+    "cleanup_tmp_profile_after_persistence_verification": true,
+    "evidence_extensions_only": [
+      ".json",
+      ".jsonl",
+      ".log",
+      ".txt"
+    ],
+    "cache_dirs_never_retained": [
+      "Cache",
+      "Code Cache",
+      "GPUCache",
+      "DawnGraphiteCache",
+      "DawnWebGPUCache",
+      "GrShaderCache",
+      "ShaderCache"
+    ],
+    "runtime_lock": "Global\\cac-claude-coverage-runtime",
+    "network_before_after_digest_required": true,
+    "max_subagents": 3
+  },
+  "scope_decisions": {
+    "primary_deliverable": "device_image_subset_pass",
+    "declared_non_claim": "anti_association_pass",
+    "user_deferred_network_hiding": [
+      "N-01",
+      "N-02",
+      "N-03",
+      "N-04",
+      "N-06"
+    ],
+    "opaque_payload_boundary": [
+      "R-03"
+    ],
+    "frozen_auxiliary_ledger": [
+      "COA-01",
+      "COA-02",
+      "COA-03",
+      "COA-04",
+      "COA-05",
+      "COA-06",
+      "COA-07",
+      "COA-08",
+      "COA-09",
+      "COA-10"
+    ],
+    "auxiliary_hardware_archived": true,
+    "audio_scope": "A-06 only; enumerateDevices is Claude-reachable and already pass; audio endpoint IDs are archived COA",
+    "rule": "network hiding and auxiliary hardware expansion are outside this revision; PnP/DDC/SMART/NVMe/ATA/raw-HID/audio-endpoint/NVML/Vulkan/DXGI/MAC/volume-serial are archived COA and cannot be converted to pass by inference"
+  },
+  "revision_delta_2026_11_25_29": {
+    "type": "contract-maintenance",
+    "crr_status_changed": false,
+    "new_evidence": false,
+    "changes": [
+      "goal text rebased from the stale 2026-11-24.1 / 51-item objective to CRR 61 at revision 2026-11-25.29",
+      "corrected stale 1919-retained-unprocessed wording; 1919 retained rows and 373 dynamic edges are closed since v2.25/v2.26",
+      "corrected stale G7-not-started wording; G7 passed at v2.28",
+      "fixed G6 two-chain acceptance, three known gaps and a two-batch cap",
+      "fixed G5c non-login alternating A/B scope and a two-batch cap"
+    ],
+    "non_changes": [
+      "CRR 61 = 41 pass / 0 fail / 9 unverified / 9 unsupported / 2 not-applicable",
+      "G1b remains partial at 12 open / 38 partial observations",
+      "G6 and G5c remain not_started",
+      "device_image_subset_pass / supported_subset_pass / full_coverage_within_declared_scope / anti_association_pass / functional_pass remain false"
+    ]
+  },
+  "revision_delta_2026_11_25_30": {
+    "type": "gate-closure",
+    "crr_status_changed": false,
+    "gate_changed": "G6 not_started -> pass",
+    "changes": [
+      "closes G6 source/config/toolchain -> build -> package -> install -> actual load",
+      "closes G6 Claude MSIX -> installed resources via AppxBlockMap whole-file hashes",
+      "syncs the CacServiceInjector ProgramData payload to the current native/dist set",
+      "captures current v2.29-bound Claude loaded-module file and mapped-memory hashes",
+      "executes and verifies a live rollback of the six installed native core files and the service state"
+    ],
+    "non_changes": [
+      "CRR 61 = 41 pass / 0 fail / 9 unverified / 9 unsupported / 2 not-applicable",
+      "G1b remains partial at 12 open / 38 partial observations",
+      "G5c remains not_started",
+      "device_image_subset_pass / supported_subset_pass / full_coverage_within_declared_scope / anti_association_pass / functional_pass remain false",
+      "G6 pass does not mean CRR closure or full coverage"
+    ]
+  },
+  "revision_delta_2026_11_25_31": {
+    "type": "gate-closure",
+    "crr_status_changed": false,
+    "gate_changed": "G1b partial -> pass",
+    "changes": [
+      "all 77 legacy observations now have terminal, evidence-backed dispositions",
+      "counts: closed 39 / boundary 24 / blocked-external-input 13 / false-positive 1 / open 0 / partial 0 / unknown 0",
+      "G6 is carried forward from v2.30 because this revision changes no G6 input or acceptance criterion",
+      "G7 is rerun against v2.31"
+    ],
+    "non_changes": [
+      "CRR 61 = 41 pass / 0 fail / 9 unverified / 9 unsupported / 2 not-applicable",
+      "G5c remains not_started",
+      "device_image_subset_pass / supported_subset_pass / full_coverage_within_declared_scope / anti_association_pass / functional_pass remain false",
+      "G1b pass does not close any CRR item and does not mean full coverage"
+    ]
+  },
+  "revision_delta_2026_11_25_32": {
+    "type": "gate-closure",
+    "crr_status_changed": false,
+    "gate_changed": "G5c not_started -> pass (non-login)",
+    "changes": [
+      "two alternating A/B cycles, eight real Claude runs: four bare and four injected",
+      "all eight runs exit 0; network before/after digest single and unchanged; no Claude residual",
+      "bare/A/B mainworld, preload and main-process values consistent with host/A/B personas",
+      "A/B ant-did stable across cycles and distinct; bare ant-dids unique and distinct",
+      "audio labels redacted in injected runs; bare baseline retains host labels",
+      "P3 non-account work is complete"
+    ],
+    "non_changes": [
+      "CRR 61 = 41 pass / 0 fail / 9 unverified / 9 unsupported / 2 not-applicable",
+      "device_image_subset_pass / supported_subset_pass / full_coverage_within_declared_scope / anti_association_pass / functional_pass remain false",
+      "login/session/MCP/update/crash/exit remain P2-gated",
+      "G5c pass does not close any CRR item"
+    ]
+  },
+  "gates": [
+    {
+      "id": "G0",
+      "name": "freeze-source-and-provenance",
+      "state": "pass",
+      "note": "7 source hashes frozen"
+    },
+    {
+      "id": "G1",
+      "name": "crr-denominator-frozen",
+      "state": "pass",
+      "note": "61 frozen at rev 2026-11-25.32; no new checkpoints without fresh Claude-reachable evidence"
+    },
+    {
+      "id": "G1b",
+      "name": "source-inventory-closure",
+      "state": "pass",
+      "note": "77 observations all terminally disposed: closed 39 / boundary 24 / blocked-external-input 13 / false-positive 1; open=0, partial=0, unknown=0. Each record has a reason, evidence path and CRR anchors. Closed gaps: 373 dynamic edges, PE resource tree (19 files/73 leaves), non-app files (78/unknown=0), 1919 retained rows (54 keywords/32 categories/unknown=0). The 24 boundaries are documented CRR-scope/collection boundaries; the 13 blocked records map to 9 unverified CRR items and remain visible"
+    },
+    {
+      "id": "G2",
+      "name": "observer-health-and-real-call",
+      "state": "pass-bounded",
+      "note": "capture window, first-read, process attribution, collector health proven; some scenarios still untriggered"
+    },
+    {
+      "id": "G3",
+      "name": "minimal-remediation",
+      "state": "pass-partial",
+      "note": "persona/locale/os.totalmem/os.freemem/os.cpus/os.release + app.getLocale + negative scan landed; maxTouchPoints A/B pass; Sentry scope write sanitizer + integration sanitizer + screen/GPU source patch A/B pass; main.log write-path sanitizer A/B pass; audio deviceId/groupId/label redaction A/B pass (label 5->0, group empty); env block/TelemetryEvent open; R-03 opaque"
+    },
+    {
+      "id": "G4a",
+      "name": "device-image-six-facet-retest",
+      "state": "partial",
+      "note": "41 pass / 0 fail / 9 unverified / 9 unsupported / 2 not-applicable at 2026-11-25T02:59Z; B-09/R-07/M-05/A-06/E-10/S-04 closed; B-08/L-06/S-05 boundaries"
+    },
+    {
+      "id": "G4b",
+      "name": "gated-runtime-triggers",
+      "state": "blocked-external-input",
+      "note": "Real /cowork navigation still renders the sign-in page; getHcsStatus/getSystemInfo/cuListInstalledApps/cuListRunningApps/enumerateNetworkDrives all 0; no utility-node. S-02/M-03/M-04/A-01..A-03 require an authenticated session."
+    },
+    {
+      "id": "G5a",
+      "name": "request-and-telemetry-sink-closure",
+      "state": "in_progress",
+      "note": "R-01/R-02/R-04/R-07 closed; R-03 opaque unsupported; R-05 pre-login only; R-06 not field-verified"
+    },
+    {
+      "id": "G5b",
+      "name": "account-bound-lifecycle",
+      "state": "blocked-external-input",
+      "note": "L-03 and post-login R-05/flags require a test account"
+    },
+    {
+      "id": "G5c",
+      "name": "alternating-ab-and-functionality",
+      "state": "pass",
+      "note": "non-login alternating A/B pass: two cycles, 8 real Claude runs (4 bare + 4 injected), all exit 0; network digest single and unchanged; bare/A/B mainworld, preload and main-process values consistent; A/B ant-did stable and distinct; audio labels redacted; no residual. Login/session/MCP/update/crash/exit remain functional_pass/P2-gated"
+    },
+    {
+      "id": "G6",
+      "name": "delivery-and-rollback",
+      "state": "pass",
+      "note": "carried forward from v2.30; v2.31/v2.32 change no G6 input or acceptance criterion. g6-delivery-v230-20261125-0341-final/g6-delivery.json: all checks pass, gaps=[]; provenance 164 sources/31 artifacts/17 project inputs/35 commands, 85 command paths suffix-resolved with 0 unresolved and 0 hash mismatch; npm pack 1.0.44 64 dist files with 0 missing/mismatch; six core files + ProgramData service binary + CacKernel.sys + CacMacLwf.sys hashes match; MSIX claude.exe/app.asar/ion-dist.asar/native binding whole-file hashes match; current loaded-module file/memory hashes and live rollback pass"
+    },
+    {
+      "id": "G7",
+      "name": "independent-review",
+      "state": "pass",
+      "note": "Recomputed 61-item groups/status/pass set/9 blockers/9 unsupported boundaries/2 N/A/completion flags/evidence paths from raw ledgers; G1b/P1b/G8 counts consistent; denominator not reduced"
+    },
+    {
+      "id": "G8",
+      "name": "auxiliary-boundary-documentation",
+      "state": "pass",
+      "note": "10 COA items archived with capability probe, representative evidence, core-file term scan, zero native-call runtime hits, reachability=none-observed, blocking=false, unknown=0"
+    }
+  ],
+  "completion": {
+    "crr_pass": false,
+    "surface_pass": false,
+    "derived_header_pass": true,
+    "auxiliary_documented": true,
+    "network_measured": true,
+    "functional_pass": false,
+    "device_image_subset_pass": false,
+    "supported_subset_pass": false,
+    "full_coverage_within_declared_scope": false,
+    "anti_association_pass": false,
+    "accepted_unsupported": [],
+    "rule": "device_image_subset_pass requires M/E/B/D/S/A required pass plus R-07 storage/event/body pass; supported_subset requires fail=0 and unverified=0 with unsupported explicitly accepted; full coverage additionally requires required-unsupported=0 and G1b closure; anti-association is outside this revision because N-01..N-06 are user-deferred and R-03 remains opaque",
+    "forbidden_claim": "full device-image coverage with no omissions"
+  },
+  "progress_2026_11_25": {
+    "snapshot": "native/evidence/claude-coverage/goal-v2-contract-rev32-20261125-0510/progress.json",
+    "evidence": {
+      "m01_m02": "native/evidence/claude-coverage/goal-v2-g5a-mainpersona-20261125-002024/",
+      "e05": "native/evidence/claude-coverage/goal-v2-g5a-mainpersona-20261125-002138/",
+      "preload_a": "native/evidence/claude-coverage/goal-v2-g5a-personaa2-20261125-003558/",
+      "preload_b": "native/evidence/claude-coverage/goal-v2-g5b-personab2-20261125-003656/",
+      "storage_compare": "native/evidence/claude-coverage/goal-v2-storage-compare-ab-20261125-0032/storage-compare.json",
+      "process": "native/evidence/claude-coverage/goal-v2-g5c-fresh-a-20261125-003425/native-call-audit.jsonl",
+      "network": "native/evidence/claude-coverage/goal-v2-network-posture-20261125-0040/network-posture.json",
+      "storage_identity": "native/evidence/claude-coverage/goal-v2-storage-compare-ab-20261125-0047/storage-compare.json",
+      "fingerprint_a": "native/evidence/claude-coverage/goal-v2-g5a-personaa2-20261125-004214/renderer-fingerprint.jsonl",
+      "fingerprint_b": "native/evidence/claude-coverage/goal-v2-g5b-personab2-20261125-004315/renderer-fingerprint.jsonl",
+      "l01": "native/evidence/claude-coverage/goal-v2-l01-profile-window-20261125-0049/profile-window.json",
+      "r03": "native/evidence/claude-coverage/goal-v2-r03-body-format-20261125-0050/r03-body-format.json",
+      "r05_a": "native/evidence/claude-coverage/goal-v2-r05-growthbook-a-20261125-0055/growthbook-cache.json",
+      "r05_b": "native/evidence/claude-coverage/goal-v2-r05-growthbook-b-20261125-0055/growthbook-cache.json",
+      "l06_long": "native/evidence/claude-coverage/goal-v2-l06-long-20261125-005131/native-call-audit.jsonl",
+      "l04": "native/evidence/claude-coverage/goal-v2-l04-crash-20261125-005647/crash-test.json",
+      "source_anchor": "native/evidence/claude-coverage/goal-v2-revision-20261125-0110/revision-audit.json",
+      "fingerprint_a2": "native/evidence/claude-coverage/goal-v2-g5a-personaa2-20261125-004437/renderer-fingerprint.jsonl",
+      "fingerprint_b2": "native/evidence/claude-coverage/goal-v2-g5b-personab2-20261125-004315/renderer-fingerprint.jsonl",
+      "config_b": "native/evidence/claude-coverage/goal-v2-storage-b3-20261125-0045/storage-audit.json",
+      "unresolved": "native/evidence/claude-coverage/catalog-contract17-static-only-r2-20261123/unresolved-observations.json",
+      "scope_gap": "native/evidence/claude-coverage/catalog-contract17-static-only-r2-20261123/scope-gap-audit.json",
+      "persona_a_current": "native/evidence/claude-coverage/goal-v2-g5a-personaa2-20261125-011615/",
+      "sentry_scope_a_current": ".tmp/goal-v2-g5-persist-profile/home/AppData/Roaming/Claude/sentry/scope_v3.json",
+      "sentry_scope_b_current": ".tmp/goal-v2-g5-b-profile/home/AppData/Roaming/Claude/sentry/scope_v3.json",
+      "rev9_provenance": "native/evidence/claude-coverage/goal-v2-contract-rev10-20261125-0119/rev9-provenance.json",
+      "persona_a_v211": "native/evidence/claude-coverage/goal-v2-g5a-personaa2-20261125-013241/",
+      "persona_b_v211": "native/evidence/claude-coverage/goal-v2-g5b-personab2-20261125-013621/",
+      "crash_a_v211": "native/evidence/claude-coverage/goal-v2-l04-crash-20261125-013356/",
+      "crash_b_v211": "native/evidence/claude-coverage/goal-v2-l04-crash-b-20261125-013750/",
+      "r07_b09_verification": "native/evidence/claude-coverage/goal-v2-r07b09-20261125-0139/verification.json",
+      "m05_log_baseline": "native/evidence/claude-coverage/goal-v2-m05-log-baseline-20261125-0142/baseline.json",
+      "m05_verification": "native/evidence/claude-coverage/goal-v2-m05-verification-20261125-0216/verification.json",
+      "p1b_a": "native/evidence/claude-coverage/goal-v2-p1b-a-20261125-0207/",
+      "p1b_b": "native/evidence/claude-coverage/goal-v2-p1b-b-20261125-0211/",
+      "etl_cleanup": "native/evidence/claude-coverage/retention-etl-cleanup-20261125-0200/cleanup-manifest.json",
+      "a06_baseline_a": "native/evidence/claude-coverage/goal-v2-a06-a-20261125-0220/",
+      "a06_baseline_b": "native/evidence/claude-coverage/goal-v2-a06-b-20261125-0222/",
+      "a06_fix_a": "native/evidence/claude-coverage/goal-v2-a06fix-a-20261125-0206/",
+      "a06_fix_b": "native/evidence/claude-coverage/goal-v2-a06fix-b-20261125-0208/",
+      "a06_verification": "native/evidence/claude-coverage/goal-v2-a06-verification-20261125-0210/verification.json",
+      "e10_verification": "native/evidence/claude-coverage/goal-v2-e10-verification-20261125-0215/verification.json",
+      "b08_verification": "native/evidence/claude-coverage/goal-v2-b08-verification-20261125-0222/verification.json",
+      "l06_verification": "native/evidence/claude-coverage/goal-v2-l06-verification-20261125-0232/verification.json",
+      "s04_verification": "native/evidence/claude-coverage/goal-v2-s04-verification-20261125-0246/verification.json",
+      "s05_verification": "native/evidence/claude-coverage/goal-v2-s05-verification-20261125-0258/verification.json",
+      "g1b_disposition": "native/evidence/claude-coverage/g1b-disposition-20261125-0310/g1b-disposition.json",
+      "g1b_pe_tree": "native/evidence/claude-coverage/g1b-pe-resources-20261125-0320/pe-resource-tree.json",
+      "g1b_pe_closure": "native/evidence/claude-coverage/g1b-pe-closure-20261125-0322/closure.json",
+      "g1b_nonapp": "native/evidence/claude-coverage/g1b-nonapp-20261125-0330/nonapp-disposition.json",
+      "goal_text_rev23": "CLAUDE-COVERAGE-GOAL-V2.23-GOAL.txt",
+      "p1b_verification": "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json",
+      "p1b_run": "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/",
+      "g1b_retained": "native/evidence/claude-coverage/g1b-retained-20261125-0251/retained-disposition.json",
+      "g1b_closure": "native/evidence/claude-coverage/g1b-closure-20261125-0255/closure.json",
+      "g1b_dynamic": "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json",
+      "g1b_closure_latest": "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json",
+      "g8_coa": "native/evidence/claude-coverage/g8-coa-20261125-0310/coa-archive.json",
+      "g7_review": "native/evidence/claude-coverage/g7-review-20261125-0258/g7-review.json",
+      "goal_text_rev29": "CLAUDE-COVERAGE-GOAL-V2.29-GOAL.txt",
+      "g6_delivery": "native/evidence/claude-coverage/g6-delivery-v230-20261125-0341-final/g6-delivery.json",
+      "g6_service_sync": "native/evidence/claude-coverage/g6-service-sync-v229-20261125-0350/service-sync.json",
+      "g6_module": "native/evidence/claude-coverage/g6-module-current-guarded-20261125-031846/g6-module-summary.json",
+      "g6_memory": "native/evidence/claude-coverage/g6-memory-module-current-guarded-20261125-032130/memory-module-summary.json",
+      "g6_rollback": "native/evidence/claude-coverage/rollback-live-g6-v230-20261125-0335/rollback-result.json",
+      "g1b_current_v231": "native/evidence/claude-coverage/g1b-current-v231-20261125-0410/g1b-current-disposition.json",
+      "g1b_closure_v231": "native/evidence/claude-coverage/g1b-current-v231-20261125-0410/closure.json",
+      "g7_review_v231": "native/evidence/claude-coverage/g7-review-v231-20261125-0415/g7-review.json",
+      "g5c_sequence": "native/evidence/claude-coverage/g5c-v231-alternating-20261125-0500/sequence.json",
+      "g5c_verification": "native/evidence/claude-coverage/g5c-v231-alternating-20261125-0500/g5c-verification.json",
+      "g5c_manifest": "native/evidence/claude-coverage/g5c-v231-alternating-20261125-0500/sha256-manifest.json",
+      "g7_review_v232": "native/evidence/claude-coverage/g7-review-v232-20261125-0505/g7-review.json"
+    },
+    "gates": {
+      "G0": "pass",
+      "G1": "pass",
+      "G1b": "pass",
+      "G2": "pass-bounded",
+      "G3": "pass-partial",
+      "G4a": "partial",
+      "G4b": "blocked-external-input",
+      "G5a": "in_progress",
+      "G5b": "blocked-external-input",
+      "G5c": "pass",
+      "G6": "pass",
+      "G7": "pass",
+      "G8": "pass"
+    },
+    "g1b": {
+      "state": "pass",
+      "disposition_counts": {
+        "closed": 39,
+        "boundary": 24,
+        "blocked_external_input": 13,
+        "false_positive": 1,
+        "open": 0,
+        "partial": 0,
+        "unknown": 0
+      },
+      "closure": "native/evidence/claude-coverage/g1b-current-v231-20261125-0410/closure.json",
+      "disposition": "native/evidence/claude-coverage/g1b-current-v231-20261125-0410/g1b-current-disposition.json",
+      "observations": 77,
+      "closed": 39,
+      "partial": 0,
+      "open": 0,
+      "false_positive": 1,
+      "boundary": 24,
+      "blocked_external_input": 13,
+      "dynamic_edges": 373,
+      "dynamic_closed": 373,
+      "dynamic_partial": 0,
+      "dynamic_unknown": 0,
+      "dynamic_kinds": 5,
+      "dynamic_categories": 4,
+      "pe_resource_tree": "closed",
+      "pe_files": 19,
+      "pe_resources": 73,
+      "nonapp": "closed",
+      "nonapp_files": 78,
+      "nonapp_unknown": 0,
+      "retained_not_crr": 1919,
+      "retained_not_crr_closed": true,
+      "retained_not_crr_unknown": 0,
+      "retained_not_crr_keywords": 54,
+      "retained_not_crr_categories": 32,
+      "open_examples": [],
+      "blocked_examples": [
+        "S-02/M-03/M-04",
+        "A-01/A-02/A-03",
+        "L-03",
+        "R-05",
+        "R-06"
+      ],
+      "boundary_basis_counts": {
+        "legacy-ledger-superseded": 2,
+        "retained-disposition-complete": 2,
+        "optional-hook-not-in-crr": 1,
+        "coa-archived": 4,
+        "network-deferred": 2,
+        "crr-timebox": 1,
+        "s04-bounded": 3,
+        "observer-health-documented": 2,
+        "etw-not-used": 3,
+        "crr-boundary": 4
+      }
+    },
+    "g5c": {
+      "state": "pass",
+      "non_login_only": true,
+      "cycles": 2,
+      "runs": 8,
+      "bare": 4,
+      "injected": 4,
+      "persona_a": 2,
+      "persona_b": 2,
+      "checks_total": 30,
+      "checks_true": 30,
+      "network_digest": "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+      "sequence": "native/evidence/claude-coverage/g5c-v231-alternating-20261125-0500/sequence.json",
+      "verification": "native/evidence/claude-coverage/g5c-v231-alternating-20261125-0500/g5c-verification.json",
+      "functional_gate": "login/session/MCP/update/crash/exit remain functional_pass and P2-gated"
+    },
+    "g6": {
+      "state": "pass",
+      "batch_cap": 2,
+      "batch_used": 4,
+      "batch_cap_exception": "service payload sync, module load capture, memory load capture and live rollback are four distinct mutation/observation units; merging them would mix deployment mutation with runtime observation and rollback, so the two-batch time-box was exceeded with explicit evidence rather than skipping a chain",
+      "chains": [
+        "source/config/toolchain -> build -> package -> install -> actual load",
+        "Claude MSIX -> actual resources"
+      ],
+      "named_gaps": [
+        "G6-PROVENANCE-INCOMPLETE",
+        "G6-DRIVER-PAYLOAD-DIVERGENCE",
+        "G6-ACTUAL-MODULE-HASH-MISSING"
+      ],
+      "rollback_required": true,
+      "original_msix_read_only": true,
+      "evidence": {
+        "delivery": "native/evidence/claude-coverage/g6-delivery-v230-20261125-0341-final/g6-delivery.json",
+        "service_sync": "native/evidence/claude-coverage/g6-service-sync-v229-20261125-0350/service-sync.json",
+        "module": "native/evidence/claude-coverage/g6-module-current-guarded-20261125-031846/g6-module-summary.json",
+        "memory": "native/evidence/claude-coverage/g6-memory-module-current-guarded-20261125-032130/memory-module-summary.json",
+        "rollback": "native/evidence/claude-coverage/rollback-live-g6-v230-20261125-0335/rollback-result.json"
+      },
+      "carry_forward": "v2.31 changes no G6 input or acceptance criterion; the v2.30 evidence remains authoritative",
+      "checks": {
+        "provenance": "pass",
+        "package": "pass",
+        "install": "pass",
+        "msix": "pass",
+        "runtime_load": "pass",
+        "memory_load": "pass",
+        "rollback": "pass"
+      }
+    },
+    "crr": {
+      "evaluated": 61,
+      "pass": 41,
+      "fail": 0,
+      "unverified": 9,
+      "unsupported": 9,
+      "not_applicable": 2,
+      "not_evaluated": 0
+    },
+    "blockers": {
+      "S-02": {
+        "blocker_class": "blocked-external-input",
+        "missing": "authenticated Claude session / Cowork surface"
+      },
+      "M-03": {
+        "blocker_class": "blocked-external-input",
+        "missing": "authenticated Claude session / CoworkFeedback or DesktopInfo surface"
+      },
+      "M-04": {
+        "blocker_class": "blocked-external-input",
+        "missing": "authenticated session or an MCP extension actually spawned by this profile"
+      },
+      "A-01": {
+        "blocker_class": "blocked-external-input",
+        "missing": "authenticated Claude session / computer-use tool invocation"
+      },
+      "A-02": {
+        "blocker_class": "blocked-external-input",
+        "missing": "authenticated Claude session / computer-use tool invocation"
+      },
+      "A-03": {
+        "blocker_class": "blocked-external-input",
+        "missing": "authenticated Claude session / computer-use or network-drive path"
+      },
+      "L-03": {
+        "blocker_class": "blocked-external-input",
+        "missing": "real test account for login/logout/relogin/switch"
+      },
+      "R-05": {
+        "blocker_class": "blocked-external-input",
+        "missing": "post-login remote feature flag snapshot"
+      },
+      "R-06": {
+        "blocker_class": "blocked-external-input",
+        "missing": "telemetry credential / real TelemetryEvent body"
+      }
+    },
+    "confirmed_pass": [
+      "E-01",
+      "E-02",
+      "E-03",
+      "E-04",
+      "E-05",
+      "E-06",
+      "E-07",
+      "E-08",
+      "E-09",
+      "E-10",
+      "B-01",
+      "B-03",
+      "B-04",
+      "B-05",
+      "B-06",
+      "B-07",
+      "B-09",
+      "D-01",
+      "D-02",
+      "D-03",
+      "D-04",
+      "D-05",
+      "D-06",
+      "S-01",
+      "S-03",
+      "S-04",
+      "S-06",
+      "A-04",
+      "A-06",
+      "N-05",
+      "L-01",
+      "L-02",
+      "L-04",
+      "L-05",
+      "M-01",
+      "M-02",
+      "M-05",
+      "R-01",
+      "R-02",
+      "R-04",
+      "R-07"
+    ],
+    "fails": [],
+    "open": [
+      "S-02",
+      "A-01",
+      "A-02",
+      "A-03",
+      "L-03",
+      "M-03",
+      "M-04",
+      "R-05",
+      "R-06"
+    ],
+    "not_applicable": {
+      "B-02": "navigator.gpu present but requestAdapter()=null in both profiles",
+      "A-05": "queryLocalFonts=0; only document.fonts.ready/load; no font enumeration code path"
+    },
+    "unsupported": {
+      "N-01": "egress 64.83.13.52 US AS979 LAX matches A but not B; shared egress is a cross-profile link",
+      "N-02": "DNS Meta 198.18.0.2 + local 127.0.0.1 with overseas egress; resolver/egress not same-source",
+      "N-03": "ProxyEnable=0 but residual 127.0.0.1:7897 and ProxyOverride remain visible",
+      "N-04": "Meta Tunnel and two VMware adapters visible; VPN/hosting signal present",
+      "N-06": "A/B share egress 64.83.13.52 / AS979 / LAX; no cross-profile egress separation; anti_association_pass=false",
+      "R-03": "16,546-byte body is x + Z85; decoded 13,236 bytes, entropy 7.9608, no gzip/brotli/deflate/JSON structure, no key",
+      "B-08": "A/B WebGL extension sets identical (35 items, SHA256 0D881644...); no Intel UHD 630 / AMD RX 6600 reference machine or vendor ANGLE list; host GTX 1050 Ti cannot substitute for persona",
+      "L-06": "controlled copy logs \"App is not installed, not enabling auto-updates\"; 115s window had no update host; static updater events carry version/channel/install_method only; real updater requires installed MSIX",
+      "S-05": "installEnvSanitizer hides /^CAC_/ keys (visible_cac_keys=0); process APIs are numeric-only; renderer has no argv/execPath; residual controlled-copy path in process.execPath/argv because the copy runs from .tmp\\goal-v2-*-copy",
+      "basis": "N-01..N-04 and N-06: user explicitly deferred TUN+clean; R-03: opaque high-entropy payload without key; B-08: persona GPU reference unavailable; L-06: updater disabled in controlled copy; S-05: controlled-copy path in argv"
+    },
+    "fixed": {
+      "M-01": "main-persona readback totalmem=16 GiB; header anthropic-client-total-memory-gb=16, device-class=16",
+      "M-02": "os.release/version/getSystemVersion=10.0.22631; header os-version=10.0.22631, os-platform=win32; allowed-same by declaration",
+      "M-05": "installMainLogSanitizer covers createWriteStream/appendFileSync/appendFile/writeFileSync/writeFile/promises; A/B 679 new lines each, 0 host drive paths/app.asar/C:\\Users, 3 sanitized app:// per profile; Sentry+HTTPS 0 file URL hits",
+      "A-06": "baseline A/B both 5 audio outputs with 5 identical host label hashes; fix redacts deviceId/groupId/label while keeping count/kind; A/B label_present 0, label set empty, group hash only empty-string hash, 5/5 count",
+      "E-10": "app.asar Intl module: V_=\"en-US\" default; dFt uses app.getPreferredSystemLanguages/getLocale then falls back to V_; gFt persists via _o.set(\"locale\",t); _Ft reads _o.get(\"locale\"); host zh-CN but A/B config en-US; runtime main/renderer/network A en-US, B en-GB",
+      "S-04": "readProcessTree 5 roots/40 nodes; readProcessFootprints 2 elements/4 nodes; bounded",
+      "S-05-env": "installEnvSanitizer replaces process.env with a Proxy hiding /^CAC_/ keys; visible_cac_keys=0; main/preload persona, login page and persona headers remain functional",
+      "E-05": "app.getLocale=en-US, app.getSystemLocale=en-US, preferredSystemLanguages=[en-US,en], localeCountryCode=US after ready",
+      "D-02": "ant-did and os_crypt.encrypted_key distinct across A/B; only app-default leaves identical",
+      "D-03": "cookies 0 rows; shared LevelDB values classified as indexeddb-internal-schema/app-constant-small; no long shared ID",
+      "D-06": "file scans 249/33.4MB and 203/24.8MB with 0 matches; device/anonymous/session header hashes disjoint",
+      "S-03": "getWindowsElevationType=default",
+      "S-05": "process APIs matched CAC/probe/injector names 0 times; bounded to those APIs",
+      "B-07": "plugin list identical across A/B",
+      "E-09": "A en-US formats 1,234,567.89 / Jan 2, 2020 / $1,234.50; B en-GB 2 Jan 2020 / US$1,234.50",
+      "L-01": "004437 write window: 37 modified files, 37 expected, 0 unexpected",
+      "L-02": "cold fresh C profile and repeated warm A profile both reached login with observer output",
+      "L-04": "killed login renderer 17228; main alive; new renderer 13048 resumed claude.ai/login; crashpad 1->1 with 0 host markers",
+      "R-01": "9 destinations recorded from real headers",
+      "R-02": "header set includes sec-ch-ua*, anthropic-client-*, accept-language",
+      "R-04": "onBeforeRedirect=0 in capture window",
+      "L-06-probe": "80s window: no updater/update host request observed",
+      "preload-surface": "before hc24/dm32/Asia/Shanghai/GTX1050Ti; after A en-US/8/16/New_York/Intel, B en-GB/12/8/London/AMD",
+      "R-05-old": "A 602 / B 599 features are pre-login only; keep as partial evidence, not pass",
+      "A-06-old": "audio counts 0/5/0; labels present=5 but unverified; keep as partial evidence, not pass",
+      "B-08-old": "A/B extension sets identical (35); no persona GPU reference baseline; keep as partial evidence, not pass",
+      "B-09": "A/B mainworld, preload, fingerprint and hCaptcha challenge/checkbox all read navigator.maxTouchPoints=0; pass at 2026-11-25T01:36Z",
+      "R-07": "A/B scope_v3 and real renderer-crash queue envelopes contain only persona CPU/count/memory/screen/GPU/culture; host Xeon/GTX1050Ti/1440x900/zh-CN/Asia-Shanghai zero hits; pass at 2026-11-25T01:38Z"
+    },
+    "fail_evidence": {},
+    "closed_fail_evidence": {
+      "B-09": "previous 10 was replaced by 0 on all A/B surfaces; verification in goal-v2-r07b09-20261125-0139/max-touch-points.json",
+      "R-07": "previous host scope values replaced by persona values in scope_v3 and queue envelope; verification in goal-v2-r07b09-20261125-0139/verification.json",
+      "A-06": "baseline A/B label hash sets identical (5 host labels); after redaction both label_present=0 and label sets empty; verification in goal-v2-a06-verification-20261125-0210/verification.json"
+    },
+    "top_leak": "B-09/R-07/M-05/A-06 host leaks closed; remaining: M-03 CPU/OS-edition TelemetryEvent, M-04 env block, R-06 TelemetryEvent body, shared egress",
+    "next_action": "v2.32 scope: CRR only, COA archived. All non-account gates are closed: G6 (carried from v2.30), G1b (v2.31) and G5c (v2.32). Remaining work is P2 only: S-02/M-03/M-04/A-01..A-03 need an authenticated Claude session; L-03 needs a real test account; R-05 needs a post-login feature-flag snapshot; R-06 needs a telemetry credential/real TelemetryEvent. Do not retry the login-gated items without those inputs. Do not claim anti-association. Do not treat G1b/G5c closure as CRR closure; supported_subset_pass and full coverage remain false."
+  },
+  "baseline_2026_11_24": {
+    "legacy": {
+      "checkpoints": 6032,
+      "source_to_sink": 6332,
+      "dynamic_edges": 222,
+      "unresolved_observations": 77,
+      "scenarios_declared": 25,
+      "scenarios_executed": 0
+    },
+    "confirmed_false_positive_families": [
+      "go-runtime-symbol-table",
+      "url-hostname-property",
+      "ata-substring"
+    ],
+    "runtime_native_calls_observed": [
+      "readRegistryValues",
+      "enumRegistryValues",
+      "enumRegistrySubkeys",
+      "deleteRegistryKey",
+      "openRootDir",
+      "openBeneath",
+      "statHandleBeneath",
+      "readdirBeneath",
+      "readFreshUserPath",
+      "getWindowsElevationType",
+      "cuIsRemoteSession"
+    ],
+    "hardware_api_calls_observed": 0,
+    "real_leaks": [
+      "config.json locale=zh-Hans",
+      "system zh-CN",
+      "China Standard Time",
+      "hCaptcha hl=zh-cn",
+      "random non-hardware ant-did"
+    ],
+    "free_gib": {
+      "C": 23.6,
+      "D": 38.8,
+      "E": 13.3
+    }
+  },
+  "baseline_2026_11_25": {
+    "snapshot_revision": "2026-11-25.9",
+    "superseded_by": "progress_2026_11_25",
+    "source_hashes_frozen": 7,
+    "crr_total": 61,
+    "crr_evaluated": 61,
+    "crr_pass": 35,
+    "crr_fail": 2,
+    "crr_unverified": 16,
+    "crr_unsupported": 6,
+    "crr_not_applicable": 2,
+    "crr_not_evaluated": 0,
+    "identity": {
+      "ant_did_distinct_profiles": 3,
+      "ant_did_shape": "48 chars, non-hex, not hardware-derived, raw not emitted",
+      "same_profile_stable": true,
+      "file_negative_scan": "203 files / 24,804,817 bytes / 0 skipped / 0 matches",
+      "cross_profile_compare": "A 249 files/33,453,605 bytes, B 203 files/24,803,188 bytes, 0 matches both",
+      "install_identity": "Claude / 5.1231.2.0 / x64 (allowed-same)"
+    },
+    "persona_a": "en-US / America/New_York / hc8 / dm16 / 1920x1080 / Intel UHD 630",
+    "persona_b": "en-GB / Europe/London / hc12 / dm8 / 2560x1440 / AMD RX 6600",
+    "network_posture": {
+      "path": "native/evidence/claude-coverage/goal-v2-network-posture-20261125-0040/network-posture.json",
+      "egress_ip": "64.83.13.52",
+      "country": "US",
+      "city": "Los Angeles",
+      "colo": "LAX",
+      "asn_org": "AS979 NetLab Global",
+      "dns": [
+        "Meta 198.18.0.2",
+        "Ethernet 127.0.0.1"
+      ],
+      "proxy_enable": 0,
+      "proxy_residual": "127.0.0.1:7897",
+      "winhttp": "direct",
+      "adapters_visible": [
+        "Meta Tunnel",
+        "VMware VMnet1",
+        "VMware VMnet8"
+      ],
+      "disposition": "N-01..N-04 and N-06 unsupported: user-deferred network hiding; anti_association_pass=false"
+    },
+    "observed_headers": {
+      "anthropic-client-total-memory-gb": 16,
+      "anthropic-client-device-class": "16",
+      "anthropic-client-os-platform": "win32",
+      "anthropic-client-os-version": "10.0.22631",
+      "anthropic-client-version": "5.1231.2",
+      "accept-language": "en-US"
+    },
+    "new_crr_v2_8": [
+      "M-03",
+      "M-04",
+      "M-05",
+      "E-10",
+      "B-09",
+      "R-06",
+      "N-06"
+    ],
+    "new_crr_v2_9": [
+      "R-07"
+    ],
+    "status_corrections_v2_8": {
+      "R-05": "pre-login only -> unverified",
+      "A-06": "count-only; labels present -> unverified",
+      "B-08": "A/B identical but no persona GPU reference baseline -> unverified"
+    },
+    "status_corrections_v2_9": {
+      "B-09": "unverified -> fail (maxTouchPoints=10 on non-touch persona)",
+      "R-07": "new -> fail (Sentry device/gpu/culture host values in A and B)"
+    },
+    "sentry_context_evidence": {
+      "a_scope": {
+        "path": "E:/环境/huanjing/.tmp/goal-v2-g5-persist-profile/home/AppData/Roaming/Claude/sentry/scope_v3.json",
+        "bytes": 9020,
+        "sha256": "0F315F15171EED0A6D716C9CAFAC09CCCD8B770F72D11EEBB42238CF0EB194DA"
+      },
+      "a_queue_event": {
+        "path": "E:/环境/huanjing/.tmp/goal-v2-g5-persist-profile/home/AppData/Roaming/Claude/sentry/queue/ea09866bf36448649b6075eef69818f6",
+        "bytes": 10030,
+        "sha256": "B73E3789F7173C53826A4C44EE37A9B5C13321544C93B6B82A1235B9C22FCDB8"
+      },
+      "b_scope": {
+        "path": "E:/环境/huanjing/.tmp/goal-v2-g5-b-profile/home/AppData/Roaming/Claude/sentry/scope_v3.json",
+        "bytes": 8248,
+        "sha256": "B0D10941642D3D63E66F3FDFDC07131712DFEB5990EE828BFDDCD7DB10F92794"
+      }
+    },
+    "open_leaks": [
+      "S-02/S-04/S-05, A-01..A-03, A-06, B-08, E-10, L-03/L-06, M-03..M-05, R-05/R-06 open",
+      "B-09 and R-07 fail: maxTouchPoints=10; Sentry device/gpu/culture host leak",
+      "N-01..N-04/N-06 unsupported; shared egress is an association link"
+    ],
+    "inventory_closure": {
+      "unresolved_observations": 77,
+      "unresolved_dynamic_edges": 373,
+      "retained_not_crr": 1919,
+      "pe_resource_inventory_closed": false
+    },
+    "free_gib": {
+      "C": 23.95,
+      "D": 38.83,
+      "E": 13.1
+    }
+  }
+}

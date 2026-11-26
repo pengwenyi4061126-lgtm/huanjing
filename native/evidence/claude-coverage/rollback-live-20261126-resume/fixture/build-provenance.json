@@ -1,0 +1,661 @@
+{
+  "schema": 1,
+  "generatedUtc": "2026-11-17T22:00:07.7965512Z",
+  "configuration": "Release",
+  "sources": [
+    {
+      "path": "AtaProbe/main.cpp",
+      "sha256": "CAA0B9826EBCB52695E96A18ACB9165836E4DB50FF01CAB5887B3FA60E6574DD"
+    },
+    {
+      "path": "AudioBaselineProbe/main.cpp",
+      "sha256": "D99741233ACBDB3FEC9069EDF2EA876CA66584D20E131D366E59879BD870FA01"
+    },
+    {
+      "path": "AudioGuids.h",
+      "sha256": "43F22FCDA1A2C385912F66DF122F3D69B13C01E7449344472FE230485651A154"
+    },
+    {
+      "path": "AudioProbe/main.cpp",
+      "sha256": "63305602D8769EFE183C9339418BD25ACA91E56061D98CE500DF5FF0E0B350BA"
+    },
+    {
+      "path": "build.ps1",
+      "sha256": "85504E7633769400D123D8FEC76635743249FF5C8FB798C49F6992BE4BA205B3"
+    },
+    {
+      "path": "CacheProbe/main.cpp",
+      "sha256": "16CA3E6D793F6E050EA3DF4054C581AFFFA031B0533645DC0BEEB6642BA4316E"
+    },
+    {
+      "path": "CpuDeepProbe/main.cpp",
+      "sha256": "62EF2D47F7FE6528635EB5A37298758E858AE1C4D56A872848E72F720F198641"
+    },
+    {
+      "path": "CpuMemoryBaselineProbe/main.cpp",
+      "sha256": "7CC1F44265BC993AFDEA949BFF8E6919CE928774C748349509CAEC550A6C7E8B"
+    },
+    {
+      "path": "CpuProbe/main.cpp",
+      "sha256": "169DF6536F5154A00E78CE0C0F1EBCFC1E23F25796D03D1923F70CA4E09997BB"
+    },
+    {
+      "path": "DiskProbe/main.cpp",
+      "sha256": "981F0006CFF7BBA90461AB4F32BA923FAC0B7082E8990F3C41DBA01384C2C2EE"
+    },
+    {
+      "path": "DisplayBaselineProbe/main.cpp",
+      "sha256": "490926D300A2D34D50865A2607C72225BACDC676F9DD4BD26A4A2EC8887C2396"
+    },
+    {
+      "path": "DisplayProbe/main.cpp",
+      "sha256": "366F7F1FD4B3DD31BB82E78667AB03A5FB1FDD2E048E38FF369513771FE70D26"
+    },
+    {
+      "path": "FirmwareBaselineProbe/main.cpp",
+      "sha256": "2C353632951EB4DA68DF5E28EE3E5921E7176985E7639DF6936FA5E08E069634"
+    },
+    {
+      "path": "GpuBaselineProbe/main.cpp",
+      "sha256": "981557573889261C722EC1890251568D355461677EF14467A123477447DEB42A"
+    },
+    {
+      "path": "GpuProbe/main.cpp",
+      "sha256": "737172DFE56FBBB25A4E1E28A0F47132382F11D06C07AEAFB42D2964241DA1FC"
+    },
+    {
+      "path": "HardwareProbe/main.cpp",
+      "sha256": "559B5491CEFFFC6DDA182EE78773ECBC28E670FA580097554107F56A9B9D6546"
+    },
+    {
+      "path": "HidProbe/main.cpp",
+      "sha256": "DF3ECA5E01CF40FAA51596F66210E4D115E570C145AC105951AC327A85DE6333"
+    },
+    {
+      "path": "Launcher/main.cpp",
+      "sha256": "C8C865DE8E1C68F9E5B71C4D1A62FF4F4BFDFC7B0F6D823DF8B54363D13A21FC"
+    },
+    {
+      "path": "macfilter/build-macfilter.ps1",
+      "sha256": "E2AF863030F0EB70E2DA77F1C0B89473A082E79AB6DB227BE79CFBB4EA890909"
+    },
+    {
+      "path": "macfilter/CacMacLwf.c",
+      "sha256": "1D4B396030FDCDBD92D91F9A1DCF87BFD0E152FADBE6D955ACB327FA2F2725CF"
+    },
+    {
+      "path": "macfilter/CacMacLwfIoctl.h",
+      "sha256": "CDE0CEEC5A71B0FE4455CC3D8F54586BDE2CAFDB023E2BEDFF6A40898E17DE6A"
+    },
+    {
+      "path": "macfilter/install-macfilter.ps1",
+      "sha256": "4D00CA7D13706AF25CF7229B0F2AFBEC1E9D4026E86036BBFAEA990CC80E3A30"
+    },
+    {
+      "path": "macfilter/run-macfilter-fault.ps1",
+      "sha256": "85475DED3C42A3248F1C14C2C1E872E2AF180D0C230A00F3EF4FA84012A63F38"
+    },
+    {
+      "path": "macfilter/run-macfilter-soak.ps1",
+      "sha256": "7878A2AECABC6A09CC32D225FCFFA8D4C9CBFB67A59D27342B4EEA940112961A"
+    },
+    {
+      "path": "macfilter/tools/cac-macctl.cpp",
+      "sha256": "8EC09871AB33F1E5177996A166A319D7E77E53082DD234C57B043F1DF17F004E"
+    },
+    {
+      "path": "macfilter/verify-macfilter-artifacts.ps1",
+      "sha256": "3F92DC3F612C54DFA69C9FFFA33F4B5A729291061F329735DC03AEFA97D54B80"
+    },
+    {
+      "path": "macfilter/vmtest/guest-boot.ps1",
+      "sha256": "9F72208F03D7004CEDB9AD8F93A49B270B36EB4C3749358263809698BD90FA1D"
+    },
+    {
+      "path": "macfilter/vmtest/guest-bootstrap.ps1",
+      "sha256": "0CCFFF7AE2F0E284B1AD8F806C7226A6D3207695E8CAFEB2ED4B592FFF4AC7C7"
+    },
+    {
+      "path": "macfilter/vmtest/guest-full.ps1",
+      "sha256": "A74B1D2D12021E92C9657D84F772495CF7F9203FDE8876E6ED3225271886BCC8"
+    },
+    {
+      "path": "macfilter/vmtest/guest-lowpriv.ps1",
+      "sha256": "D9DE6E4027192C6CB460A52496A23BDDA877E9BEA8D0F3E2108CC22FEE43EAF3"
+    },
+    {
+      "path": "macfilter/vmtest/guest-sleep.ps1",
+      "sha256": "16388EFB562FAAAB273F9A24FE206A83821381DA205754DAE6FC60887AD0FB7F"
+    },
+    {
+      "path": "macfilter/vmtest/guest-soak.ps1",
+      "sha256": "0E0FAB95962DBB65058E4251A865967D0B64AAC1E0E616D8A5A6E17CED1FDDEC"
+    },
+    {
+      "path": "macfilter/vmtest/guest-stage2.ps1",
+      "sha256": "663656FEFA22FADBDED101E84949D28C482F9F6CB514164F41EB5B26CD6B218C"
+    },
+    {
+      "path": "macfilter/vmtest/guest-traffic.ps1",
+      "sha256": "6FE27E4531CBCDEE7DAAF6294E684BFAECC0CF0ECEA4C4ABDAB352C21E03EBF4"
+    },
+    {
+      "path": "macfilter/vmtest/prepare-vm.ps1",
+      "sha256": "E7566D0029DFA3DFFF810926CEE09299996CBE88F86EB9BA0AF41080B0D9C6E6"
+    },
+    {
+      "path": "macfilter/vmtest/probe-api.ps1",
+      "sha256": "BDD9D25E66868A32F435C8E515D3A40F70273D11049E76A522A199561469A87F"
+    },
+    {
+      "path": "macfilter/vmtest/run-probe.ps1",
+      "sha256": "96EE7F8A293C157502FF898DF28E4E308F27105A7E58E1D2634E78A5201CDF60"
+    },
+    {
+      "path": "macfilter/vmtest/set-vm-mac.ps1",
+      "sha256": "5778CA97F73F995CA9AF8C8414A87531FE073AA955384A9FAAD1AEA1C5D14FAB"
+    },
+    {
+      "path": "macfilter/vmtest/vm-install.ps1",
+      "sha256": "CB67B7799D1E150A5475FB5840D6771525A7C5C369A5D1B575F91986C3BAC673"
+    },
+    {
+      "path": "macfilter/vmtest/vm-verify.ps1",
+      "sha256": "01363BB6915A1D6A2F7EDBF695FEC1CC8878A7E69B78AFB71104D114E9E3EF9F"
+    },
+    {
+      "path": "MonitorWmiProbe/main.cpp",
+      "sha256": "EE2DEB3BA9FA58BD35EAFDE4639F61A7BA31825D86730685632FC29EF14875DE"
+    },
+    {
+      "path": "NativeBridge/ApiHooks.cpp",
+      "sha256": "CF8D05B82D94915CAE12C4500E9AEDE37F9E10934ACC1B183AEF7841577D36E9"
+    },
+    {
+      "path": "NativeBridge/ApiHooks.h",
+      "sha256": "D3984870B025762C4E6F19FA8534B4FF46FC1FBB38EA982C75C3C2F76B634EE7"
+    },
+    {
+      "path": "NativeBridge/Audit.cpp",
+      "sha256": "71ECB618D75924B1BF1BE3A66F27A2AC25B7E6301C662E4566F8DDA56FA43D0D"
+    },
+    {
+      "path": "NativeBridge/Audit.h",
+      "sha256": "1BC259DABE022C59DD62532E475DF617E4355375B84F13CE37B1711ACD8F8286"
+    },
+    {
+      "path": "NativeBridge/ChildInject.cpp",
+      "sha256": "03DFFD6B6DCEBD2C22A51D5F87D49FE60A52383CE5491C302CCF6DAE2E599557"
+    },
+    {
+      "path": "NativeBridge/ChildInject.h",
+      "sha256": "504DA3A4E376421671C4B449F26A2DEB4CA4EECF4179F004B8A2611597C7EA8B"
+    },
+    {
+      "path": "NativeBridge/Firmware.cpp",
+      "sha256": "EA6D0E8AA34D1ABB5C0DFF3A533AB66D90E81D3E8DE3D5EF30987EFD535CCD9A"
+    },
+    {
+      "path": "NativeBridge/Firmware.h",
+      "sha256": "E30467F881EA42304FCE1B9C4C6ACFDD9DE224D4DABBCA8555E4AC4940C7D92E"
+    },
+    {
+      "path": "NativeBridge/GoCpuDetours.asm",
+      "sha256": "FA8F390B82DAF2AC1B81FE39E4DC0D876544B634C0860D3B0B606AFCFCE0688F"
+    },
+    {
+      "path": "NativeBridge/GpuHooks.cpp",
+      "sha256": "03931CBAAC9448A566871D73F070ACFFF3C8C566F3E4A9E2A699049D5366BCE1"
+    },
+    {
+      "path": "NativeBridge/GpuHooks.h",
+      "sha256": "CEE615B113C3429C72CAC8E55614728DD534BE97EAADE8EE4643A8E9FCF51638"
+    },
+    {
+      "path": "NativeBridge/HookEngine.cpp",
+      "sha256": "B044FB83E88974269A3C632E723DFBAA8ABC19C05E90EC115B1D7584A421A268"
+    },
+    {
+      "path": "NativeBridge/HookEngine.h",
+      "sha256": "1E2E3857EFF646FB553636E24E6E354F9F225B4BBDCB9B2DED4D1DC5BDA7F05D"
+    },
+    {
+      "path": "NativeBridge/Identity.cpp",
+      "sha256": "9A1BC20F45F8C76800321BC5D06B1C72CAA7939BFADA1D3B15A85ADDEF26AAFB"
+    },
+    {
+      "path": "NativeBridge/Identity.h",
+      "sha256": "A504E3E157033A748A6016D4304543761039D2021976147CCE55D0CE49E945AC"
+    },
+    {
+      "path": "NativeBridge/KernelPolicy.cpp",
+      "sha256": "AEDFC0B3EFACEBF5609714587EE90D77AA45147F0BC11C0DA537E3E72F6E719A"
+    },
+    {
+      "path": "NativeBridge/KernelPolicy.h",
+      "sha256": "12C76E92AD554B516AE03539BCEF6245A5A98B10CC2DEC17B4C566CE2CE32399"
+    },
+    {
+      "path": "NativeBridge/NativeBridge.cpp",
+      "sha256": "783C43125DF722208A0FF44F7A039650802F750ADD3B54AD59B8231289E1C67A"
+    },
+    {
+      "path": "NativeBridge/NetworkHooks.cpp",
+      "sha256": "CB432F75E861A436A7357DBCAB2556A4305E9E88C2BAD3C0B31F0744E8A0604F"
+    },
+    {
+      "path": "NativeBridge/NetworkHooks.h",
+      "sha256": "AF1862FA0873C48C9B62CF00CF1E6002257DAB02CDAF60E8453539BAC3836899"
+    },
+    {
+      "path": "NativeBridge/StorageIdentity.h",
+      "sha256": "751A90578978C965AB4302206BFAF246EFB5E3939CE559DA94CD11F7AE37B329"
+    },
+    {
+      "path": "NativeBridge/WfpPolicy.cpp",
+      "sha256": "43EDCBD0F1FC2EF501BD75426ABA7D7E89231E1DDF128E900A10F32826E0C6D5"
+    },
+    {
+      "path": "NativeBridge/WfpPolicy.h",
+      "sha256": "8DDB350B44D265EF7FCA4C7431B5B5C50FC64E270BAF254C125D22B53A3B843E"
+    },
+    {
+      "path": "NativeBridge/WmiHooks.cpp",
+      "sha256": "B45CD56CA8123599F912C989674CAFA8C4BF62D8CB48D0376025A791949E7D55"
+    },
+    {
+      "path": "NativeBridge/WmiHooks.h",
+      "sha256": "C3587C12FB5550493C45A8616EE758BC65D1CDFA73697DD6E022AB6E78A09172"
+    },
+    {
+      "path": "NvmlProbe/main.cpp",
+      "sha256": "8556E704A2C5EE769406A9BAD6D0D63C7BC0BD3BB18D8E276575D06CADD1FBF3"
+    },
+    {
+      "path": "NvmlProbe/nvml.def",
+      "sha256": "C289D197C7007851F93FEC6FBFBDE7FC3E8D589BD5E736C7E830DC395677567E"
+    },
+    {
+      "path": "OpenCLProbe/main.cpp",
+      "sha256": "3DB223A3BD02C434E495BA506B55216DCD4DD0ED56B1CB0403C43592EBB89B38"
+    },
+    {
+      "path": "OpenCLProbe/opencl.def",
+      "sha256": "60DEC43724BF92A9159F5E9A3F6F67484B699400B31F6F41D3DA1C58146B3B0D"
+    },
+    {
+      "path": "PnpGraphBaselineProbe/main.cpp",
+      "sha256": "0F9BC0248C3593146C536B9BDBD548AB159E902E99A1D3E9960FE7D569063756"
+    },
+    {
+      "path": "PnpProbe/main.cpp",
+      "sha256": "33E7F24ADBCD979E51AF04B554538018EA633391CEFEF3E4D52E4CE97E89667B"
+    },
+    {
+      "path": "PnpWmiProbe/main.cpp",
+      "sha256": "43458FBEDA438DD8A0DFCA68DE0490A26291CF1585EC6629DA79ADDDDF2138CC"
+    },
+    {
+      "path": "scan-native-target.ps1",
+      "sha256": "982E01A5CF5662085BC3E67F5632D1AFF8594D5BF0DB369B3B681E37C9218F50"
+    },
+    {
+      "path": "ServiceInjector/main.cpp",
+      "sha256": "E9F3CCB8404A9E92DB785A4DE9552469983EB392E9C0707F601C641FEC7256F2"
+    },
+    {
+      "path": "SmartProbe/main.cpp",
+      "sha256": "E5050D36441214FAB85CCACF0B8D25AA53A9DE911E4262326C389BD8BAFA7194"
+    },
+    {
+      "path": "StorageBaselineProbe/main.cpp",
+      "sha256": "37721EA41F7391D5CB7248F19B6FC2743CEE0AD63553BA3A6E01226DE701A03F"
+    },
+    {
+      "path": "tests/artifact-provenance-test.ps1",
+      "sha256": "AB0B4F160AFBE945D717F7ACC445CFE2738791B5CD7BBA59B3BC3FB3E5173592"
+    },
+    {
+      "path": "tests/audio-baseline-collector-test.ps1",
+      "sha256": "C81192890E249DA30A098C9BA16FE207A87EDAF8D62E4D23D61BD31378D90201"
+    },
+    {
+      "path": "tests/audio-baseline-probe-contract-test.ps1",
+      "sha256": "9DAE69C6470DAF7615C689C64FE81B5C800E18DF396DE10F051FA87043C0CE66"
+    },
+    {
+      "path": "tests/child_probe.cpp",
+      "sha256": "3C291D47B484F254A54701F68DE15A62BDE01502E02DDDB7203F1C21123E36C8"
+    },
+    {
+      "path": "tests/cim-wmi-parity-test.ps1",
+      "sha256": "3C9EC0530561C2CFECEEF27F769E81B216F64758F7F087D0928DFD7F62682216"
+    },
+    {
+      "path": "tests/claude-coverage-runtime-lock-test.ps1",
+      "sha256": "17C565BEF358AF79FEA04AEFD85DF51F666B969552891419E720E183C35BCA26"
+    },
+    {
+      "path": "tests/coverage-matrix-test.ps1",
+      "sha256": "7D65EDFE832223C893D272DF8D11AF74975906E16CF8FF85D55643492339F09E"
+    },
+    {
+      "path": "tests/cpu_probe.cpp",
+      "sha256": "33C3C434C754E69D4C48FCF9E428DB439409028730513B9C927BF44D5C0BBBDB"
+    },
+    {
+      "path": "tests/cpu-memory-baseline-collector-test.ps1",
+      "sha256": "3FDCDDD97A439CD363550902FCB4E9420B98E12FCB1478F1C11C5F03BAFF9019"
+    },
+    {
+      "path": "tests/cpu-memory-baseline-probe-contract-test.ps1",
+      "sha256": "28B704029E7B99D9D519276D80BB7E1F153AB6FAAF0BD7C354300B462C413EAC"
+    },
+    {
+      "path": "tests/delay_probe.cpp",
+      "sha256": "70E15DCA387C2E9D8614379EA9808FEE57DA9A5B64B6B08B0E7CF3429C5D9F34"
+    },
+    {
+      "path": "tests/deployment-sync-test.ps1",
+      "sha256": "6DE94955D2C20CF526E3F5D080B9D0BDE722504DFAA9318AE6D3D50780F2E082"
+    },
+    {
+      "path": "tests/device_probe.cpp",
+      "sha256": "9064662AE2511B35681846C26D6BBC5BCA4889962BABE67424251E38DF9A61E6"
+    },
+    {
+      "path": "tests/device_profile_invariants_test.ps1",
+      "sha256": "C0CBB7D04A94BA9A1A7B359BD5D8397A927D544A5A41F07662AAFED19A369EE8"
+    },
+    {
+      "path": "tests/device-profile-delivery-test.ps1",
+      "sha256": "FADBB54A817DDC8C2D9568876ED5FFEF96FF1BA79EA31DCBE8193471697C1909"
+    },
+    {
+      "path": "tests/device-profile-preflight-test.ps1",
+      "sha256": "33B0B48837D852B2468547438804A8D5B089C8D5637A73592D2DED09B6A88CE0"
+    },
+    {
+      "path": "tests/display-baseline-collector-test.ps1",
+      "sha256": "A1EFC47B3FF4B7B86CAEED7C88DE2CB8941FC2451CE54110BDC549344F2F4270"
+    },
+    {
+      "path": "tests/display-baseline-probe-contract-test.ps1",
+      "sha256": "9AE32921F6256A19C477E038A07F8937FCC653CF7082DF0C9545D90BB41AF3F5"
+    },
+    {
+      "path": "tests/firmware-baseline-collector-test.ps1",
+      "sha256": "1E23E22D49E98A6BEDD26AE3EB6F07A8671F02EA7DC19D69BF8FFE37E8AEAF84"
+    },
+    {
+      "path": "tests/firmware-baseline-probe-contract-test.ps1",
+      "sha256": "FA972AD6DEC173234091F9E14EBE616C0D79ACE8060FD92F31F3AE4E14B825EC"
+    },
+    {
+      "path": "tests/gpu-baseline-collector-test.ps1",
+      "sha256": "E516350106D3DE343A8F4F27DBB2705537D06F3F8FF7FD9AF22621F55ADADA2C"
+    },
+    {
+      "path": "tests/gpu-baseline-probe-contract-test.ps1",
+      "sha256": "52FBEFCF8235C0C517E2A68C762BEC8F2DDD2F10987695F38BA55203B769AD65"
+    },
+    {
+      "path": "tests/hid-descriptor-collector-test.ps1",
+      "sha256": "1579FE9AC38A9EE9DC78720FC6B2DC91E6ED3A07A48D1590F52E7AE9A01AB4F8"
+    },
+    {
+      "path": "tests/hid-probe-contract-test.ps1",
+      "sha256": "D2AAC787C9CB4A5E766F9941B62DFC7D9C9F51E52E6C7FC200DED64A0B6BC9A9"
+    },
+    {
+      "path": "tests/hook_probe.cpp",
+      "sha256": "9C3EEAF7DE721043286F35F87972E3C1B257FF1D0C850AF7C073472FB1511613"
+    },
+    {
+      "path": "tests/mi-observation-boundary-test.ps1",
+      "sha256": "396203E99DC354B825416A775FAF2D108E8A45EEBA5AC4A531F9136917C6FCA6"
+    },
+    {
+      "path": "tests/native-layer-preflight-test.ps1",
+      "sha256": "72340EAA1BE04037FB6FB29BA7ED4B54E62544F27706EB751C574A9EB94A9D02"
+    },
+    {
+      "path": "tests/network_probe.cpp",
+      "sha256": "0A79E7F7914AD7A496497491D215553D0E78B629E1D09082A94E81D555896933"
+    },
+    {
+      "path": "tests/nvme_patch_test.cpp",
+      "sha256": "E05E07DF20A624800D9D16C31010B4777E3FB2F99D137469EDADC48E10C5A605"
+    },
+    {
+      "path": "tests/overlapped_probe.cpp",
+      "sha256": "B1C7908EABBBD24F21AA55D1370FE84F5219870DAAD05C0560741DFCB5BEB9B6"
+    },
+    {
+      "path": "tests/passthrough_patch_test.cpp",
+      "sha256": "072079D2CC6831A1818564358E9FC96971F04FAC0877A8281BA4D99D09E8855E"
+    },
+    {
+      "path": "tests/persona_consistency_test.ps1",
+      "sha256": "0A7BE53679D72326EA38147CDB5B401110365852BB7EA1F2834BBC17CB28B680"
+    },
+    {
+      "path": "tests/pnp-graph-baseline-collector-test.ps1",
+      "sha256": "161563D6216B63285A40BEE94B10E42142BE9D75A95F3F304ACAC3B415029A0E"
+    },
+    {
+      "path": "tests/pnp-graph-baseline-probe-contract-test.ps1",
+      "sha256": "E73A5B3BAEF8FD55B3B44D1BCBE5E4EBD7EF8AE09AB8C24FFC80A2E54149E8AE"
+    },
+    {
+      "path": "tests/pnp-graph-stability-collector-test.ps1",
+      "sha256": "F40513237B58D95740DE334AED10F58BD324D8CC0D62B7023C6D3F865350F702"
+    },
+    {
+      "path": "tests/provenance-deployment-chain-test.ps1",
+      "sha256": "2C497A584FDA4E4528BE9F39E18C390DFC289DEC0C9E493C9972B1405DBBB21F"
+    },
+    {
+      "path": "tests/run-profile-contract.ps1",
+      "sha256": "8C52324C91927077E2D832A0F3467BA154EA5733688992D5EDA6F867422EC925"
+    },
+    {
+      "path": "tests/run-smoke.ps1",
+      "sha256": "34000589DC3ABBC9BA922386274AE02409F535F432EAC358DD847E454983FB02"
+    },
+    {
+      "path": "tests/run-wfp-smoke.ps1",
+      "sha256": "F2062C5915554AB77B63CBEBADA248DC8F68B642FAC6B7E599623A83B4AD45C5"
+    },
+    {
+      "path": "tests/storage-baseline-collector-test.ps1",
+      "sha256": "6FE991A7AD12150B4FCDF61C149EF8E27BF691072FFB985F6D31FC7684083963"
+    },
+    {
+      "path": "tests/storage-baseline-probe-contract-test.ps1",
+      "sha256": "AAD9C95D49B3A2F49B8179570F66FFFAD41425CFE66CCE59427C6C8B450A114B"
+    },
+    {
+      "path": "tests/wmi_probe.cpp",
+      "sha256": "58EDACEC9A99B91A967734E60D227E7406FFAF0A56360718496DEC18926A7BB7"
+    },
+    {
+      "path": "toolchain.ps1",
+      "sha256": "F9FA7713D607E07799B6CD5960C8106DE07B425953076C8D558D3DAA041D5D7F"
+    },
+    {
+      "path": "UsbProbe/main.cpp",
+      "sha256": "4778353B31CA3B94DEEAC3210C09129C19551D4F7FD847226A051CCB3E092303"
+    },
+    {
+      "path": "verify-artifact-provenance.ps1",
+      "sha256": "5E887B2157A1C777540B75964ED75C98339820772B6FCFC83ED33DF741F88623"
+    },
+    {
+      "path": "VulkanProbe/main.cpp",
+      "sha256": "3F79B780F78F926DF992D3CAA1F3E169020A9BFE473BC57212664C331ED1BF86"
+    },
+    {
+      "path": "VulkanProbe/vulkan.def",
+      "sha256": "9C1CA91553E890CB82748736745B727AC8D358570A728A01436CFEEFA2BDDE4B"
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "cac-ata-probe.exe",
+      "bytes": 151552,
+      "sha256": "2D220F0D34DD785FD26AEDD30DD1EC55FD3C4D916F7ADA476979A751BD10427C"
+    },
+    {
+      "name": "cac-audio-baseline-probe.exe",
+      "bytes": 183296,
+      "sha256": "BA13AC8EE5F403DCFA5B88FE89D0601EBED33A9A40168FAB2F50741CF07DD343"
+    },
+    {
+      "name": "cac-audio-probe.exe",
+      "bytes": 149504,
+      "sha256": "6FEC5898CF18673377851D1035D4472EE6E58A9FBD6041853177FCD8F79DAEEE"
+    },
+    {
+      "name": "cac-cache-probe.exe",
+      "bytes": 137728,
+      "sha256": "6977983B24B491878825AAD633BDB4078EDA51E90F515707CCC7361BDB506968"
+    },
+    {
+      "name": "cac-cpu-deep-probe.exe",
+      "bytes": 150528,
+      "sha256": "AD7B18DAD4E2A3C8387149509ED72D33D92F6FA396BC6A4043B3EFD7CAE94BD0"
+    },
+    {
+      "name": "cac-cpu-memory-baseline-probe.exe",
+      "bytes": 155648,
+      "sha256": "797DC74BBCDC826277CE560320BE9AEF5BA63982E947C16484897163F6EA902F"
+    },
+    {
+      "name": "cac-cpu-probe.exe",
+      "bytes": 165376,
+      "sha256": "CBF9A000AF57BD03F6281095EF0AAEA824987775B5B4F5342CBEBC13D14FC6F3"
+    },
+    {
+      "name": "cac-disk-probe.exe",
+      "bytes": 165376,
+      "sha256": "5AAA858F3C0D66089D9BBB34847EBFC6443C1F3736EFF0EDFDD2776A57D6B680"
+    },
+    {
+      "name": "cac-display-baseline-probe.exe",
+      "bytes": 171008,
+      "sha256": "49BA94C4F9F0B3E4273D5667FFD3ADDFB7C9234686F2A84634A2BE3923B629EB"
+    },
+    {
+      "name": "cac-display-probe.exe",
+      "bytes": 160768,
+      "sha256": "78D54D0686CDF5B3E1D2CC9EC78078E93B83A9B356A30797C6ACFB4868C852FB"
+    },
+    {
+      "name": "cac-firmware-baseline-probe.exe",
+      "bytes": 179200,
+      "sha256": "F368418A5E6DE3E001BB9DF1399ED08A43472E47C1798A79F13CE0425E2E0933"
+    },
+    {
+      "name": "cac-gpu-baseline-probe.exe",
+      "bytes": 192000,
+      "sha256": "7603137B51990DB9F39C7FE1B94FE1B482A31F9F02FAA7CF603310883285A006"
+    },
+    {
+      "name": "cac-gpu-probe.exe",
+      "bytes": 139264,
+      "sha256": "1FB6B5277D3002E669FC19A90EAC5A1FC29979DEEE8419C8343B605FFA85D565"
+    },
+    {
+      "name": "cac-hardware-probe.exe",
+      "bytes": 167424,
+      "sha256": "DC957C28767196EB6F79197818C3BAD93CD06D62240D8260DAF1D004101B3F7A"
+    },
+    {
+      "name": "cac-hid-probe.exe",
+      "bytes": 164352,
+      "sha256": "DCE76131D66C544EF69986FFB8548A5F816CDAAE566FB4E72923179E206BC156"
+    },
+    {
+      "name": "cac-monitor-wmi-probe.exe",
+      "bytes": 166912,
+      "sha256": "C7BBB1CA9126801C5AD9A11B3DAF971319C458940C827AB6F9FC6F4D590FFB17"
+    },
+    {
+      "name": "cac-native-launch.exe",
+      "bytes": 223232,
+      "sha256": "6AF154629C61E4D8B060980D00865B6B73823AAB24157D7CEA95A9C3A17036AC"
+    },
+    {
+      "name": "cac-nvme-patch-test.exe",
+      "bytes": 148992,
+      "sha256": "33D99E19FA470296A2ED606995581EB207A1A8342AA4D5319E302804A3149EFA"
+    },
+    {
+      "name": "cac-nvml-probe.exe",
+      "bytes": 137216,
+      "sha256": "E58712570B8399466A7DA438435864F6781075F9C4EBD57746128B2E2EFC502A"
+    },
+    {
+      "name": "cac-opencl-probe.exe",
+      "bytes": 137216,
+      "sha256": "86C135AC418A94A5C55B44F1D0348485733F38E8EBB507599F33BB900C9121DC"
+    },
+    {
+      "name": "cac-passthrough-patch-test.exe",
+      "bytes": 176128,
+      "sha256": "FD45A442B625580E18762B6F7DB5B1B83D5F276DA5F0BF63ADB51D1CC34C766D"
+    },
+    {
+      "name": "cac-pnp-graph-baseline-probe.exe",
+      "bytes": 162304,
+      "sha256": "609E2430534612EB6F5057DBA7C1107ADF0FC38E212997867ABCB08D62BAA72E"
+    },
+    {
+      "name": "cac-pnp-probe.exe",
+      "bytes": 149504,
+      "sha256": "9D4010A9299B1B9FD480059DBB95E8C69AEEEC87AA9841835E4A23245B44589E"
+    },
+    {
+      "name": "cac-pnp-wmi-probe.exe",
+      "bytes": 180736,
+      "sha256": "31F4FF0A9557D799BFC62C44E3CF2F7C6CE8CABE32A80A612DCED6EE4644A353"
+    },
+    {
+      "name": "cac-service-injector.exe",
+      "bytes": 214016,
+      "sha256": "2F695DA4F54A1197CAB4D0E28E6770C27AD19A9EEFD2A252C0B6519280395D85"
+    },
+    {
+      "name": "cac-smart-probe.exe",
+      "bytes": 152576,
+      "sha256": "F9341AD9E0FFA1DE115AB14D912C7C014806F85BB6122C0FFAFA6525BE59615F"
+    },
+    {
+      "name": "cac-storage-baseline-probe.exe",
+      "bytes": 181760,
+      "sha256": "99B868508A7F373C8F43A6683C0BD2464240D0C6518B3E8B9A71909827BA53E7"
+    },
+    {
+      "name": "cac-usb-probe.exe",
+      "bytes": 169472,
+      "sha256": "43DE0C45C131431676379F37EFF8E644899C61AABA073EE68FC897BFA542CAED"
+    },
+    {
+      "name": "cac-vulkan-probe.exe",
+      "bytes": 137728,
+      "sha256": "A7700A7B2920BD5EA613325A52DBAE3B4B7E75B276B0A258BAA2F8F860DD2A69"
+    },
+    {
+      "name": "NativeBridge.dll",
+      "bytes": 509952,
+      "sha256": "D6CFBAD8D3254CDA4BF82F9DB1D30CED898B4398AB22CA6970C53FBFF8232CD6"
+    }
+  ],
+  "manifestSha256": "28263EB18D76D7658AD9587AF3A2CB09CD076FF87D90F741D0AB86FF3E049213",
+  "toolchain": {
+    "msvc": "D:\\huanjing\\BuildTools\\VC\\Tools\\MSVC\\14.44.35207",
+    "sdkRoot": "D:\\huanjing\\WindowsKits",
+    "sdkVersion": "10.0.26100.0"
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "generated_utc": "2026-11-26T04:25:03.166Z",
+  "gate": "G7",
+  "verdict": "pass",
+  "inputs": {
+    "contract_json": "E:\\环境\\huanjing\\CLAUDE-COVERAGE-GOAL-V2.json",
+    "contract_md": "E:\\环境\\huanjing\\CLAUDE-COVERAGE-GOAL-V2.md",
+    "contract_md_sha256": "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+    "contract_json_sha256": "34B2817762A9D653D9C4D84B6A8CC4ECA2AB1DBBF596B5267E4274BED2788B11",
+    "p1b_verification": "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json",
+    "g8_archive": "native/evidence/claude-coverage/g8-coa-20261125-0310/coa-archive.json",
+    "g1b_closure": "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json"
+  },
+  "recomputed": {
+    "crr_total": 61,
+    "group_counts": {
+      "N": 6,
+      "E": 10,
+      "D": 6,
+      "S": 6,
+      "A": 6,
+      "B": 9,
+      "R": 7,
+      "L": 6,
+      "M": 5
+    },
+    "status_counts": {
+      "pass": 41,
+      "fail": 0,
+      "unverified": 9,
+      "unsupported": 9,
+      "not_applicable": 2
+    },
+    "pass_ids": [
+      "A-04",
+      "A-06",
+      "B-01",
+      "B-03",
+      "B-04",
+      "B-05",
+      "B-06",
+      "B-07",
+      "B-09",
+      "D-01",
+      "D-02",
+      "D-03",
+      "D-04",
+      "D-05",
+      "D-06",
+      "E-01",
+      "E-02",
+      "E-03",
+      "E-04",
+      "E-05",
+      "E-06",
+      "E-07",
+      "E-08",
+      "E-09",
+      "E-10",
+      "L-01",
+      "L-02",
+      "L-04",
+      "L-05",
+      "M-01",
+      "M-02",
+      "M-05",
+      "N-05",
+      "R-01",
+      "R-02",
+      "R-04",
+      "R-07",
+      "S-01",
+      "S-03",
+      "S-04",
+      "S-06"
+    ],
+    "unverified_ids": [
+      "A-01",
+      "A-02",
+      "A-03",
+      "L-03",
+      "M-03",
+      "M-04",
+      "R-05",
+      "R-06",
+      "S-02"
+    ],
+    "unsupported_ids": [
+      "B-08",
+      "L-06",
+      "N-01",
+      "N-02",
+      "N-03",
+      "N-04",
+      "N-06",
+      "R-03",
+      "S-05"
+    ],
+    "not_applicable_ids": [
+      "A-05",
+      "B-02"
+    ]
+  },
+  "checks": {
+    "md_hash_binds": true,
+    "crr_count_61": true,
+    "ids_unique": true,
+    "group_sum_61": true,
+    "status_counts_match_expected": true,
+    "status_counts_match_progress": true,
+    "pass_ids_match_confirmed": true,
+    "unverified_blockers_complete": true,
+    "unsupported_boundaries_complete": true,
+    "not_applicable_status_null": true,
+    "no_pass_unsupported_overlap": true,
+    "no_pass_unverified_overlap": true,
+    "no_not_evaluated": true,
+    "completion_flags_honest": true,
+    "g8_gate_pass": true,
+    "g8_archive_10": true,
+    "g1b_counts_consistent": true,
+    "p1b_zero_target_calls": true,
+    "evidence_paths_present": true,
+    "denominator_not_reduced": true
+  },
+  "findings": [
+    {
+      "id": "md_hash_binds",
+      "status": "pass"
+    },
+    {
+      "id": "crr_count_61",
+      "status": "pass"
+    },
+    {
+      "id": "ids_unique",
+      "status": "pass"
+    },
+    {
+      "id": "group_sum_61",
+      "status": "pass"
+    },
+    {
+      "id": "status_counts_match_expected",
+      "status": "pass"
+    },
+    {
+      "id": "status_counts_match_progress",
+      "status": "pass"
+    },
+    {
+      "id": "pass_ids_match_confirmed",
+      "status": "pass"
+    },
+    {
+      "id": "unverified_blockers_complete",
+      "status": "pass"
+    },
+    {
+      "id": "unsupported_boundaries_complete",
+      "status": "pass"
+    },
+    {
+      "id": "not_applicable_status_null",
+      "status": "pass"
+    },
+    {
+      "id": "no_pass_unsupported_overlap",
+      "status": "pass"
+    },
+    {
+      "id": "no_pass_unverified_overlap",
+      "status": "pass"
+    },
+    {
+      "id": "no_not_evaluated",
+      "status": "pass"
+    },
+    {
+      "id": "completion_flags_honest",
+      "status": "pass"
+    },
+    {
+      "id": "g8_gate_pass",
+      "status": "pass"
+    },
+    {
+      "id": "g8_archive_10",
+      "status": "pass"
+    },
+    {
+      "id": "g1b_counts_consistent",
+      "status": "pass"
+    },
+    {
+      "id": "p1b_zero_target_calls",
+      "status": "pass"
+    },
+    {
+      "id": "evidence_paths_present",
+      "status": "pass"
+    },
+    {
+      "id": "denominator_not_reduced",
+      "status": "pass"
+    }
+  ],
+  "completion": {
+    "crr_pass": false,
+    "surface_pass": false,
+    "derived_header_pass": true,
+    "auxiliary_documented": true,
+    "network_measured": true,
+    "functional_pass": false,
+    "device_image_subset_pass": false,
+    "supported_subset_pass": false,
+    "full_coverage_within_declared_scope": false,
+    "anti_association_pass": false,
+    "accepted_unsupported": [],
+    "rule": "device_image_subset_pass requires M/E/B/D/S/A required pass plus R-07 storage/event/body pass; supported_subset requires fail=0 and unverified=0 with unsupported explicitly accepted; full coverage additionally requires required-unsupported=0 and G1b closure; anti-association is outside this revision because N-01..N-06 are user-deferred and R-03 remains opaque",
+    "forbidden_claim": "full device-image coverage with no omissions"
+  },
+  "note": "G7 independent review passed. The denominator, status counts, blockers, unsupported boundaries, and evidence paths were recomputed from raw ledgers. This does not mean the CRR is closed."
+}

@@ -1,0 +1,128 @@
+{
+  "schema": "claude-g0-freeze/v1",
+  "capturedAt": "2026-11-26T11:22:18.8429755+08:00",
+  "workspace": "E:\\环境\\huanjing",
+  "contract": {
+    "path": "E:\\环境\\huanjing\\CLAUDE-COVERAGE-GOAL-V2.md",
+    "revision": "2026-11-25.32",
+    "sha256": "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3"
+  },
+  "target": {
+    "packageRoot": "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc",
+    "name": "Claude",
+    "version": "5.1231.2.0",
+    "architecture": "x64",
+    "publisher": "CN=\"Anthropic, PBC\", O=\"Anthropic, PBC\", L=San Francisco, S=California, C=US, SERIALNUMBER=4860621, OID.2.5.4.15=Private Organization, OID.1.3.6.1.4.1.311.60.2.1.2=Delaware, OID.1.3.6.1.4.1.311.60.2.1.3=US",
+    "rawMsixReadOnly": true
+  },
+  "sources": [
+    {
+      "path": "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe",
+      "bytes": 249955664,
+      "lastWrite": "2026-11-11T11:05:03.2072221+08:00",
+      "attributes": "Archive",
+      "sha256": "FC643260D33233E23CAE41E3AF4582C9E874C37D975DBA5562C64842C5CD374A"
+    },
+    {
+      "path": "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar",
+      "bytes": 84159539,
+      "lastWrite": "2026-11-11T11:05:27.2742773+08:00",
+      "attributes": "Archive",
+      "sha256": "F749C5BD615F907ED6CC9F8B3F9BA2FE068D8501D555399F510B992C8F75468E"
+    },
+    {
+      "path": "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\ion-dist.asar",
+      "bytes": 207574690,
+      "lastWrite": "2026-11-11T11:06:32.7970359+08:00",
+      "attributes": "Archive",
+      "sha256": "D7957C54E70073B6A143E09421D456E268A4FC7CB600BF9BFEC791C99C7CDAF4"
+    },
+    {
+      "path": "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\resources\\app.asar.unpacked\\node_modules\\@ant\\claude-native\\claude-native-binding.node",
+      "bytes": 4253008,
+      "lastWrite": "2026-11-11T11:05:27.3899684+08:00",
+      "attributes": "Archive",
+      "sha256": "E821D18559F9C439E640075CA805BA775A51EBCE8D6E571E22C94FAA07A7F683"
+    }
+  ],
+  "msixProvenance": [
+    {
+      "path": "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\AppxManifest.xml",
+      "bytes": 12304,
+      "lastWrite": "2026-11-11T11:04:58.9587471+08:00",
+      "sha256": "76C83345A1ED5A8F700285D7366D3EB276FFE8189EEB5EDD9058EC8FEC154D47"
+    },
+    {
+      "path": "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\AppxBlockMap.xml",
+      "bytes": 875465,
+      "lastWrite": "2026-11-11T11:04:58.9627459+08:00",
+      "sha256": "9760E0498071E91F54E8DA956D37431538A776D5ED8934FB7EF26098196D3E7D"
+    },
+    {
+      "path": "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\AppxSignature.p7x",
+      "bytes": 10547,
+      "lastWrite": "2026-11-11T11:04:58.9647440+08:00",
+      "sha256": "698D4CB4DF1FB79263419B3907F9977948624D94FA67C7E9485E9902672E17A7"
+    }
+  ],
+  "git": {
+    "head": "b062e1b02341ee0d7a3339c1b6828a1136ddb91a",
+    "branch": "main",
+    "statusCount": 2211,
+    "statusSha256": "3B31BF2D20595AEC58E095168697674CE9359C49EEB55763F5D4D5F57606DB75",
+    "statusSample": [
+      " M AUDIT-20261113.md",
+      " M README.md",
+      " M fingerprint-hook.js",
+      " M native/AtaProbe/main.cpp",
+      " M native/AudioProbe/main.cpp",
+      " M native/CpuDeepProbe/main.cpp",
+      " M native/HidProbe/main.cpp",
+      " M native/Launcher/main.cpp",
+      " M native/MonitorWmiProbe/main.cpp",
+      " M native/NativeBridge/ApiHooks.cpp",
+      " M native/NativeBridge/ApiHooks.h",
+      " M native/NativeBridge/Audit.cpp",
+      " M native/NativeBridge/Audit.h",
+      " M native/NativeBridge/ChildInject.cpp",
+      " M native/NativeBridge/Firmware.cpp",
+      " M native/NativeBridge/Identity.cpp",
+      " M native/NativeBridge/Identity.h",
+      " M native/NativeBridge/KernelPolicy.cpp",
+      " M native/NativeBridge/NativeBridge.cpp",
+      " M native/NativeBridge/NetworkHooks.cpp"
+    ]
+  },
+  "toolchain": {
+    "node": "v24.22.2",
+    "npm": "11.19.1",
+    "git": "git version 2.56.0.windows.3",
+    "powershell": "7.6.9"
+  },
+  "accountBaseline": {
+    "path": "C:\\Users\\Administrator\\AppData\\Roaming\\cac-account-manager\\accounts.json",
+    "sha256": "DFD3005CE44B14827345B6ED99E1C5377F376AD1AD416E302C4233869A563032",
+    "accountCount": 1,
+    "profiles": [
+      "1"
+    ],
+    "statuses": [
+      "running"
+    ]
+  },
+  "profileBaseline": {
+    "root": "C:\\Users\\Administrator\\.cac\\desktop\\1",
+    "identitySha256": "938B454CF9741F7DC07DEDBE2B9B5101E9E12BEDB27BFD9EDF4F446FA4056085",
+    "lockedIdentitySha256": "938B454CF9741F7DC07DEDBE2B9B5101E9E12BEDB27BFD9EDF4F446FA4056085",
+    "identityMatchesLock": true,
+    "lockPath": "C:\\Users\\Administrator\\.cac\\desktop\\1\\device-image.lock.json"
+  },
+  "runtimeBaseline": {
+    "claudeProcessCount": 9
+  },
+  "disk": {
+    "drive": "E:",
+    "freeGiB": 21.62,
+    "evidenceRoot": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage"
+  }
+}

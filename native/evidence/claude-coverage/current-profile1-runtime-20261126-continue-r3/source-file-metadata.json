@@ -1,0 +1,32 @@
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-26T04:35:21.4635304Z",
+    "identity":  {
+                     "exists":  true,
+                     "path":  "C:\\Users\\Administrator\\.cac\\desktop\\1\\identity.json",
+                     "bytes":  726,
+                     "sha256":  "938B454CF9741F7DC07DEDBE2B9B5101E9E12BEDB27BFD9EDF4F446FA4056085",
+                     "lastWriteUtc":  "2026-11-15T15:17:27.7496239Z"
+                 },
+    "lock":  {
+                 "exists":  true,
+                 "path":  "C:\\Users\\Administrator\\.cac\\desktop\\1\\device-image.lock.json",
+                 "bytes":  1221,
+                 "sha256":  "99C2B5C3FC39977833D35A9A703308EE6F366E94D8E883EF7585A7D9D4A742E7",
+                 "lastWriteUtc":  "2026-11-15T15:17:28.2760250Z"
+             },
+    "health":  {
+                   "exists":  true,
+                   "path":  "C:\\Users\\Administrator\\.cac\\desktop\\1\\logs\\desktop-health.json",
+                   "bytes":  384,
+                   "sha256":  "F402342D987A3ABEFA673F96C1A8A898DDB6EF4343FBF974A685D7F4A9273DEA",
+                   "lastWriteUtc":  "2026-11-26T04:35:21.3253661Z"
+               },
+    "launch":  {
+                   "exists":  true,
+                   "path":  "C:\\Users\\Administrator\\.cac\\desktop\\1\\logs\\desktop-launch.json",
+                   "bytes":  410,
+                   "sha256":  "61F33D3A21C751D32FA420C2474A2930008EF083F893E6F1782368A231B5A4FF",
+                   "lastWriteUtc":  "2026-11-26T03:08:34.7488380Z"
+               }
+}

@@ -1,0 +1,42 @@
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-26T04:21:20.9981474Z",
+    "outputRoot":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-memory-module-existing-20261126-continue-local-r2",
+    "files":  [
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-memory-module-existing-20261126-continue-local-r2\\actual-memory-module-ledger.json",
+                      "bytes":  4650,
+                      "sha256":  "04E9A6B927E8A8DFCEC933FF81548E548FFC08AEBE8FFF2FDF2F956108DBE037"
+                  },
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-memory-module-existing-20261126-continue-local-r2\\helper-results.json",
+                      "bytes":  888,
+                      "sha256":  "BA1B992D9B7A526481234A5D4B60D7C48841D5B15A105B0DAC89F6176A7A8DD5"
+                  },
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-memory-module-existing-20261126-continue-local-r2\\memory-claude-native-binding.node.json",
+                      "bytes":  459,
+                      "sha256":  "65540D923CA017DCF3DCA39D7068ED67E3BDC39205DE6B375E4FDC03A3E81202"
+                  },
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-memory-module-existing-20261126-continue-local-r2\\memory-module-summary.json",
+                      "bytes":  1723,
+                      "sha256":  "E5500CD5B5C5948B26C23CEE6AE9075F0B6AC3894ABFAE4DBFC42667FB511963"
+                  },
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-memory-module-existing-20261126-continue-local-r2\\memory-NativeBridge.dll.json",
+                      "bytes":  457,
+                      "sha256":  "71ABC069A6875B7EA4801673AE1B87BB768181D3B248AFA17202393BB1D4BA94"
+                  },
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-memory-module-existing-20261126-continue-local-r2\\process-snapshot.json",
+                      "bytes":  6819,
+                      "sha256":  "3D6B6EBDF14945705D12D78C852914FC5FAFBA69ABCE23432FC2D077E9CAEE34"
+                  },
+                  {
+                      "path":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g6-memory-module-existing-20261126-continue-local-r2\\root-module-enumeration.json",
+                      "bytes":  929,
+                      "sha256":  "FC414646B59DFA81F098D63B213AC5C6CE22EEB17BB232AE36871394B7F98247"
+                  }
+              ]
+}

@@ -1,0 +1,244 @@
+{
+    "schema":  1,
+    "generatedUtc":  "2026-11-24T19:33:13.7918816Z",
+    "baseRunId":  "g5c-v231-alternating-20261125-0500",
+    "outputRoot":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500",
+    "stepsPlanned":  [
+                         {
+                             "id":  "c1-bare-1",
+                             "cycle":  1,
+                             "kind":  "bare",
+                             "persona":  "host",
+                             "runId":  "g5c-v231-alternating-20261125-0500-c1-bare-1"
+                         },
+                         {
+                             "id":  "c1-injected-a",
+                             "cycle":  1,
+                             "kind":  "injected",
+                             "persona":  "a",
+                             "runId":  "g5c-v231-alternating-20261125-0500-c1-inj-a"
+                         },
+                         {
+                             "id":  "c1-bare-2",
+                             "cycle":  1,
+                             "kind":  "bare",
+                             "persona":  "host",
+                             "runId":  "g5c-v231-alternating-20261125-0500-c1-bare-2"
+                         },
+                         {
+                             "id":  "c1-injected-b",
+                             "cycle":  1,
+                             "kind":  "injected",
+                             "persona":  "b",
+                             "runId":  "g5c-v231-alternating-20261125-0500-c1-inj-b"
+                         },
+                         {
+                             "id":  "c2-bare-1",
+                             "cycle":  2,
+                             "kind":  "bare",
+                             "persona":  "host",
+                             "runId":  "g5c-v231-alternating-20261125-0500-c2-bare-1"
+                         },
+                         {
+                             "id":  "c2-injected-b",
+                             "cycle":  2,
+                             "kind":  "injected",
+                             "persona":  "b",
+                             "runId":  "g5c-v231-alternating-20261125-0500-c2-inj-b"
+                         },
+                         {
+                             "id":  "c2-bare-2",
+                             "cycle":  2,
+                             "kind":  "bare",
+                             "persona":  "host",
+                             "runId":  "g5c-v231-alternating-20261125-0500-c2-bare-2"
+                         },
+                         {
+                             "id":  "c2-injected-a",
+                             "cycle":  2,
+                             "kind":  "injected",
+                             "persona":  "a",
+                             "runId":  "g5c-v231-alternating-20261125-0500-c2-inj-a"
+                         }
+                     ],
+    "steps":  [
+                  {
+                      "id":  "c1-bare-1",
+                      "cycle":  1,
+                      "kind":  "bare",
+                      "persona":  "host",
+                      "runId":  "g5c-v231-alternating-20261125-0500-c1-bare-1",
+                      "script":  "E:\\环境\\huanjing\\scripts\\run-bare-observer-115.ps1",
+                      "startedUtc":  "2026-11-24T19:33:17.2154839Z",
+                      "endedUtc":  "2026-11-24T19:34:46.3099512Z",
+                      "durationSeconds":  89.1,
+                      "exitCode":  0,
+                      "stdout":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-1.stdout.txt",
+                      "stderr":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-1.stderr.txt",
+                      "networkBefore":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkAfter":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkChanged":  false,
+                      "cleanupRemoved":  [
+
+                                         ],
+                      "freeGiB":  21.92
+                  },
+                  {
+                      "id":  "c1-injected-a",
+                      "cycle":  1,
+                      "kind":  "injected",
+                      "persona":  "a",
+                      "runId":  "g5c-v231-alternating-20261125-0500-c1-inj-a",
+                      "script":  "E:\\环境\\huanjing\\scripts\\run-g5a-persona-a2.ps1",
+                      "startedUtc":  "2026-11-24T19:34:46.6614125Z",
+                      "endedUtc":  "2026-11-24T19:36:18.7190189Z",
+                      "durationSeconds":  92.1,
+                      "exitCode":  0,
+                      "stdout":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-a.stdout.txt",
+                      "stderr":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-a.stderr.txt",
+                      "networkBefore":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkAfter":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkChanged":  false,
+                      "cleanupRemoved":  [
+
+                                         ],
+                      "freeGiB":  21.91
+                  },
+                  {
+                      "id":  "c1-bare-2",
+                      "cycle":  1,
+                      "kind":  "bare",
+                      "persona":  "host",
+                      "runId":  "g5c-v231-alternating-20261125-0500-c1-bare-2",
+                      "script":  "E:\\环境\\huanjing\\scripts\\run-bare-observer-115.ps1",
+                      "startedUtc":  "2026-11-24T19:36:18.9646459Z",
+                      "endedUtc":  "2026-11-24T19:37:48.9969612Z",
+                      "durationSeconds":  90,
+                      "exitCode":  0,
+                      "stdout":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-2.stdout.txt",
+                      "stderr":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-bare-2.stderr.txt",
+                      "networkBefore":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkAfter":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkChanged":  false,
+                      "cleanupRemoved":  [
+
+                                         ],
+                      "freeGiB":  21.91
+                  },
+                  {
+                      "id":  "c1-injected-b",
+                      "cycle":  1,
+                      "kind":  "injected",
+                      "persona":  "b",
+                      "runId":  "g5c-v231-alternating-20261125-0500-c1-inj-b",
+                      "script":  "E:\\环境\\huanjing\\scripts\\run-g5b-persona-b2.ps1",
+                      "startedUtc":  "2026-11-24T19:37:49.2437218Z",
+                      "endedUtc":  "2026-11-24T19:39:17.2188839Z",
+                      "durationSeconds":  88,
+                      "exitCode":  0,
+                      "stdout":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-b.stdout.txt",
+                      "stderr":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c1-injected-b.stderr.txt",
+                      "networkBefore":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkAfter":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkChanged":  false,
+                      "cleanupRemoved":  [
+
+                                         ],
+                      "freeGiB":  21.9
+                  },
+                  {
+                      "id":  "c2-bare-1",
+                      "cycle":  2,
+                      "kind":  "bare",
+                      "persona":  "host",
+                      "runId":  "g5c-v231-alternating-20261125-0500-c2-bare-1",
+                      "script":  "E:\\环境\\huanjing\\scripts\\run-bare-observer-115.ps1",
+                      "startedUtc":  "2026-11-24T19:39:17.5005944Z",
+                      "endedUtc":  "2026-11-24T19:40:46.5830673Z",
+                      "durationSeconds":  89.1,
+                      "exitCode":  0,
+                      "stdout":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-1.stdout.txt",
+                      "stderr":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-1.stderr.txt",
+                      "networkBefore":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkAfter":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkChanged":  false,
+                      "cleanupRemoved":  [
+
+                                         ],
+                      "freeGiB":  21.89
+                  },
+                  {
+                      "id":  "c2-injected-b",
+                      "cycle":  2,
+                      "kind":  "injected",
+                      "persona":  "b",
+                      "runId":  "g5c-v231-alternating-20261125-0500-c2-inj-b",
+                      "script":  "E:\\环境\\huanjing\\scripts\\run-g5b-persona-b2.ps1",
+                      "startedUtc":  "2026-11-24T19:40:46.8315369Z",
+                      "endedUtc":  "2026-11-24T19:42:16.7868835Z",
+                      "durationSeconds":  90,
+                      "exitCode":  0,
+                      "stdout":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-b.stdout.txt",
+                      "stderr":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-b.stderr.txt",
+                      "networkBefore":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkAfter":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkChanged":  false,
+                      "cleanupRemoved":  [
+
+                                         ],
+                      "freeGiB":  21.89
+                  },
+                  {
+                      "id":  "c2-bare-2",
+                      "cycle":  2,
+                      "kind":  "bare",
+                      "persona":  "host",
+                      "runId":  "g5c-v231-alternating-20261125-0500-c2-bare-2",
+                      "script":  "E:\\环境\\huanjing\\scripts\\run-bare-observer-115.ps1",
+                      "startedUtc":  "2026-11-24T19:42:17.0340796Z",
+                      "endedUtc":  "2026-11-24T19:43:40.0267883Z",
+                      "durationSeconds":  83,
+                      "exitCode":  0,
+                      "stdout":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-2.stdout.txt",
+                      "stderr":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-bare-2.stderr.txt",
+                      "networkBefore":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkAfter":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkChanged":  false,
+                      "cleanupRemoved":  [
+
+                                         ],
+                      "freeGiB":  21.88
+                  },
+                  {
+                      "id":  "c2-injected-a",
+                      "cycle":  2,
+                      "kind":  "injected",
+                      "persona":  "a",
+                      "runId":  "g5c-v231-alternating-20261125-0500-c2-inj-a",
+                      "script":  "E:\\环境\\huanjing\\scripts\\run-g5a-persona-a2.ps1",
+                      "startedUtc":  "2026-11-24T19:43:40.2755522Z",
+                      "endedUtc":  "2026-11-24T19:45:21.2353923Z",
+                      "durationSeconds":  101,
+                      "exitCode":  0,
+                      "stdout":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-a.stdout.txt",
+                      "stderr":  "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g5c-v231-alternating-20261125-0500\\c2-injected-a.stderr.txt",
+                      "networkBefore":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkAfter":  "CDD91089257B05E29B168B92B7863962A8F1204C7C3A7D9DCB99044515D6729C",
+                      "networkChanged":  false,
+                      "cleanupRemoved":  [
+
+                                         ],
+                      "freeGiB":  21.87
+                  }
+              ],
+    "status":  "pass",
+    "error":  null,
+    "finishedUtc":  "2026-11-24T19:45:21.3457890Z",
+    "freeGiB":  {
+                    "start":  21.92,
+                    "end":  21.87
+                },
+    "claudeResidual":  [
+
+                       ]
+}

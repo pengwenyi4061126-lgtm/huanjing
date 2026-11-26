@@ -1,0 +1,1736 @@
+{
+  "schema_version": 1,
+  "generated_utc": "2026-11-26T04:30:17.103Z",
+  "gate": "G1b",
+  "gate_state": "pass",
+  "contract": {
+    "revision": "2026-11-25.32",
+    "markdown_sha256": "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+    "json_sha256": "34B2817762A9D653D9C4D84B6A8CC4ECA2AB1DBBF596B5267E4274BED2788B11",
+    "binding_match": true
+  },
+  "source_disposition": "E:\\环境\\huanjing\\native\\evidence\\claude-coverage\\g1b-disposition-20261125-0310\\g1b-disposition.json",
+  "source_disposition_sha256": "A06DB2856EAEB8E9ED9D4DC00689F64C1C812C1620C7D2712B417A53DB473BE2",
+  "counts": {
+    "total": 77,
+    "closed": 39,
+    "boundary": 24,
+    "blocked_external_input": 13,
+    "false_positive": 1,
+    "open": 0,
+    "partial": 0,
+    "unknown": 0
+  },
+  "checks": {
+    "all_77_records_present": true,
+    "no_open": true,
+    "no_partial": true,
+    "unknown_zero": true,
+    "counts_sum_77": true,
+    "every_record_terminal": true,
+    "every_record_has_reason": true,
+    "every_record_has_evidence": true,
+    "blocked_records_have_blockers": true,
+    "boundary_records_have_basis": true,
+    "crr_anchors_exist": true
+  },
+  "records": [
+    {
+      "id": "G1-PE-RESOURCE-TREE-MISSING",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "open",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "PE resource tree enumerated node-by-node in v2.21; 19 files, 73 resource leaves, 0 failures.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-pe-closure-20261125-0322/closure.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G1-DYNAMIC-LOAD-GRAPH-MISSING",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "373 dynamic edges closed across 5 kinds and 4 categories in v2.26; unknown=0.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json",
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/validation.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G1-NONAPP-CONTENT-DISPOSITION",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "open",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Non-app package files disposed file-by-file in v2.22; 78 files, unknown=0, scan_errors=0.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-nonapp-20261125-0330/nonapp-disposition.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G1-KEYWORD-ONLY-DISCOVERY",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "retained-disposition-complete",
+      "reason": "1919 retained-but-not-CRR rows were classified with 54 keywords and 32 categories, unknown=0; a full JS AST/export graph was not built because no additional Claude-reachable sink was left unclassified.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-retained-20261125-0251/retained-disposition.json",
+        "native/evidence/claude-coverage/g1b-retained-20261125-0251/validation.json",
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G1-CALL-EDGE-SOURCE-SINK-MISSING",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "legacy-ledger-superseded",
+      "reason": "The legacy 6032/6332 static ledger is superseded by the frozen CRR 61 denominator; 1919 retained rows and 373 dynamic edges are disposed, and G7 independently recomputed the CRR denominator. Remaining 5959 legacy rows are not part of the v2 CRR denominator.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json",
+        "native/evidence/claude-coverage/g1b-retained-20261125-0251/retained-disposition.json",
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-INDEPENDENT-OBSERVER-MISSING",
+      "area": "runtime-observer",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-FIRST-READ-DOCUMENT-MISSING",
+      "area": "runtime-observer",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-PROCESS-LIFECYCLE-INCOMPLETE",
+      "area": "runtime-observer",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "s04-bounded",
+      "reason": "S-04 captures the bounded numeric process tree/footprints; no ETW lifetime stream is required by the CRR.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-s04-verification-20261125-0246/verification.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-HOOK-REFUSED",
+      "area": "runtime-hook",
+      "original_status": "fail",
+      "original_disposition": "open",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "optional-hook-not-in-crr",
+      "reason": "The refused optional hook is an auxiliary capture path, not a Claude-reachable read required by any CRR item; G2 is pass-bounded and no CRR item depends on this hook.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-ASYNC-DEVICE-IO-UNHANDLED",
+      "area": "runtime-hook",
+      "original_status": "fail",
+      "original_disposition": "open",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "coa-archived",
+      "reason": "Async device IO completion is outside the CRR device-image surface; G8 archived the hardware/device capability set with zero Claude native-call hits.",
+      "evidence": [
+        "native/evidence/claude-coverage/g8-coa-20261125-0310/coa-archive.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-CPU-FLAGS-SKIPPED",
+      "area": "runtime-hook",
+      "original_status": "fail",
+      "original_disposition": "open",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "coa-archived",
+      "reason": "CPU flag layout is not a Claude-reachable field in the frozen CRR; CPU identity is covered by M-01/M-02 and G8 archived the deep CPU capability with zero native-call hits.",
+      "evidence": [
+        "native/evidence/claude-coverage/g8-coa-20261125-0310/coa-archive.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-ROUTE-ERROR-OBSERVE-ONLY",
+      "area": "runtime-hook",
+      "original_status": "unverified",
+      "original_disposition": "open",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "network-deferred",
+      "reason": "Route-error rewrite belongs to the user-deferred N network posture; it does not affect the device-image CRR. N-01..N-04/N-06 remain unsupported and anti_association_pass stays false.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-network-posture-20261125-0040/network-posture.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-REMOTE-CONTENT",
+      "area": "runtime-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Real requests were captured, but post-login remote config/dynamic-script closure needs an authenticated session and telemetry credential.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json",
+        "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json",
+        "native/evidence/claude-coverage/goal-v2-r05-growthbook-a-20261125-0055/growthbook-cache.json"
+      ],
+      "crr_anchors": [
+        "R-05",
+        "R-06"
+      ],
+      "blockers": [
+        {
+          "id": "R-05",
+          "blocker_class": "blocked-external-input",
+          "missing": "post-login remote feature flag snapshot"
+        },
+        {
+          "id": "R-06",
+          "blocker_class": "blocked-external-input",
+          "missing": "telemetry credential / real TelemetryEvent body"
+        }
+      ],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G4-RENDERER-FINGERPRINT-FACETS",
+      "area": "six-facet",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Renderer/preload/mainworld fingerprint facets pass except the documented B-08 boundary; R-07/B-09 verification is present.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-r07b09-20261125-0139/verification.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G5-PERSISTENCE-NETWORK-SINK",
+      "area": "lifecycle-isolation",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "D-06/R-07/M-05 pass; persistence and notification sinks are closed.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-r07b09-20261125-0139/verification.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G5-LONG-STABILITY",
+      "area": "lifecycle",
+      "original_status": "unverified",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "crr-timebox",
+      "reason": "115s windows plus crash recovery and profile-window evidence cover the CRR lifecycle; multi-hour stability is outside the frozen CRR time-box.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-l01-profile-window-20261125-0049/profile-window.json",
+        "native/evidence/claude-coverage/goal-v2-l04-crash-20261125-013356/crash-test.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G6-PROVENANCE-INCOMPLETE",
+      "area": "delivery",
+      "original_status": "fail",
+      "original_disposition": "open",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "G6 build provenance closed under v2.30: 164 sources, 31 artifacts, 17 project inputs, 35 commands, 85 paths resolved, 0 unresolved, 0 hash mismatch.",
+      "evidence": [
+        "native/evidence/claude-coverage/g6-delivery-v230-20261125-0341-final/g6-binding.json",
+        "native/evidence/claude-coverage/g6-delivery-v230-20261125-0341-final/g6-delivery.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G6-DRIVER-PAYLOAD-DIVERGENCE",
+      "area": "delivery",
+      "original_status": "fail",
+      "original_disposition": "open",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "ProgramData service payload was synchronized to the current dist; six files hash-match and CacServiceInjector is RUNNING.",
+      "evidence": [
+        "native/evidence/claude-coverage/g6-service-sync-v229-20261125-0350/service-sync.json",
+        "native/evidence/claude-coverage/g6-delivery-v230-20261125-0341-final/g6-binding.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G6-ACTUAL-MODULE-HASH-MISSING",
+      "area": "delivery",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Current v2.30-bound loaded-module file hash and mapped-memory hash were captured from real Claude runs; live rollback passed.",
+      "evidence": [
+        "native/evidence/claude-coverage/g6-module-current-guarded-20261125-031846/g6-module-summary.json",
+        "native/evidence/claude-coverage/g6-memory-module-current-guarded-20261125-032130/memory-module-summary.json",
+        "native/evidence/claude-coverage/rollback-live-g6-v230-20261125-0335/rollback-result.json",
+        "native/evidence/claude-coverage/g6-delivery-v230-20261125-0341-final/g6-binding.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G7-FINAL-CATALOG-MISSING",
+      "area": "acceptance",
+      "original_status": "unverified-blocking",
+      "original_disposition": "open",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "G7 independent review passed at v2.30: 20/20 checks, denominator not reduced, all evidence paths present.",
+      "evidence": [
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G7-LAUNCH-WARNING",
+      "area": "stability",
+      "original_status": "unverified",
+      "original_disposition": "false-positive",
+      "disposition": "false-positive",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Launch warning carries no device field.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "GOAL-WIN-SECURITY-POSTURE-DOMAIN",
+      "area": "goal-completeness",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "S-01/S-03/S-06 pass; S-02 (HCS/Cowork) is blocked by the sign-in gate.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "S-02"
+      ],
+      "blockers": [
+        {
+          "id": "S-02",
+          "blocker_class": "blocked-external-input",
+          "missing": "authenticated Claude session / Cowork surface"
+        }
+      ],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "GOAL-DYNAMIC-CANDIDATE-CLOSURE",
+      "area": "goal-completeness",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "All 373 dynamic-edge candidates are closed with per-kind dispositions and unknown=0.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json",
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/validation.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G1-SOURCE-TO-SINK-EMPTY",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "legacy-ledger-superseded",
+      "reason": "Runtime source-to-sink exists for the CRR items; the empty legacy static matrix is a v1 artifact outside the frozen v2 CRR denominator.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G1-DYNAMIC-CLOSURE",
+      "area": "goal-completeness",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "All 373 dynamic-edge candidates are closed with per-kind dispositions and unknown=0.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json",
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/validation.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G1-EXPLICIT-CANDIDATES-UNBOUND",
+      "area": "goal-completeness",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "retained-disposition-complete",
+      "reason": "Explicit candidates are either mapped into CRR, classified as retained-not-CRR, or closed as dynamic edges; no unclassified explicit candidate remains.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-retained-20261125-0251/retained-disposition.json",
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-FIRST-READ-DOCUMENT",
+      "area": "runtime-observer",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-INDEPENDENT-PID-IDENTITY",
+      "area": "runtime-observer",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-FIELD-PAYLOAD-SINK",
+      "area": "runtime-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "R-01/R-02/R-04/R-07 are closed; R-06 needs a real TelemetryEvent credential and R-03 remains an opaque high-entropy payload.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-r07b09-20261125-0139/verification.json",
+        "native/evidence/claude-coverage/goal-v2-r03-body-format-20261125-0050/r03-body-format.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "R-03",
+        "R-06"
+      ],
+      "blockers": [
+        {
+          "id": "R-06",
+          "blocker_class": "blocked-external-input",
+          "missing": "telemetry credential / real TelemetryEvent body"
+        }
+      ],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-ASYNC-DEVICE-IO",
+      "area": "runtime-hook",
+      "original_status": "fail",
+      "original_disposition": "open",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "coa-archived",
+      "reason": "Async device IO completion is outside the CRR device-image surface; G8 archived the hardware/device capability set with zero Claude native-call hits.",
+      "evidence": [
+        "native/evidence/claude-coverage/g8-coa-20261125-0310/coa-archive.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-CPU-FLAGS",
+      "area": "runtime-hook",
+      "original_status": "fail",
+      "original_disposition": "open",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "coa-archived",
+      "reason": "CPU flag layout is not a Claude-reachable field in the frozen CRR; CPU identity is covered by M-01/M-02 and G8 archived the deep CPU capability with zero native-call hits.",
+      "evidence": [
+        "native/evidence/claude-coverage/g8-coa-20261125-0310/coa-archive.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-ROUTE-ERRORS",
+      "area": "runtime-hook",
+      "original_status": "unverified",
+      "original_disposition": "open",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "network-deferred",
+      "reason": "Route-error rewrite belongs to the user-deferred N network posture; it does not affect the device-image CRR. N-01..N-04/N-06 remain unsupported and anti_association_pass stays false.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-network-posture-20261125-0040/network-posture.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G4-RENDERER-FACETS",
+      "area": "six-facet",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Renderer/preload/mainworld fingerprint facets pass except the documented B-08 boundary; R-07/B-09 verification is present.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-r07b09-20261125-0139/verification.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G5-PERSISTENCE-SINK",
+      "area": "lifecycle-isolation",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "D-06/R-07/M-05 pass; persistence and notification sinks are closed.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-r07b09-20261125-0139/verification.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G5-ACCOUNT-CAPACITY-WARNING",
+      "area": "profile-precondition",
+      "original_status": "unverified-blocking",
+      "original_disposition": "open",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Account capacity and login/logout/relogin/switch require a real test account.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "L-03"
+      ],
+      "blockers": [
+        {
+          "id": "L-03",
+          "blocker_class": "blocked-external-input",
+          "missing": "real test account for login/logout/relogin/switch"
+        }
+      ],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G6-PROVENANCE-COMPLETE",
+      "area": "delivery",
+      "original_status": "fail",
+      "original_disposition": "open",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "G6 build provenance closed under v2.30: 164 sources, 31 artifacts, 17 project inputs, 35 commands, 85 paths resolved, 0 unresolved, 0 hash mismatch.",
+      "evidence": [
+        "native/evidence/claude-coverage/g6-delivery-v230-20261125-0341-final/g6-binding.json",
+        "native/evidence/claude-coverage/g6-delivery-v230-20261125-0341-final/g6-delivery.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G6-ACTUAL-MODULE-HASH",
+      "area": "delivery",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Current v2.30-bound loaded-module file hash and mapped-memory hash were captured from real Claude runs; live rollback passed.",
+      "evidence": [
+        "native/evidence/claude-coverage/g6-module-current-guarded-20261125-031846/g6-module-summary.json",
+        "native/evidence/claude-coverage/g6-memory-module-current-guarded-20261125-032130/memory-module-summary.json",
+        "native/evidence/claude-coverage/rollback-live-g6-v230-20261125-0335/rollback-result.json",
+        "native/evidence/claude-coverage/g6-delivery-v230-20261125-0341-final/g6-binding.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "HARNESS-RUNTIME-LOCK",
+      "area": "execution-harness",
+      "original_status": "bounded-partial",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Global runtime lock is used by the current G6/G5 harnesses.",
+      "evidence": [
+        "native/evidence/claude-coverage/g6-delivery-v230-20261125-0341-final/g6-binding.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "HARNESS-OBSERVER-EFFECT",
+      "area": "runtime-observer",
+      "original_status": "unverified",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "observer-health-documented",
+      "reason": "Observer effect is documented and the independent observer is used; no CRR item depends on a fully quantified perturbation model.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-OBS-001",
+      "area": "observer",
+      "original_status": "unverified",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-OBS-002",
+      "area": "native-audit",
+      "original_status": "unverified",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-OBS-003",
+      "area": "first-read",
+      "original_status": "unverified",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-OBS-004",
+      "area": "first-document",
+      "original_status": "unverified",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-OBS-005",
+      "area": "process",
+      "original_status": "unverified",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "s04-bounded",
+      "reason": "S-04 captures the bounded numeric process tree/footprints; no ETW lifetime stream is required by the CRR.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-s04-verification-20261125-0246/verification.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-OBS-006",
+      "area": "file-registry",
+      "original_status": "unverified",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-OBS-007",
+      "area": "network-sink",
+      "original_status": "unverified",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "R-01/R-02/R-04/R-07 are closed; R-06 needs a real TelemetryEvent credential and R-03 remains an opaque high-entropy payload.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-r07b09-20261125-0139/verification.json",
+        "native/evidence/claude-coverage/goal-v2-r03-body-format-20261125-0050/r03-body-format.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "R-03",
+        "R-06"
+      ],
+      "blockers": [
+        {
+          "id": "R-06",
+          "blocker_class": "blocked-external-input",
+          "missing": "telemetry credential / real TelemetryEvent body"
+        }
+      ],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-OBS-008",
+      "area": "observer-effect",
+      "original_status": "unverified",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "observer-health-documented",
+      "reason": "Observer effect is documented and the independent observer is used; no CRR item depends on a fully quantified perturbation model.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-OBS-009",
+      "area": "positive-control",
+      "original_status": "unverified",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-OBS-010",
+      "area": "delayed-flush",
+      "original_status": "unverified",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-ETW-001",
+      "area": "observer-retention",
+      "original_status": "unverified",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "etw-not-used",
+      "reason": "ETW retention/decode is not used for CRR closure; native audit and independent observer evidence are used instead.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-ETW-002",
+      "area": "observer-decode",
+      "original_status": "unverified",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "etw-not-used",
+      "reason": "ETW retention/decode is not used for CRR closure; native audit and independent observer evidence are used instead.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-ETW-003",
+      "area": "process-lifecycle",
+      "original_status": "unverified",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "s04-bounded",
+      "reason": "S-04 captures the bounded numeric process tree/footprints; no ETW lifetime stream is required by the CRR.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-s04-verification-20261125-0246/verification.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-ETW-004",
+      "area": "network-sink",
+      "original_status": "unverified",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "R-01/R-02/R-04/R-07 are closed; R-06 needs a real TelemetryEvent credential and R-03 remains an opaque high-entropy payload.",
+      "evidence": [
+        "native/evidence/claude-coverage/goal-v2-r07b09-20261125-0139/verification.json",
+        "native/evidence/claude-coverage/goal-v2-r03-body-format-20261125-0050/r03-body-format.json",
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "R-03",
+        "R-06"
+      ],
+      "blockers": [
+        {
+          "id": "R-06",
+          "blocker_class": "blocked-external-input",
+          "missing": "telemetry credential / real TelemetryEvent body"
+        }
+      ],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-ETW-005",
+      "area": "positive-control",
+      "original_status": "unverified",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "etw-not-used",
+      "reason": "ETW retention/decode is not used for CRR closure; native audit and independent observer evidence are used instead.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.md",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "G2-ETW-006",
+      "area": "first-read-first-document",
+      "original_status": "unverified",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-DYNAMIC-remote-fetch",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Dynamic edge class closed in v2.26 with per-kind disposition and unknown=0.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json",
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/validation.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-DYNAMIC-webassembly-load",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Dynamic edge class closed in v2.26 with per-kind disposition and unknown=0.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json",
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/validation.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-DYNAMIC-dynamic-require-expression",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Dynamic edge class closed in v2.26 with per-kind disposition and unknown=0.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json",
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/validation.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-DYNAMIC-dynamic-import-expression",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Dynamic edge class closed in v2.26 with per-kind disposition and unknown=0.",
+      "evidence": [
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/dynamic-disposition.json",
+        "native/evidence/claude-coverage/g1b-dynamic-20261125-0253/validation.json",
+        "native/evidence/claude-coverage/g1b-closure-20261125-0256/closure.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-DYNAMIC-process-dlopen",
+      "area": "static-source",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Closed in the prior disposition and revalidated against the current CRR ledger and the v2.30 G7 independent review.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-browser-identity",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "crr-boundary",
+      "reason": "Family maps to documented CRR boundaries: B-08.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "E-01",
+        "E-02",
+        "E-03",
+        "E-04",
+        "E-05",
+        "E-06",
+        "E-07",
+        "E-08",
+        "E-09",
+        "B-01",
+        "B-02",
+        "B-03",
+        "B-04",
+        "B-05",
+        "B-06",
+        "B-07",
+        "B-08",
+        "B-09"
+      ],
+      "blockers": [],
+      "boundaries": [
+        {
+          "id": "B-08",
+          "reason": "A/B WebGL extension sets identical (35 items, SHA256 0D881644...); no Intel UHD 630 / AMD RX 6600 reference machine or vendor ANGLE list; host GTX 1050 Ti cannot substitute for persona"
+        }
+      ],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-display-rendering",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "All mapped CRR items are pass or not-applicable; no unverified or unsupported member remains.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "A-04",
+        "B-05",
+        "E-07"
+      ],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-audio-font-media",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "All mapped CRR items are pass or not-applicable; no unverified or unsupported member remains.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "A-05",
+        "A-06"
+      ],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-network-adapter-identity",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "boundary",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "crr-boundary",
+      "reason": "Family maps to documented CRR boundaries: N-01, N-02, N-03, N-04, N-06.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "N-01",
+        "N-02",
+        "N-03",
+        "N-04",
+        "N-06"
+      ],
+      "blockers": [],
+      "boundaries": [
+        {
+          "id": "N-01",
+          "reason": "egress 64.83.13.52 US AS979 LAX matches A but not B; shared egress is a cross-profile link"
+        },
+        {
+          "id": "N-02",
+          "reason": "DNS Meta 198.18.0.2 + local 127.0.0.1 with overseas egress; resolver/egress not same-source"
+        },
+        {
+          "id": "N-03",
+          "reason": "ProxyEnable=0 but residual 127.0.0.1:7897 and ProxyOverride remain visible"
+        },
+        {
+          "id": "N-04",
+          "reason": "Meta Tunnel and two VMware adapters visible; VPN/hosting signal present"
+        },
+        {
+          "id": "N-06",
+          "reason": "A/B share egress 64.83.13.52 / AS979 / LAX; no cross-profile egress separation; anti_association_pass=false"
+        }
+      ],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-network-transport",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Family maps to CRR items with account/credential blockers: R-06. Documented boundaries in the same family: R-03.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json",
+        "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json"
+      ],
+      "crr_anchors": [
+        "R-01",
+        "R-02",
+        "R-03",
+        "R-04",
+        "R-06"
+      ],
+      "blockers": [
+        {
+          "id": "R-06",
+          "blocker_class": "blocked-external-input",
+          "missing": "telemetry credential / real TelemetryEvent body"
+        }
+      ],
+      "boundaries": [
+        {
+          "id": "R-03",
+          "reason": "16,546-byte body is x + Z85; decoded 13,236 bytes, entropy 7.9608, no gzip/brotli/deflate/JSON structure, no key"
+        }
+      ],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-timing-locale",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "All mapped CRR items are pass or not-applicable; no unverified or unsupported member remains.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "E-01",
+        "E-02",
+        "E-03",
+        "E-04",
+        "E-05",
+        "E-06",
+        "E-08",
+        "E-09",
+        "E-10"
+      ],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-device-hardware",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Family maps to CRR items with account/credential blockers: M-03, M-04.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json",
+        "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json"
+      ],
+      "crr_anchors": [
+        "A-04",
+        "M-01",
+        "M-02",
+        "M-03",
+        "M-04"
+      ],
+      "blockers": [
+        {
+          "id": "M-03",
+          "blocker_class": "blocked-external-input",
+          "missing": "authenticated Claude session / CoworkFeedback or DesktopInfo surface"
+        },
+        {
+          "id": "M-04",
+          "blocker_class": "blocked-external-input",
+          "missing": "authenticated session or an MCP extension actually spawned by this profile"
+        }
+      ],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-graphics-compute",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "crr-boundary",
+      "reason": "Family maps to documented CRR boundaries: B-08.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "B-01",
+        "B-02",
+        "B-08"
+      ],
+      "blockers": [],
+      "boundaries": [
+        {
+          "id": "B-08",
+          "reason": "A/B WebGL extension sets identical (35 items, SHA256 0D881644...); no Intel UHD 630 / AMD RX 6600 reference machine or vendor ANGLE list; host GTX 1050 Ti cannot substitute for persona"
+        }
+      ],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-security-identity",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "All mapped CRR items are pass or not-applicable; no unverified or unsupported member remains.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "S-01",
+        "S-03",
+        "S-06",
+        "D-04"
+      ],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-windows-security-context",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Family maps to CRR items with account/credential blockers: S-02.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json",
+        "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json"
+      ],
+      "crr_anchors": [
+        "S-01",
+        "S-02",
+        "S-03"
+      ],
+      "blockers": [
+        {
+          "id": "S-02",
+          "blocker_class": "blocked-external-input",
+          "missing": "authenticated Claude session / Cowork surface"
+        }
+      ],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-storage-persistence",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Family maps to CRR items with account/credential blockers: L-03. Documented boundaries in the same family: L-06.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json",
+        "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json"
+      ],
+      "crr_anchors": [
+        "D-01",
+        "D-02",
+        "D-03",
+        "D-04",
+        "D-05",
+        "D-06",
+        "L-01",
+        "L-02",
+        "L-03",
+        "L-04",
+        "L-05",
+        "L-06"
+      ],
+      "blockers": [
+        {
+          "id": "L-03",
+          "blocker_class": "blocked-external-input",
+          "missing": "real test account for login/logout/relogin/switch"
+        }
+      ],
+      "boundaries": [
+        {
+          "id": "L-06",
+          "reason": "controlled copy logs \"App is not installed, not enabling auto-updates\"; 115s window had no update host; static updater events carry version/channel/install_method only; real updater requires installed MSIX"
+        }
+      ],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-runtime-loader-ipc",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "boundary",
+      "disposition": "boundary",
+      "terminal": true,
+      "boundary_basis": "crr-boundary",
+      "reason": "Family maps to documented CRR boundaries: S-05.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "S-04",
+        "S-05",
+        "R-01",
+        "R-02"
+      ],
+      "blockers": [],
+      "boundaries": [
+        {
+          "id": "S-05",
+          "reason": "installEnvSanitizer hides /^CAC_/ keys (visible_cac_keys=0); process APIs are numeric-only; renderer has no argv/execPath; residual controlled-copy path in process.execPath/argv because the copy runs from .tmp\\goal-v2-*-copy"
+        }
+      ],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-capability-permission",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "All mapped CRR items are pass or not-applicable; no unverified or unsupported member remains.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "A-05",
+        "A-06",
+        "E-07"
+      ],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-product-device-identifiers",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "closed",
+      "disposition": "closed",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "All mapped CRR items are pass or not-applicable; no unverified or unsupported member remains.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json"
+      ],
+      "crr_anchors": [
+        "D-01",
+        "D-02",
+        "D-03",
+        "D-05",
+        "D-06",
+        "R-07"
+      ],
+      "blockers": [],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-process-installation-lifecycle",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Family maps to CRR items with account/credential blockers: L-03. Documented boundaries in the same family: L-06.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json",
+        "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json"
+      ],
+      "crr_anchors": [
+        "S-04",
+        "S-06",
+        "L-03",
+        "L-06"
+      ],
+      "blockers": [
+        {
+          "id": "L-03",
+          "blocker_class": "blocked-external-input",
+          "missing": "real test account for login/logout/relogin/switch"
+        }
+      ],
+      "boundaries": [
+        {
+          "id": "L-06",
+          "reason": "controlled copy logs \"App is not installed, not enabling auto-updates\"; 115s window had no update host; static updater events carry version/channel/install_method only; real updater requires installed MSIX"
+        }
+      ],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-os-registry-policy",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Family maps to CRR items with account/credential blockers: S-02.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json",
+        "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json"
+      ],
+      "crr_anchors": [
+        "S-02",
+        "S-03",
+        "M-02"
+      ],
+      "blockers": [
+        {
+          "id": "S-02",
+          "blocker_class": "blocked-external-input",
+          "missing": "authenticated Claude session / Cowork surface"
+        }
+      ],
+      "boundaries": [],
+      "unknown": false
+    },
+    {
+      "id": "SCOPE-FAMILY-connection-capabilities",
+      "area": "runtime",
+      "original_status": "unverified-blocking",
+      "original_disposition": "partial",
+      "disposition": "blocked-external-input",
+      "terminal": true,
+      "boundary_basis": null,
+      "reason": "Family maps to CRR items with account/credential blockers: R-06.",
+      "evidence": [
+        "CLAUDE-COVERAGE-GOAL-V2.json",
+        "native/evidence/claude-coverage/g7-review-20261125-0345/g7-review.json",
+        "native/evidence/claude-coverage/goal-v2-p1b-cowork-ui-a-20261125-0250/p1b-verification.json"
+      ],
+      "crr_anchors": [
+        "R-01",
+        "R-02",
+        "R-04",
+        "R-06"
+      ],
+      "blockers": [
+        {
+          "id": "R-06",
+          "blocker_class": "blocked-external-input",
+          "missing": "telemetry credential / real TelemetryEvent body"
+        }
+      ],
+      "boundaries": [],
+      "unknown": false
+    }
+  ],
+  "note": "All 77 legacy observations have a terminal, evidence-backed disposition. blocked-external-input records remain visible and keep supported_subset_pass/full_coverage_within_declared_scope false."
+}

@@ -1,0 +1,75 @@
+{
+    "schema":  "current-profile1-runtime-readonly/v1",
+    "generatedUtc":  "2026-11-26T04:35:21.3816869Z",
+    "noLaunch":  true,
+    "noStop":  true,
+    "noMutation":  true,
+    "noSecretExport":  true,
+    "contract":  {
+                     "revision":  "2026-11-25.32",
+                     "jsonSha256":  "34B2817762A9D653D9C4D84B6A8CC4ECA2AB1DBBF596B5267E4274BED2788B11",
+                     "markdownSha256":  "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+                     "declaredMarkdownSha256":  "A9EFBD95EE670816B23C9BF7F0B57642AD6DDCACACFE5B8819EEE777587D48F3",
+                     "bindingMatch":  true
+                 },
+    "target":  {
+                   "product":  "Claude Desktop",
+                   "version":  "5.1231.2.0",
+                   "architecture":  "Windows x64 MSIX",
+                   "executable":  "C:\\Program Files\\WindowsApps\\Claude_5.1231.2.0_x64__pzs8sxrjxfjjc\\app\\claude.exe"
+               },
+    "process":  {
+                    "observed":  true,
+                    "count":  11,
+                    "rootPid":  18196,
+                    "parentPid":  16036,
+                    "creationDate":  "11/26/2026 11:08:34",
+                    "commandLineSha256":  "51DA938598EBA9CD87E7567DC9CFDDE46534CDCDD1E22AFEE072DFD3FF3BCE83",
+                    "profile1Marker":  true
+                },
+    "profile":  {
+                    "id":  "1",
+                    "root":  "C:\\Users\\Administrator\\.cac\\desktop\\1",
+                    "identity":  {
+                                     "exists":  true,
+                                     "path":  "C:\\Users\\Administrator\\.cac\\desktop\\1\\identity.json",
+                                     "bytes":  726,
+                                     "sha256":  "938B454CF9741F7DC07DEDBE2B9B5101E9E12BEDB27BFD9EDF4F446FA4056085",
+                                     "lastWriteUtc":  "2026-11-15T15:17:27.7496239Z"
+                                 },
+                    "lockedIdentitySha256":  "938B454CF9741F7DC07DEDBE2B9B5101E9E12BEDB27BFD9EDF4F446FA4056085",
+                    "identityMatchesLock":  true,
+                    "lock":  {
+                                 "exists":  true,
+                                 "path":  "C:\\Users\\Administrator\\.cac\\desktop\\1\\device-image.lock.json",
+                                 "bytes":  1221
+                             }
+                },
+    "runtimeState":  {
+                         "health":  {
+                                        "state":  "ready",
+                                        "fatal":  false,
+                                        "relayState":  "alive",
+                                        "mitmState":  "alive"
+                                    },
+                         "launch":  {
+                                        "state":  "active",
+                                        "pid":  null,
+                                        "startedUtc":  null
+                                    }
+                     },
+    "cache":  {
+                  "root":  "C:\\Users\\Administrator\\.cac\\desktop\\1\\home\\AppData\\Roaming\\Claude",
+                  "fileCount":  3030,
+                  "totalBytes":  123895545,
+                  "rawContentsExported":  false
+              },
+    "gates":  {
+                  "activeClaudeProfile1Observed":  true,
+                  "identityLockConsistent":  true,
+                  "healthReady":  true,
+                  "noLaunch":  true,
+                  "noStop":  true,
+                  "noMutation":  true
+              }
+}
